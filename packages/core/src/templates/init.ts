@@ -46,7 +46,6 @@ import {
   createFsMediaAdapter,
   createFsSettingsAdapter,
   createMarkdownAdapter,
-  createSettingsStore,
   createStore,
   type CmsConfig,
 } from "@typren/core";
@@ -57,10 +56,11 @@ import { fieldSchema } from "@/slices/field-schema";
 
 const contentDir = path.join(process.cwd(), "${contentDirLiteral}");
 
-// ${TYPREN_BOOTSTRAP_MARKER} — adminRoute/locales/defaultLocale/routing live in
-// typren.config.json at the project root (edit via Settings → Advanced, or by
-// hand); read once here so they parameterize the adapter below. \`typren
-// apply-settings\` looks for this marker to confirm the wiring is in place.
+// ${TYPREN_BOOTSTRAP_MARKER}: adminRoute/locales/defaultLocale/routing live in
+// typren.config.json at the project root (edit it by hand, then run \`typren
+// apply-settings\`). They are read once here to parameterize the adapter
+// below. \`typren apply-settings\` also greps for this marker to confirm the
+// wiring is in place.
 const bootstrap = createFsSettingsAdapter({ file: path.join(process.cwd(), "typren.config.json") }).readBootstrap();
 
 /** The one object that wires typren into this project. */
@@ -86,12 +86,6 @@ export const cmsConfig: CmsConfig = {
 };
 
 export const cmsStore = createStore(cmsConfig.adapter, { onPublish: cmsConfig.onPublish });
-
-// Site settings for the admin shell's Settings section: the runtime half
-// (brand/SEO/theme) is a reserved-slug doc in a private \`.typren/\` dir, the
-// bootstrap half is the root JSON above. One instance, shared by the editor
-// route (reads the snapshot) and its server actions (writes).
-export const cmsSettings = createSettingsStore(cmsConfig);
 `;
 
 const editorLayout = `import type { Metadata } from "next";
@@ -108,8 +102,8 @@ export const metadata: Metadata = { robots: { index: false, follow: false } };
  * paints its own full-screen surface over it.
  *
  * "read", not "admin", on purpose: being allowed into the editor shouldn't
- * imply site-reconfiguration rights. The Settings section gates on "admin"
- * itself, in the route below.
+ * imply site-reconfiguration rights, so any future admin-only surface must
+ * run its own authorize({ action: "admin" }) check where it mounts.
  */
 export default async function EditorLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   if (!(await resolveAuth(cmsConfig).authorize({ action: "read" }))) notFound();
@@ -119,20 +113,14 @@ export default async function EditorLayout({ children }: Readonly<{ children: Re
 
 const editorActions = `"use server";
 
-import {
-  makeActions,
-  resolveAuth,
-  type PageContent,
-  type SiteSettingsBootstrap,
-  type SiteSettingsRuntime,
-} from "@typren/core";
-import { cmsConfig, cmsSettings } from "@/cms.config";
+import { makeActions, type PageContent } from "@typren/core";
+import { cmsConfig } from "@/cms.config";
 
 // The host owns the "use server" boundary; the package supplies the logic.
-// Each handler re-checks authorize() inside makeActions — a Server Action is a
-// public POST endpoint, so the gate cannot live in the UI alone. Every write
-// carries the target \`locale\` (the default when omitted), so adding a locale in
-// Settings → Advanced needs no change here.
+// Each handler re-checks authorize() inside makeActions, because a Server
+// Action is a public POST endpoint, so the gate cannot live in the UI alone.
+// Every write carries the target \`locale\` (the default when omitted), so
+// adding a locale to typren.config.json needs no change here.
 const actions = makeActions(cmsConfig);
 
 export async function saveDraft(slug: string, page: PageContent, baseVersion?: string, locale?: string) {
@@ -163,6 +151,8 @@ export async function deleteTranslation(slug: string, locale: string) {
   return actions.deleteTranslation(slug, locale);
 }
 
+// These two back FieldForm's image picker inside the Pages loop; the editor
+// has no separate media-library section yet.
 export async function listMedia() {
   return actions.listMedia();
 }
@@ -170,189 +160,85 @@ export async function listMedia() {
 export async function deleteMedia(id: string) {
   return actions.deleteMedia(id);
 }
-
-// Settings section. \`createSettingsStore\` gates saveDraft/publish on the
-// distinct "admin" action itself, so these two only forward. \`writeBootstrap\`
-// is a plain fs write with no gate baked in — the admin check for it has to
-// live here, on the host's side of the wire.
-export async function saveSettingsDraft(next: SiteSettingsRuntime, baseVersion?: string, locale?: string) {
-  return cmsSettings.saveDraft(next, baseVersion, locale);
-}
-
-export async function publishSettings(baseVersion?: string, locale?: string) {
-  return cmsSettings.publish(baseVersion, locale);
-}
-
-export async function writeBootstrap(patch: Partial<SiteSettingsBootstrap>) {
-  if (!(await resolveAuth(cmsConfig).authorize({ action: "admin" }))) throw new Error("typren: unauthorized");
-  cmsSettings.bootstrap.writeBootstrap(patch);
-}
 `;
 
 const editorShellClient = `"use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { MediaAsset, Messages, PageContent, SaveResult } from "@typren/core";
-import type {
-  MediaSectionProps,
-  PagesSectionProps,
-  ResolvedSection,
-  SectionCtx,
-  SiteSettings,
-  SiteSettingsBootstrap,
-  SiteSettingsRuntime,
-} from "@typren/editor";
+import { useRouter } from "next/navigation";
+import type { FieldFormMedia, PageActions, PageContent, PageInfo, SliceSchema } from "@typren/core";
+import { TyprenEditor } from "@typren/editor";
+
+const BASE_PATH = "/editor";
 
 /**
- * Mounts \`<typren-shell>\`, the admin shell.
+ * Mounts \`TyprenEditor\`, the Pages editing loop: the page picker when no page
+ * is open, or the block/field/preview shell once one is.
  *
- * The whole \`SectionCtx\` is assembled HERE, on the client, not on the server:
- * every element that reads it runs in the browser, and the pieces that touch
- * disk (the content adapter, the slice registry of React components, the
- * settings store) can't cross the RSC boundary. So the route passes plain data
+ * The editor's \`host\` object is assembled HERE, on the client, not on the
+ * server: the editor calls its actions from browser event handlers, and the
+ * pieces that touch disk (the content adapter, the slice registry of React
+ * components) can't cross the RSC boundary. So the route passes plain data
  * plus Server Action references, and this component closes over them.
- *
- * Consequence worth knowing: \`ctx.settings.get()\` / \`readBootstrap()\` are
- * synchronous in the package's interface, so they return the SERVER-RENDERED
- * snapshot — they don't re-read after a write. The route is \`force-dynamic\`, so
- * a reload is what refreshes them.
  */
-export type ShellActions = Readonly<{
-  saveDraft: (slug: string, page: PageContent, baseVersion?: string, locale?: string) => Promise<SaveResult>;
-  discardDraft: (slug: string, locale?: string) => Promise<void>;
-  publish: (slug: string, baseVersion?: string, locale?: string) => Promise<SaveResult>;
-  createPage: (title: string, locale?: string) => Promise<string>;
-  createTranslation: (slug: string, toLocale: string) => Promise<void>;
-  deletePage: (slug: string) => Promise<void>;
-  deleteTranslation: (slug: string, locale: string) => Promise<void>;
-  listMedia: () => Promise<MediaAsset[]>;
-  deleteMedia: (id: string) => Promise<void>;
-  saveSettingsDraft: (next: SiteSettingsRuntime, baseVersion?: string, locale?: string) => Promise<SaveResult>;
-  publishSettings: (baseVersion?: string, locale?: string) => Promise<SaveResult>;
-  writeBootstrap: (patch: Partial<SiteSettingsBootstrap>) => Promise<void>;
-}>;
-
 type Props = Readonly<{
-  sections: ResolvedSection[];
-  activeId: string;
-  basePath: string;
-  snapshot: SiteSettings;
-  locale: string;
-  locales: string[];
-  defaultLocale: string;
-  messages?: Partial<Messages>;
-  /** Set only when a media adapter is configured; also gates the Media section. */
-  uploadPath?: string;
-  pagesProps?: PagesSectionProps;
-  mediaProps?: MediaSectionProps;
-  actions: ShellActions;
+  pages: PageInfo[];
+  /** Slug of the page being edited; omitted on the page picker. */
+  slug?: string;
+  /** That page's draft (falling back to published) content, loaded server-side. */
+  page?: PageContent;
+  /** Optimistic-lock version \`page\` was loaded at. */
+  version?: string | null;
+  /** Set only when editing a non-default locale; kept in the URL on navigation. */
+  locale?: string;
+  sliceNames: string[];
+  defaults: Record<string, Record<string, unknown>>;
+  fieldSchema?: Record<string, SliceSchema>;
+  previewPath: string;
+  /** Set only when a media adapter is configured; wires image fields to the
+   *  media library. When omitted they degrade to plain text inputs. */
+  media?: FieldFormMedia;
+  actions: PageActions;
 }>;
-
-/** The shell's own properties, set imperatively — a custom element takes
- *  non-string props by property assignment, not by attribute. */
-type ShellElement = HTMLElement & {
-  sections: ResolvedSection[];
-  activeId: string;
-  ctx: SectionCtx;
-  pagesProps?: PagesSectionProps;
-  mediaProps?: MediaSectionProps;
-};
 
 export default function EditorShellClient({
-  sections,
-  activeId,
-  basePath,
-  snapshot,
+  pages,
+  slug,
+  page,
+  version,
   locale,
-  locales,
-  defaultLocale,
-  messages,
-  uploadPath,
-  pagesProps,
-  mediaProps,
+  sliceNames,
+  defaults,
+  fieldSchema,
+  previewPath,
+  media,
   actions,
 }: Props) {
-  const ref = useRef<HTMLElement>(null);
-  const [registered, setRegistered] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    // Client-only: importing "@typren/editor" is what defines the typren-*
-    // custom elements. Dynamic so \`customElements.define\` never runs on the
-    // server render.
-    import("@typren/editor").then(() => {
-      if (!cancelled) setRegistered(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const ctx = useMemo<SectionCtx>(() => {
-    const media = uploadPath ? { list: actions.listMedia, delete: actions.deleteMedia, uploadPath } : undefined;
-    return {
-      apiVersion: 1,
-      // registry/adapter omitted on purpose — server-only handles nothing in the
-      // shell reads client-side. Uploads go through \`uploadPath\`, not \`upload()\`.
-      config: { mediaAdapter: media && { list: media.list, delete: media.delete } },
-      actions: {
-        saveDraft: actions.saveDraft,
-        discardDraft: actions.discardDraft,
-        publish: actions.publish,
-        createPage: actions.createPage,
-        createTranslation: actions.createTranslation,
-        deletePage: actions.deletePage,
-        deleteTranslation: actions.deleteTranslation,
-      },
-      collections: {},
-      settings: {
-        get: () => snapshot,
-        saveDraft: actions.saveSettingsDraft,
-        publish: actions.publishSettings,
-        bootstrap: {
-          readBootstrap: () => snapshot.bootstrap,
-          writeBootstrap: actions.writeBootstrap,
-        },
-      },
-      settingsSnapshot: snapshot,
-      media,
-      messages,
-      locale,
-      locales,
-      defaultLocale,
-      // Section switching is a full navigation (the nav's rows are plain
-      // \`<a href>\`s); this is the programmatic path, e.g. after a create.
-      navigate: (sectionId: string) => {
-        window.location.href = \`\${basePath}/\${sectionId}\`;
-      },
-      // Replaced by the shell with one that reaches its own \`<typren-top-bar>\`.
-      setTopBarAction: () => {},
-      // This host wires no collections, so it claims no collection capability.
-      capabilities: new Set<string>(),
-    };
-  }, [actions, basePath, defaultLocale, locale, locales, messages, snapshot, uploadPath]);
-
-  useEffect(() => {
-    const el = ref.current as ShellElement | null;
-    if (!el || !registered) return;
-    el.sections = sections;
-    el.activeId = activeId;
-    el.ctx = ctx;
-    el.pagesProps = pagesProps;
-    el.mediaProps = mediaProps;
-  }, [registered, sections, activeId, ctx, pagesProps, mediaProps]);
-
-  return registered ? (
-    // @ts-expect-error custom element: no JSX intrinsic declared (the package's
-    // HTMLElementTagNameMap entry types property access, not JSX).
-    <typren-shell ref={ref} style={{ display: "flex", position: "fixed", inset: 0 }} />
-  ) : null;
+  const router = useRouter();
+  const search = locale ? \`?locale=\${locale}\` : "";
+  return (
+    <TyprenEditor
+      // Keyed by slug so switching pages remounts the editor: its draft state
+      // initializes from \`page\`, and a client-side transition alone would keep
+      // the previous page's blocks on screen.
+      key={slug ?? "picker"}
+      host={{ actions, sliceNames, defaults, fieldSchema, previewPath, media }}
+      pages={pages}
+      slug={slug}
+      page={page}
+      version={version}
+      locale={locale}
+      onNavigate={(next) => router.push(next ? \`\${BASE_PATH}/\${next}\${search}\` : \`\${BASE_PATH}\${search}\`)}
+      // The editor asks the host to refresh "this page" after a discard,
+      // publish, or conflict reload. A full reload is the simplest way to
+      // guarantee content and version are both re-read from disk.
+      onReload={() => window.location.reload()}
+    />
+  );
 }
 `;
 
 const editorRoutePage = `import { notFound } from "next/navigation";
-import { resolveAuth, resolveSections, type SiteSettings } from "@typren/core";
-import { cmsConfig, cmsSettings, cmsStore } from "@/cms.config";
+import { cmsConfig, cmsStore } from "@/cms.config";
 import EditorShellClient from "../shell-client";
 import {
   createPage,
@@ -363,27 +249,18 @@ import {
   discardDraft,
   listMedia,
   publish,
-  publishSettings,
   saveDraft,
-  saveSettingsDraft,
-  writeBootstrap,
 } from "../actions";
 
-// Drafts and settings change on disk; never cache the admin shell.
+// Drafts change on disk; never cache the editor.
 export const dynamic = "force-dynamic";
 
-const BASE_PATH = "/editor";
 const UPLOAD_PATH = "/editor/media/upload";
 
 /**
- * The single route behind the whole admin shell. Section ids and page slugs
- * share ONE flat namespace under /editor — that's the shell's own model: the
- * section nav links \`/editor/<sectionId>\` and its "New page" button jumps to
- * \`/editor/<slug>\`. So a segment resolves as a section first, then as a page
- * slug, and a section id wins over a page that happens to share its name.
- *
- * \`/editor\` and \`/editor/pages\` land on the page picker; \`/editor/<slug>\` edits
- * that page.
+ * The single route behind the editor: \`/editor\` is the page picker and
+ * \`/editor/<slug>\` edits that page. \`?locale=\` switches the content locale
+ * for reads and writes (single-locale sites never set it).
  */
 export default async function EditorRoute({
   params,
@@ -401,81 +278,28 @@ export default async function EditorRoute({
 
   // One segment only; deeper paths would be a second URL for the same view.
   if (segment && segment.length > 1) notFound();
-  const first = segment?.[0];
+  const slug = segment?.[0];
 
-  const sections = resolveSections(cmsConfig);
-  const section = first ? sections.find((s) => s.id === first) : undefined;
-  const pagesSection = sections.find((s) => s.kind === "pages");
-  const active = section ?? pagesSection;
-  if (!active) notFound();
-
-  // Site reconfiguration reparameterizes what the next boot trusts, so the
-  // Settings section needs the distinct "admin" action — the layout's gate is
-  // "read", which is deliberately weaker (page editing shouldn't imply it).
-  if (active.kind === "settings" && !(await resolveAuth(cmsConfig).authorize({ action: "admin" }))) {
-    notFound();
-  }
+  // A page must exist in the default locale to be edited (translations are of
+  // an existing default page).
+  if (slug && !cmsConfig.adapter.exists(slug, defaultLocale)) notFound();
 
   const pages = cmsStore.listPages(locale);
-
-  let pagesProps;
-  if (active.kind === "pages") {
-    // No slug (bare /editor, or the section's own id) → picker; the per-page
-    // fields stay undefined and the shell renders \`<typren-page-list>\`.
-    const slug = section ? undefined : first;
-    // A page must exist in the default locale to be edited (translations are of
-    // an existing default page).
-    if (slug && !cmsConfig.adapter.exists(slug, defaultLocale)) notFound();
-    const draft = slug ? cmsStore.getDraft(slug, locale) : undefined;
-    const published = slug ? cmsStore.getPublished(slug, locale) : undefined;
-    pagesProps = {
-      slug,
-      pages,
-      initialPage: draft ?? published,
-      initialVersion: slug ? cmsStore.currentVersion(slug, locale) : null,
-      sliceNames: Object.keys(cmsConfig.registry),
-      defaults: cmsConfig.defaults,
-      fieldSchema: cmsConfig.fieldSchema,
-      previewPath: cmsConfig.previewPath ?? \`\${BASE_PATH}/preview\`,
-      translatedLocales: slug
-        ? locales.filter((l) => cmsConfig.adapter.exists(slug, l) || cmsConfig.adapter.hasDraft(slug, l))
-        : undefined,
-      isFallback: !draft && (published?.isFallback ?? false),
-    };
-  }
-
-  const snapshot: SiteSettings = {
-    ...cmsSettings.get(locale),
-    bootstrap: cmsSettings.bootstrap.readBootstrap(),
-  };
+  const page = slug ? (cmsStore.getDraft(slug, locale) ?? cmsStore.getPublished(slug, locale)) : undefined;
 
   return (
     <EditorShellClient
-      sections={sections}
-      activeId={active.id}
-      basePath={BASE_PATH}
-      snapshot={snapshot}
-      locale={locale}
-      locales={locales}
-      defaultLocale={defaultLocale}
-      messages={cmsConfig.i18n?.messages?.[cmsConfig.i18n?.defaultLocale ?? "en"]}
-      uploadPath={cmsConfig.mediaAdapter ? UPLOAD_PATH : undefined}
-      pagesProps={pagesProps}
-      mediaProps={{ pages, uploadPath: UPLOAD_PATH }}
-      actions={{
-        saveDraft,
-        discardDraft,
-        publish,
-        createPage,
-        createTranslation,
-        deletePage,
-        deleteTranslation,
-        listMedia,
-        deleteMedia,
-        saveSettingsDraft,
-        publishSettings,
-        writeBootstrap,
-      }}
+      pages={pages}
+      slug={slug}
+      page={page}
+      version={slug ? cmsStore.currentVersion(slug, locale) : null}
+      locale={locale === defaultLocale ? undefined : locale}
+      sliceNames={Object.keys(cmsConfig.registry)}
+      defaults={cmsConfig.defaults}
+      fieldSchema={cmsConfig.fieldSchema}
+      previewPath={cmsConfig.previewPath}
+      media={cmsConfig.mediaAdapter ? { list: listMedia, delete: deleteMedia, uploadPath: UPLOAD_PATH } : undefined}
+      actions={{ saveDraft, discardDraft, publish, createPage, createTranslation, deletePage, deleteTranslation }}
     />
   );
 }
@@ -678,10 +502,10 @@ export function buildTemplates(contentDirLiteral: string): Record<string, string
     "app/editor/layout.tsx": editorLayout,
     "app/editor/actions.ts": editorActions,
     "app/editor/shell-client.tsx": editorShellClient,
-    // One optional catch-all owns every admin surface: `/editor` (page picker),
-    // `/editor/<sectionId>` and `/editor/<slug>`. It must be the ONLY `page` at
-    // this level — a sibling `app/editor/page.tsx` is a same-specificity route
-    // conflict Next rejects outright.
+    // One optional catch-all owns both editor surfaces: `/editor` (the page
+    // picker) and `/editor/<slug>` (editing that page). It must be the ONLY
+    // `page` at this level, because a sibling `app/editor/page.tsx` is a
+    // same-specificity route conflict Next rejects outright.
     "app/editor/[[...segment]]/page.tsx": editorRoutePage,
     "app/editor/preview/bridge.tsx": editorPreviewBridge,
     "app/editor/preview/[slug]/page.tsx": editorPreviewSlugPage,

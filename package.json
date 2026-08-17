@@ -18,7 +18,7 @@
     "coverage:view": "open coverage/index.html",
     "build": "bun run --filter '*' build",
     "check:scaffold": "bun run --filter typren check:scaffold",
-    "verify": "bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run build",
+    "verify": "bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run build && bun run check:scaffold",
     "prepare": "husky"
   },
   "devDependencies": {

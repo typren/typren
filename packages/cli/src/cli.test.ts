@@ -46,13 +46,12 @@ describe("scaffold", () => {
     expect(fs.readFileSync(path.join(dir, "cms.config.ts"), "utf8")).toContain('"content"');
   });
 
-  // The scaffold ships the SDUI admin shell, which mounts from the dedicated
-  // @typren/editor package, never from @typren/core (that package has no UI).
-  // Two things have to stay true: the admin shell import points at the right
-  // package, and the optional catch-all is the only `page` directly under
-  // app/editor (a sibling page.tsx there is a same-specificity conflict Next
-  // refuses to build).
-  it("scaffolds the admin shell: catch-all route, shell imported from @typren/editor", () => {
+  // The scaffold mounts the editor from the dedicated @typren/editor package,
+  // never from @typren/core (that package has no UI), and it is scoped to the
+  // Pages editing loop that package actually ships. The optional catch-all
+  // must also stay the only `page` directly under app/editor (a sibling
+  // page.tsx there is a same-specificity conflict Next refuses to build).
+  it("scaffolds the editor: catch-all route, TyprenEditor from @typren/editor, Pages loop only", () => {
     fs.mkdirSync(path.join(dir, "src", "app"), { recursive: true });
     const result = scaffold(dir);
     expect(result.ok).toBe(true);
@@ -69,11 +68,17 @@ describe("scaffold", () => {
     expect(sources.some((src) => src.includes('"@typren/core/element"') || src.includes('"@typren/core/editor"'))).toBe(false);
     expect(sources.some((src) => src.includes('"@typren/editor"'))).toBe(true);
 
-    // Settings writes go through the admin-gated host action, not straight to
-    // the adapter.
+    // The shell mounts the React component, not the predecessor's dropped
+    // custom element.
+    const shell = fs.readFileSync(path.join(editorDir, "shell-client.tsx"), "utf8");
+    expect(shell).toContain("TyprenEditor");
+    expect(shell).not.toContain("typren-shell");
+
+    // Dropped surfaces stay dropped: the editor ships no Settings screen, so
+    // emitting settings handlers would be dead wiring against a missing UI.
     const actions = fs.readFileSync(path.join(editorDir, "actions.ts"), "utf8");
-    expect(actions).toContain('authorize({ action: "admin" })');
-    expect(actions).toContain("writeBootstrap");
+    expect(actions).not.toContain("writeBootstrap");
+    expect(actions).not.toContain("saveSettingsDraft");
   });
 
   it("prefers src/app when both src/app and app exist", () => {
