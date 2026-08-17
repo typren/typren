@@ -1,0 +1,82 @@
+/* typren token contract.
+ *
+ * The editor UI (see @typren/editor) is styled after shadcn/ui and reads ONLY
+ * the variables below. Each falls back to the host's own shadcn token, then
+ * to shadcn's default `neutral` value — the same oklch values
+ * `npx shadcn init` writes. So:
+ *   - a shadcn site: the editor inherits its theme automatically, no config
+ *   - a custom design system: override these vars
+ *   - no design tokens at all: stock shadcn neutral
+ *
+ * Adding a variable here is additive: the port resolves each through a fallback
+ * chain, so a host shipping an older/partial copy of this file still works, just
+ * with fewer surfaces themed.
+ *
+ * `.dark` mirrors the mapping; the editor scopes `.dark` (and `color-scheme`) to
+ * its own subtree so it can theme independently of the site around it. */
+:root {
+  --typren-bg: var(--background, oklch(1 0 0));
+  --typren-fg: var(--foreground, oklch(0.145 0 0));
+  --typren-card: var(--card, oklch(1 0 0));
+  --typren-card-fg: var(--card-foreground, oklch(0.145 0 0));
+  --typren-popover: var(--popover, oklch(1 0 0));
+  --typren-popover-fg: var(--popover-foreground, oklch(0.145 0 0));
+  --typren-primary: var(--primary, oklch(0.205 0 0));
+  --typren-primary-fg: var(--primary-foreground, oklch(0.985 0 0));
+  --typren-secondary: var(--secondary, oklch(0.97 0 0));
+  --typren-secondary-fg: var(--secondary-foreground, oklch(0.205 0 0));
+  --typren-muted: var(--muted, oklch(0.97 0 0));
+  --typren-muted-fg: var(--muted-foreground, oklch(0.556 0 0));
+  --typren-accent: var(--accent, oklch(0.97 0 0));
+  --typren-accent-fg: var(--accent-foreground, oklch(0.205 0 0));
+  --typren-destructive: var(--destructive, oklch(0.577 0.245 27.325));
+  --typren-border: var(--border, oklch(0.922 0 0));
+  --typren-input: var(--input, oklch(0.922 0 0));
+  --typren-ring: var(--ring, oklch(0.708 0 0));
+
+  /* The admin frame — shadcn's sidebar tokens. `--typren-app-bg` is the backdrop
+     the content card floats on (SidebarProvider variant="inset"). */
+  --typren-app-bg: var(--sidebar, oklch(0.985 0 0));
+  --typren-sidebar: var(--sidebar, oklch(0.985 0 0));
+  --typren-sidebar-fg: var(--sidebar-foreground, oklch(0.145 0 0));
+  --typren-sidebar-accent: var(--sidebar-accent, oklch(0.97 0 0));
+  --typren-sidebar-accent-fg: var(--sidebar-accent-foreground, oklch(0.205 0 0));
+  --typren-sidebar-border: var(--sidebar-border, oklch(0.922 0 0));
+  --typren-sidebar-ring: var(--sidebar-ring, oklch(0.708 0 0));
+  --typren-sidebar-width: 16rem;
+
+  /* One base radius; the port derives sm/md/lg/xl from it exactly as shadcn's
+     Tailwind theme does. */
+  --typren-radius: var(--radius, 0.625rem);
+}
+
+/* shadcn's own `.dark` values (neutral), with the host's brand kept for
+   primary/ring so a themed site stays recognisable in dark mode. */
+.dark {
+  color-scheme: dark;
+  --typren-bg: oklch(0.145 0 0);
+  --typren-fg: oklch(0.985 0 0);
+  --typren-card: oklch(0.205 0 0);
+  --typren-card-fg: oklch(0.985 0 0);
+  --typren-popover: oklch(0.205 0 0);
+  --typren-popover-fg: oklch(0.985 0 0);
+  --typren-primary: var(--primary, oklch(0.922 0 0));
+  --typren-primary-fg: var(--primary-foreground, oklch(0.205 0 0));
+  --typren-secondary: oklch(0.269 0 0);
+  --typren-secondary-fg: oklch(0.985 0 0);
+  --typren-muted: oklch(0.269 0 0);
+  --typren-muted-fg: oklch(0.708 0 0);
+  --typren-accent: oklch(0.269 0 0);
+  --typren-accent-fg: oklch(0.985 0 0);
+  --typren-destructive: oklch(0.704 0.191 22.216);
+  --typren-border: oklch(1 0 0 / 10%);
+  --typren-input: oklch(1 0 0 / 15%);
+  --typren-ring: var(--ring, oklch(0.556 0 0));
+  --typren-app-bg: oklch(0.205 0 0);
+  --typren-sidebar: oklch(0.205 0 0);
+  --typren-sidebar-fg: oklch(0.985 0 0);
+  --typren-sidebar-accent: oklch(0.269 0 0);
+  --typren-sidebar-accent-fg: oklch(0.985 0 0);
+  --typren-sidebar-border: oklch(1 0 0 / 10%);
+  --typren-sidebar-ring: oklch(0.556 0 0);
+}

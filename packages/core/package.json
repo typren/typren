@@ -1,0 +1,121 @@
+{
+  "name": "@typren/core",
+  "version": "0.1.0",
+  "description": "Framework-agnostic core of Typren: content adapters, draft/publish store, auth-gated actions, i18n, media, SEO/AIO. No UI — see @typren/editor.",
+  "keywords": [
+    "cms",
+    "markdown",
+    "site-builder",
+    "slices",
+    "ai"
+  ],
+  "license": "AGPL-3.0-only",
+  "private": false,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./i18n": {
+      "types": "./dist/i18n.d.ts",
+      "default": "./dist/i18n.js"
+    },
+    "./proxy": {
+      "types": "./dist/proxy.d.ts",
+      "default": "./dist/proxy.js"
+    },
+    "./api": {
+      "types": "./dist/api/index.d.ts",
+      "default": "./dist/api/index.js"
+    },
+    "./api/client": {
+      "types": "./dist/api/client.d.ts",
+      "default": "./dist/api/client.js"
+    },
+    "./seo": {
+      "types": "./dist/seo/index.d.ts",
+      "default": "./dist/seo/index.js"
+    },
+    "./auth/local": {
+      "types": "./dist/auth/local.d.ts",
+      "default": "./dist/auth/local.js"
+    },
+    "./auth/next-auth": {
+      "types": "./dist/auth/next-auth.d.ts",
+      "default": "./dist/auth/next-auth.js"
+    },
+    "./auth/clerk": {
+      "types": "./dist/auth/clerk.d.ts",
+      "default": "./dist/auth/clerk.js"
+    },
+    "./templates/init": {
+      "types": "./dist/templates/init.d.ts",
+      "default": "./dist/templates/init.js"
+    },
+    "./theme.css": "./dist/theme.css",
+    "./ui/*": {
+      "types": "./dist/ui/*.d.ts",
+      "default": "./dist/ui/*.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "next": "^16",
+    "react": "^19",
+    "react-dom": "^19",
+    "typescript": "^5"
+  },
+  "peerDependencies": {
+    "@clerk/nextjs": ">=5",
+    "next": ">=15",
+    "next-auth": ">=5",
+    "react": ">=19",
+    "react-dom": ">=19"
+  },
+  "peerDependenciesMeta": {
+    "next": {
+      "optional": true
+    },
+    "next-auth": {
+      "optional": true
+    },
+    "@clerk/nextjs": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/typren/typren.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/typren/typren/issues"
+  },
+  "homepage": "https://typren.com"
+}

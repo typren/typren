@@ -1,0 +1,62 @@
+# The ONLY GitHub workflow in this repo.
+#
+# Tests, lint, typecheck, coverage and secret scanning all run locally in the
+# pre-push hook — see CONTRIBUTING.md. This one exists because npm provenance
+# cannot be produced from a laptop: the attestation that a tarball was built
+# from a specific commit in a specific public repo requires OIDC from a
+# supported CI. For an AGPL package asking people to trust its supply chain,
+# that attestation is worth the exception.
+#
+# Two more things fall out of publishing here rather than locally:
+#   - No long-lived npm token on anyone's machine (OIDC, short-lived).
+#   - The tarball is built from a clean checkout, not from whatever happens to
+#     be sitting in a local dist/ — which is how stale or debug builds ship.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # OIDC, required for npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # changesets needs history
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # npm (not bun) does the publishing: provenance attestation is an npm
+      # feature and needs a recent npm on a Node runtime.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: bun install --frozen-lockfile
+
+      # Re-run the gate on a clean checkout. The local hook already ran it, but
+      # that was against a working tree — this proves the tag builds green from
+      # nothing, which is the artifact people actually install.
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run test
+      - run: bun run build
+
+      - name: Publish to npm
+        run: bunx changeset publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
