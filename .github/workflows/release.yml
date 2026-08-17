@@ -1,7 +1,7 @@
-# The ONLY GitHub workflow in this repo.
+# One of only two GitHub workflows in this repo. The other is cla.yml.
 #
 # Tests, lint, typecheck, coverage and secret scanning all run locally in the
-# pre-push hook — see CONTRIBUTING.md. This one exists because npm provenance
+# pre-push hook, see CONTRIBUTING.md. This one exists because npm provenance
 # cannot be produced from a laptop: the attestation that a tarball was built
 # from a specific commit in a specific public repo requires OIDC from a
 # supported CI. For an AGPL package asking people to trust its supply chain,
@@ -10,7 +10,7 @@
 # Two more things fall out of publishing here rather than locally:
 #   - No long-lived npm token on anyone's machine (OIDC, short-lived).
 #   - The tarball is built from a clean checkout, not from whatever happens to
-#     be sitting in a local dist/ — which is how stale or debug builds ship.
+#     be sitting in a local dist/, which is how stale or debug builds ship.
 name: Release
 
 on:
@@ -43,7 +43,7 @@ jobs:
       - run: bun install --frozen-lockfile
 
       # Re-run the gate on a clean checkout. The local hook already ran it, but
-      # that was against a working tree — this proves the tag builds green from
+      # that was against a working tree, and this proves the tag builds green from
       # nothing, which is the artifact people actually install.
       - run: bun run typecheck
       - run: bun run lint
