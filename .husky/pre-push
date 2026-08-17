@@ -1,14 +1,12 @@
 # Local CI. Runs before any push reaches GitHub, with no cloud minutes spent.
-# Same set as "bun run verify". `check:scaffold` is wired as a standalone
-# script but not gated here or in verify: the scaffold's admin-shell templates
-# still target the predecessor's dropped editor API, so the check fails until
-# templates/init.ts is rewritten against @typren/editor's actual React exports.
-# Gate it (here and in verify) once that reconciliation lands.
+# Same set as "bun run verify". check:scaffold typechecks what `typren init`
+# emits against the live @typren/core and @typren/editor source APIs; it runs
+# last because it executes the built CLI, so it needs build's output.
 #
 # coverage:new gates CHANGED LINES at 90% (scripts/coverage-new-code.mjs); the
 # whole-repo floor is enforced by vitest's own ratcheting thresholds inside
 # test:coverage. Two different questions, both worth asking.
-bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run build
+bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run build && bun run check:scaffold
 status=$?
 if [ $status -ne 0 ]; then
   exit $status
