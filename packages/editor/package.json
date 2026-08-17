@@ -1,0 +1,50 @@
+{
+  "name": "@typren/editor",
+  "version": "0.1.0",
+  "description": "Typren's editor UI — the pluggable React admin shell for pages, blocks and fields.",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@typren/core": "workspace:*",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "js-yaml": "^4.1.0",
+    "lucide-react": "^0.545.0",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/js-yaml": "^4.0.9",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "react": "^19",
+    "react-dom": "^19",
+    "typescript": "^5"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "react-dom": ">=19"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/typren/typren.git",
+    "directory": "packages/editor"
+  },
+  "bugs": {
+    "url": "https://github.com/typren/typren/issues"
+  },
+  "homepage": "https://typren.com"
+}

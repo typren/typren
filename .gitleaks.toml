@@ -1,0 +1,32 @@
+# Secret scanning config. Inherits gitleaks' full default ruleset. This file
+# exists for allowlisting, not for redefining detection.
+#
+# Enforced in two places, deliberately:
+#   .husky/pre-commit  gitleaks protect --staged   (blocks BEFORE it enters history)
+#   .husky/pre-push    gitleaks git                (catches anything that slipped in)
+#
+# Neither is the last line of defence. GitHub's own push protection is enabled
+# on this repo and blocks server-side, which is what covers contributors who
+# have no gitleaks installed. Local hooks are fast feedback; the server is the gate.
+title = "Typren"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Non-secrets that trip the default rules"
+paths = [
+  # Lockfiles carry integrity hashes that look like high-entropy strings.
+  '''bun\.lock''',
+  '''package-lock\.json''',
+  # Coverage output is generated and gitignored, but scan runs before that.
+  '''^coverage/''',
+]
+
+# Add real false positives here with a REASON, never by loosening a rule:
+#
+# [[rules]]
+#   id = "generic-api-key"
+#   [rules.allowlist]
+#     regexes = ['''EXAMPLE_KEY_IN_DOCS''']
+#     description = "documented placeholder in docs/auth.md, not a live key"

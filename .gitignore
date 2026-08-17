@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.tmp-scaffold-check/
+.DS_Store
+*.log
+
+# Local registry pin only. Some machines have a global npm config pointing at
+# a private registry proxy, so a local .npmrc is needed to reach public npm.
+# It must NOT be committed: it poisons the lockfile with tarball URLs that no
+# other machine can resolve, and leaks a private hostname.
+.npmrc

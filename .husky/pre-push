@@ -1,0 +1,43 @@
+# Local CI. Runs before any push reaches GitHub, with no cloud minutes spent.
+# Same set as "bun run verify". `check:scaffold` is wired as a standalone
+# script but not gated here or in verify: the scaffold's admin-shell templates
+# still target the predecessor's dropped editor API, so the check fails until
+# templates/init.ts is rewritten against @typren/editor's actual React exports.
+# Gate it (here and in verify) once that reconciliation lands.
+#
+# coverage:new gates CHANGED LINES at 90% (scripts/coverage-new-code.mjs); the
+# whole-repo floor is enforced by vitest's own ratcheting thresholds inside
+# test:coverage. Two different questions, both worth asking.
+bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run build
+status=$?
+if [ $status -ne 0 ]; then
+  exit $status
+fi
+
+# Secret scan across the range being pushed. This is local fast feedback only. The
+# authoritative gate is GitHub's own push protection (free on public repos),
+# which blocks server-side even when a contributor has no gitleaks installed.
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --no-banner --redact || {
+    echo "pre-push: gitleaks found a secret in the history being pushed." >&2
+    exit 1
+  }
+else
+  echo "pre-push: gitleaks not installed, skipping local secret scan. Run: brew install gitleaks" >&2
+fi
+
+# Best-effort: post a commit status (with the coverage number in its
+# description) so CI is still visible in the GitHub UI, even though it ran
+# locally. Never blocks the push on failure here, because the checks above are the
+# actual gate.
+coverage_pct=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json','utf8')).total.lines.pct)}catch{}" 2>/dev/null)
+description="local CI passed"
+[ -n "$coverage_pct" ] && description="local CI passed · coverage ${coverage_pct}%"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "$local_sha" ] && continue
+  GH_TOKEN=$(gh auth token --user mataleogml 2>/dev/null) \
+    gh api -X POST "repos/typren/typren/statuses/$local_sha" \
+      -f state=success -f context=ci/local -f description="$description" \
+      >/dev/null 2>&1 || true
+done

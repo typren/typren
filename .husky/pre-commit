@@ -1,0 +1,42 @@
+# ---------------------------------------------------------------------------
+# /docs reminder. WARN ONLY, never blocks the commit.
+#
+# If a commit stages changes under packages/*/src/** but nothing under
+# docs/**, print a nudge to update the docs. There are NO docs in this repo
+# yet, so this check deliberately only warns. It must never wedge a first
+# commit.
+#
+# TO MAKE IT BLOCKING later (once docs/ exists): comment out the `echo` warning
+# below and uncomment the two lines beneath it (stderr message + `exit 1`).
+# ---------------------------------------------------------------------------
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+if printf '%s\n' "$staged" | grep -qE '^packages/[^/]+/src/' && ! printf '%s\n' "$staged" | grep -q '^docs/'; then
+  echo "typren: NOTE - packages/*/src/ changed but docs/ was not updated. Consider updating docs/ (warning only)."
+  # To enforce instead of warn, comment the echo above and uncomment:
+  # echo "typren: packages/*/src/ changed without a docs/ update - commit blocked." >&2
+  # exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Secret scan on STAGED content. Blocks the commit, so a key never enters the
+# history in the first place. Catching it at push time is already too late:
+# rewriting published history is a bad day, and this repo is public.
+#
+# This is fast feedback, not the last line of defence. GitHub's own push
+# protection (free on public repos, enabled via `gh api`) is the authoritative
+# gate, because it works server-side even for a contributor with no gitleaks.
+# ---------------------------------------------------------------------------
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --no-banner --redact || {
+    echo "" >&2
+    echo "typren: gitleaks found a secret in the staged changes. Commit blocked." >&2
+    echo "  Remove it, or add a false positive to .gitleaks.toml with a reason." >&2
+    exit 1
+  }
+else
+  echo "typren: gitleaks not installed, staged secret scan SKIPPED. Run: brew install gitleaks" >&2
+fi
+
+# Lint staged TS/TSX via lint-staged (eslint --fix). A non-zero exit here is
+# the hook's exit code, so lint errors abort the commit.
+npx lint-staged

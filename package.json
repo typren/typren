@@ -1,0 +1,44 @@
+{
+  "name": "typren",
+  "version": "0.1.0",
+  "description": "Typren — a modular, markdown-based, AI-buildable site builder + pluggable editor. Monorepo root (private).",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "bun run --filter '*' typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "coverage:new": "node scripts/coverage-new-code.mjs",
+    "coverage:view": "open coverage/index.html",
+    "build": "bun run --filter '*' build",
+    "check:scaffold": "bun run --filter typren check:scaffold",
+    "verify": "bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run build",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.0",
+    "@commitlint/cli": "^19.6.1",
+    "@commitlint/config-conventional": "^19.6.0",
+    "@eslint/js": "^9.18.0",
+    "@next/eslint-plugin-next": "^16.2.12",
+    "@vitejs/plugin-react": "^4.7.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "husky": "^9.1.7",
+    "jsdom": "^29.1.1",
+    "lint-staged": "^15.4.3",
+    "typescript": "^5",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^4.1.10"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": "eslint --fix"
+  }
+}
