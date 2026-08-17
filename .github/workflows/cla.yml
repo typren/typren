@@ -1,0 +1,67 @@
+# One of only two GitHub workflows in this repo. Tests, lint, typecheck,
+# coverage and secret scanning all run locally in the pre-push hook, see
+# CONTRIBUTING.md.
+#
+# This one has to run server-side because of what it does rather than what it
+# checks. A contributor's CLA status has to be established on their pull request,
+# as a comment and a commit status, at the moment they open it. That cannot
+# happen on a maintainer's laptop, and it cannot wait until someone gets around
+# to looking.
+#
+# Why the signature record lives here instead of a hosted CLA service: signing
+# writes to the `cla-signatures` branch of this repository, so the record is
+# public, auditable and outlives any third party. No external service gets write
+# access to the repo.
+name: CLA
+
+on:
+  # `pull_request_target` runs in the context of the BASE repository, which is
+  # what gives this job permission to comment on a pull request opened from a
+  # fork. That also means it must never check out or execute the pull request's
+  # code: doing so would run a stranger's code with write permissions to this
+  # repo. There is deliberately no `actions/checkout` step below, and none should
+  # be added.
+  pull_request_target:
+    types: [opened, synchronize, closed]
+  # Signing happens by commenting on the pull request, so comments are a trigger.
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write # re-run the blocked pull request check after a signature lands
+  contents: write # append the signature to the cla-signatures branch
+  pull-requests: write # post the signing instructions and the result
+  statuses: write # set the commit status the branch protection reads
+
+jobs:
+  cla:
+    runs-on: ubuntu-latest
+    # Without this guard the job would fire on every unrelated issue comment in
+    # the repository.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      github.event.comment.body == 'recheck' ||
+      github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+    steps:
+      # Pinned to a commit SHA rather than a tag. A tag can be moved to point at
+      # different code, and this job holds write permissions, so the exact
+      # revision is worth naming. This is contributor-assistant/github-action
+      # v2.6.1; bump the comment and the SHA together.
+      - uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-document: https://github.com/typren/typren/blob/main/CLA.md
+          path-to-signatures: signatures/v1/cla.json
+          branch: cla-signatures
+          # The repository owner holds the rights already, so there is nothing
+          # to grant. Bots cannot agree to anything.
+          allowlist: mataleogml,bot*
+          custom-notsigned-prcomment: >-
+            Thanks for the pull request. Typren needs a signed Contributor
+            License Agreement before it can be merged, because the project is
+            dual-licensed and that only works while one party can license the
+            whole codebase. Please read the CLA and, if you agree, reply with the
+            sentence below.
+          custom-pr-sign-comment: I have read the CLA Document and I hereby sign the CLA
+          custom-allsigned-prcomment: CLA signed and recorded. Thank you.

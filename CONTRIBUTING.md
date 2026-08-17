@@ -6,7 +6,8 @@ it's a real constraint, not boilerplate, and it's better to know up front.
 ## Contributor licence agreement
 
 **Typren requires a CLA on every contribution.** You keep copyright in your
-work; you grant us the right to license it under terms other than AGPL.
+work; you grant us the right to license it under terms other than AGPL. The full
+text is in [CLA.md](CLA.md).
 
 We need this because Typren is dual-licensed: AGPL for everyone, plus a
 proprietary grant that lets us run the hosted service. That only works while a
@@ -15,8 +16,14 @@ CLA it can never be relicensed, which would take the hosted service off the
 table permanently.
 
 You may disagree with that model. It is a legitimate thing to dislike, and we would
-rather say so plainly than bury it. The CLA bot will prompt on your first pull
-request.
+rather say so plainly than bury it. If you would rather not sign, open an issue
+to discuss the change instead of sending a pull request, so you don't spend
+effort on code we cannot merge.
+
+Signing is one comment on your first pull request. A check posts the
+instructions, you reply with the sentence it asks for, and your signature is
+recorded on the `cla-signatures` branch of this repository against your username.
+It covers every contribution you make afterwards, so you only do it once.
 
 ## Setup
 
@@ -35,8 +42,10 @@ tests with coverage, the new-code coverage threshold, secret scanning, and the
 build. It then posts a `ci/local` commit status so results still appear in the
 GitHub UI.
 
-The only workflow in `.github/` is release publishing, which needs a CI
-environment for npm provenance attestation.
+There are two workflows in `.github/`, and both are there because they cannot
+run on a laptop. Release publishing needs a CI environment for npm provenance
+attestation, and the CLA check has to answer on your pull request the moment you
+open it.
 
 If a hook blocks you, fix the cause. Don't `--no-verify`.
 
