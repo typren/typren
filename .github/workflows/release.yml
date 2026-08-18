@@ -48,6 +48,11 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # Trusted publishing (OIDC) needs npm >= 11.5.1; the version bundled with
+      # actions/setup-node's Node 22 isn't guaranteed to clear that, so pin it
+      # explicitly rather than finding out at publish time.
+      - run: npm install -g npm@latest
+
       # Re-run the gate on a clean checkout. The local hook already ran it, but
       # that was against a working tree, and this proves the tag builds green from
       # nothing, which is the artifact people actually install. build runs first:
@@ -58,11 +63,13 @@ jobs:
       - run: bun run lint
       - run: bun run test
 
+      # No NODE_AUTH_TOKEN: this repo is configured as a Trusted Publisher on
+      # npm (github.com/typren/typren, this workflow file, the "release"
+      # environment), so npm exchanges the id-token above for a short-lived
+      # publish credential itself. Provenance attestation is automatic under
+      # trusted publishing, no --provenance flag needed.
       - name: Publish to npm
         run: bunx changeset publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
 
       - name: GitHub Release
         run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
