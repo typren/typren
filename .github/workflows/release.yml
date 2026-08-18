@@ -24,6 +24,12 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Required reviewer on this environment (repo Settings -> Environments):
+    # a tag push queues the run, but the job itself waits for a manual
+    # approval before any step executes. A stolen token or a compromised
+    # tag push alone can't publish; a human still has to click approve. This
+    # is also the environment name to enter on npm's Trusted Publisher form.
+    environment: release
     steps:
       - uses: actions/checkout@v4
         with:
