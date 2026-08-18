@@ -6,13 +6,20 @@ it grants real rights and it is meant to be understood rather than skimmed.
 
 ## Why this exists
 
-Typren is released under the AGPL-3.0. The project also intends to offer a
-hosted service under separate proprietary terms, and that is only possible while
-a single party holds the rights to license the whole codebase. If contributed
-code arrives without the right to relicense it, that code can never appear in
-anything other than an AGPL release.
+Typren is released under the Functional Source License (FSL), which already
+prevents anyone from standing up a competing hosted version of Typren itself.
+That restriction comes from the license text, not from who owns which lines of
+code, so a CLA isn't what makes it work.
 
-This agreement gives the Project Owner that right. It does not take your
+What a CLA is for here is keeping the ability to change license terms later
+without asking every past contributor to agree again: shortening or
+lengthening the two-year window before a release converts to Apache 2.0,
+offering different commercial terms to a specific customer, or relicensing the
+project entirely if its needs change. If contributed code arrives without a
+CLA, any of those changes would need that contributor's separate, fresh consent
+before it could apply to their lines.
+
+This agreement gives the Project Owner that flexibility. It does not take your
 copyright away, and it does not stop you using your own work however you like.
 
 If you would rather not grant these terms, that is a legitimate position. Please

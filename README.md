@@ -2,7 +2,7 @@
 
 An open-source, markdown-based site builder with a pluggable visual editor.
 Visual, block-based editing, except your content is markdown in **your own Git
-repository** and the whole thing is AGPL.
+repository**, and the source is yours to read, run and modify.
 
 > **0.x, under active development.** APIs will change between minor versions
 > until 1.0. Pin exact versions if that matters to you.
@@ -20,7 +20,9 @@ your site still builds.
   reference host today; the HTTP API is a WHATWG `Request → Response` handler,
   so it also runs on Bun, Deno and Workers unchanged.
 - **Runs locally.** No account, no cloud, no signup to start.
-- **AGPL.** Read it, fork it, self-host it.
+- **Fair Source.** Free to run, modify and self-host for your own use. The one
+  thing it's not for is standing up a competing hosted version of Typren
+  itself. See [License](#license).
 
 ## Packages
 
@@ -66,7 +68,9 @@ shows in the GitHub UI. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[AGPL-3.0-only](LICENSE). If you run a modified version as a network service,
-you must offer its source to your users.
+[Functional Source License 1.1, Apache 2.0 future license](LICENSE). Free to
+use, modify and self-host for anything except a competing hosted version of
+Typren. Each release converts to plain Apache 2.0 two years after it ships, no
+action needed on your part when that happens.
 
 Contributions require a CLA. See [CONTRIBUTING.md](CONTRIBUTING.md#contributor-licence-agreement).
