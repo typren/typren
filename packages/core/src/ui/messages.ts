@@ -42,7 +42,7 @@ export const defaultMessages: Messages = {
   "shell.translate": "Translate",
   "shell.translateTo": "Translate to {locale}",
   "shell.fallbackBanner":
-    "Showing {defaultLocale} content — not yet translated. Edits start a {locale} translation.",
+    "Showing {defaultLocale} content, not yet translated. Edits start a {locale} translation.",
 
   // Site settings
   "site.title": "Site settings",

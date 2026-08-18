@@ -1,5 +1,5 @@
 /**
- * Rendered inside the preview route (vanilla — runs in the iframe's own
+ * Rendered inside the preview route (vanilla, runs in the iframe's own
  * document, never in the editor's shadow tree; spec fact #4). Bridges the
  * preview iframe and the editor:
  *  - click a block (an element wrapped with `data-typren-index`) to select it
@@ -20,7 +20,7 @@ const STYLE = `
 /**
  * Attach the preview bridge listeners + inject its stylesheet into
  * `document.head` (once). Returns a cleanup function that removes the
- * listeners (the injected `<style>` is left in place — idempotent, harmless).
+ * listeners (the injected `<style>` is left in place: idempotent, harmless).
  */
 export function initPreviewBridge(): () => void {
   if (!document.getElementById(STYLE_ID)) {
@@ -79,8 +79,8 @@ export function initPreviewBridge(): () => void {
 
   const onMessage = (e: MessageEvent) => {
     // Same check the editor side applies. This frame renders draft content and
-    // can be embedded, so it should only take instructions from its own origin —
-    // the channel was guarded on one side only.
+    // can be embedded, so it should only take instructions from its own origin.
+    // The channel was guarded on one side only.
     if (e.origin !== origin) return;
     const d = e.data;
     if (!d || d.__typren !== true) return;
@@ -88,12 +88,12 @@ export function initPreviewBridge(): () => void {
       document.documentElement.classList.toggle("dark", d.theme === "dark");
     }
     if (d.type === "select" && d.index === null) {
-      mark(-1); // editor deselected (page properties) — drop the outline
+      mark(-1); // editor deselected (page properties), drop the outline
       return;
     }
     if ((d.type === "select" || d.type === "scrollTo") && typeof d.index === "number") {
       mark(d.index);
-      // `reveal: false` re-marks without moving the viewport — used when the
+      // `reveal: false` re-marks without moving the viewport, used when the
       // editor reloads this frame to show a save and restores the scroll itself.
       if (d.reveal === false) return;
       document

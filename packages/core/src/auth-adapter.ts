@@ -38,7 +38,7 @@ export type AuthUser = {
 
 /** Analogous to ContentAdapter: the only thing that knows how identity is
  *  resolved and what it's allowed to do. Adapters read the request themselves
- *  (App Router: `cookies()`/`headers()` via their auth lib) — no request object
+ *  (App Router: `cookies()`/`headers()` via their auth lib). No request object
  *  is plumbed through, matching how next-auth v5 `auth()` and Clerk `auth()`
  *  work inside server actions/components. */
 export interface AuthAdapter {

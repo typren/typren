@@ -11,8 +11,8 @@ import { initPreviewBridge } from "@typren/core/ui/preview-bridge.vanilla";
  *    posted back to the editor, which maps it to the matching slice field
  *  - applies an independent light/dark theme + scroll-to on request
  *
- * The logic lives in `@typren/core`'s vanilla bridge (it must stay framework-free
- * — it runs inside the customer's own site, not this package) and this is a
+ * The logic lives in `@typren/core`'s vanilla bridge (it must stay framework-free;
+ * it runs inside the customer's own site, not this package) and this is a
  * thin React mount for it, same shape the `typren init` scaffolder writes into
  * a host app.
  */

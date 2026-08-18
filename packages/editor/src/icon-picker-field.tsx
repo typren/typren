@@ -5,14 +5,14 @@ import type { ReactNode } from "react";
 import { Button } from "./primitives/button";
 import { Input } from "./primitives/input";
 
-/** What FieldForm needs to wire up the "icon" control's searchable picker — a
+/** What FieldForm needs to wire up the "icon" control's searchable picker: a
  *  thin view over the host's icon library, mirroring `FieldFormMedia`'s seam
  *  (image-picker-field.tsx / @typren/core's sections.ts). The package MUST NOT
  *  import an icon library itself (it can't depend on whichever one the host
  *  ships); absent → the "icon" control degrades to a plain text input, same
  *  degrade contract as `media`. */
 export type FieldFormIcons = {
-  /** Synchronous — unlike `media.list()` there's no fetch, the host's icon set
+  /** Synchronous: unlike `media.list()` there's no fetch, the host's icon set
    *  is a static, already-tree-shaken import. `name` is the value stored on
    *  the field (whatever string the host's content authors already use, e.g.
    *  "/img/money.svg"); `render()` returns a small preview element for a
@@ -21,7 +21,7 @@ export type FieldFormIcons = {
 };
 
 /** A single icon-valued field: the raw name in a text input (keeps the "it's
- *  just a string" escape hatch) plus — when `icons` is configured — a
+ *  just a string" escape hatch) plus, when `icons` is configured, a
  *  "Choose icon" button opening a native `<dialog>` searchable picker. Same
  *  native-dialog choice as ImagePickerField (focus trap/ESC/backdrop for free). */
 export function IconPickerField({
@@ -58,7 +58,7 @@ export function IconPickerField({
 
       {/* `m-auto` below is load-bearing: a modal <dialog> is centred by the UA
           stylesheet via `margin: auto`, and Tailwind Preflight resets every
-          margin to 0 — without it the picker opens hard against the top-left
+          margin to 0. Without it the picker opens hard against the top-left
           corner. `backdrop:` dims the page so it reads as modal. */}
       {icons && (
         <dialog

@@ -2,7 +2,7 @@
  *
  * The editor UI (see @typren/editor) is styled after shadcn/ui and reads ONLY
  * the variables below. Each falls back to the host's own shadcn token, then
- * to shadcn's default `neutral` value — the same oklch values
+ * to shadcn's default `neutral` value, the same oklch values
  * `npx shadcn init` writes. So:
  *   - a shadcn site: the editor inherits its theme automatically, no config
  *   - a custom design system: override these vars
@@ -34,7 +34,7 @@
   --typren-input: var(--input, oklch(0.922 0 0));
   --typren-ring: var(--ring, oklch(0.708 0 0));
 
-  /* The admin frame — shadcn's sidebar tokens. `--typren-app-bg` is the backdrop
+  /* The admin frame: shadcn's sidebar tokens. `--typren-app-bg` is the backdrop
      the content card floats on (SidebarProvider variant="inset"). */
   --typren-app-bg: var(--sidebar, oklch(0.985 0 0));
   --typren-sidebar: var(--sidebar, oklch(0.985 0 0));

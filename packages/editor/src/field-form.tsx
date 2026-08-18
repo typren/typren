@@ -60,18 +60,18 @@ function controlFor(def: FieldDef | undefined, value: unknown): NonNullable<Fiel
   return "yaml"; // array | object
 }
 
-/** Shared capabilities threaded through every control renderer in this file —
- *  both the top-level field list and a slot's per-item field list need the
+/** Shared capabilities threaded through every control renderer in this file.
+ *  Both the top-level field list and a slot's per-item field list need the
  *  same media/icons wiring, so this is one type instead of two call sites
  *  drifting apart. */
 type FieldCapabilities = Readonly<{ media?: FieldFormMedia; icons?: FieldFormIcons }>;
 
 /**
- * Renders ONE field's control. Callers own the `key` prop — this is used both
+ * Renders ONE field's control. Callers own the `key` prop. This is used both
  * for a slice's top-level props (keyed by prop name) and for a slot item's own
  * fields (same keying, one level down). This is the piece "slot" recurses
  * through: an item field whose own type is "slot" calls back into `SlotField`
- * below, and `SlotField` calls back into this for each item's fields — mutual
+ * below, and `SlotField` calls back into this for each item's fields: mutual
  * recursion within one module, no import cycle.
  */
 function FieldRow({
@@ -101,7 +101,7 @@ function FieldRow({
       <div>
         <Label>{label}</Label>
         <Select value={current} onChange={(e) => (e.target.value === "" ? onUnset() : onChange(e.target.value))}>
-          <option value="">—</option>
+          <option value="">(none)</option>
           {options.map((o) => (
             <option key={o} value={o}>
               {o}
@@ -115,7 +115,7 @@ function FieldRow({
     );
   }
   if (control === "color") {
-    // Swatches show the ACTUAL color, not the word — the package can't know
+    // Swatches show the ACTUAL color, not the word. The package can't know
     // the host's palette any more than its icon library, so each token
     // resolves through a host-defined `--typren-swatch-<token>` custom property.
     // A token with no matching variable falls back to `transparent`, not a crash.
@@ -193,7 +193,7 @@ function FieldRow({
   }
   if (control === "image" || control === "media") {
     // An image prop is either a bare string or a `{src, alt}` object (the
-    // shapes the scaffold's field-schema template uses) — never a bare
+    // shapes the scaffold's field-schema template uses), never a bare
     // top-level array. Arrays of `{src,alt}` are handled by "slot", not here.
     const isSrcAlt = value !== null && typeof value === "object" && !Array.isArray(value) && "src" in (value as object);
     if (isSrcAlt) {
@@ -283,7 +283,7 @@ function FieldRow({
 }
 
 /** Existing-then-schema-declared key order, shared by the top-level slice
- *  props and a slot item's own fields — so authors can discover/add optional
+ *  props and a slot item's own fields, so authors can discover/add optional
  *  fields (enums, icons, …) not yet set on this particular object. */
 function fieldKeysOf(present: Record<string, unknown>, schema: SliceSchema | undefined): string[] {
   return [...Object.keys(present), ...Object.keys(schema ?? {}).filter((k) => !(k in present))];
@@ -293,7 +293,7 @@ function fieldKeysOf(present: Record<string, unknown>, schema: SliceSchema | und
  * One row of a "slot" field: add / remove / move-up / move-down, plus the
  * item's own fields rendered inline via `FieldRow`. Reorder is buttons (not
  * drag), so it's keyboard-operable for free. Each item gets a client-side-only
- * id purely so React has a stable `key` across reorders — content edits never
+ * id purely so React has a stable `key` across reorders. Content edits never
  * touch it, only add/remove/move do, so typing in a row never remounts it.
  */
 function SlotField({
@@ -317,7 +317,7 @@ function SlotField({
   // Resync if `value`'s length changed from outside our own add/remove/move
   // handlers below (e.g. the whole-block YAML editor rewrote the array while
   // this field stayed mounted). ponytail: full resync, drops row-identity
-  // continuity on this rare path — still correct, just not animation-smooth.
+  // continuity on this rare path: still correct, just not animation-smooth.
   if (ids.length !== value.length) {
     setIds(value.map(() => crypto.randomUUID()));
   }
@@ -468,7 +468,7 @@ export function FieldForm({
   }
 
   // Existing props first (source order), then any schema-declared props not yet
-  // present — so authors can add optional enums like `align`/`tone`.
+  // present, so authors can add optional enums like `align`/`tone`.
   const keys = fieldKeysOf(
     Object.fromEntries(Object.entries(slice).filter(([k]) => k !== "slice")),
     schema

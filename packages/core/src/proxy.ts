@@ -4,12 +4,12 @@
  * Verified against `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`:
  * Next 16 defaults `proxy.ts` to the Node.js runtime, so it can `fs`-read
  * `typren.config.json` per request (mtime-cached below) and rewrite
- * `/<adminRoute>/**` -> `/editor/**` with zero restart — no CLI + redeploy
+ * `/<adminRoute>/**` -> `/editor/**` with zero restart, no CLI + redeploy
  * round-trip once a host wires this in.
  *
  * Honest limit: Next's own platform-support table lists Proxy as unsupported
  * under static export. Those hosts stay on the Wave-4 `typren apply-settings`
- * (next.config rewrite) + redeploy path — this module does not apply there.
+ * (next.config rewrite) + redeploy path. This module does not apply there.
  *
  * This package cannot own a host's `proxy.ts` (one per project, host-authored
  * as `apps/web/proxy.ts` or `src/proxy.ts`). Wire it like this:
@@ -28,7 +28,7 @@
  * ```
  *
  * Auth is unchanged by this module: `app/editor/layout.tsx` still gates on
- * `resolveAuth(config).authorize(...)` exactly as today — this only rewrites
+ * `resolveAuth(config).authorize(...)` exactly as today. This only rewrites
  * the URL an already-authorized request resolves to. Renaming the admin route
  * makes `/editor/**` itself 404 for anyone hitting it directly post-rename
  * (URL hygiene), it does not touch the auth boundary.

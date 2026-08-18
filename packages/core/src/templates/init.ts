@@ -1,5 +1,5 @@
 // Template source for `typren init` (see ../cli.ts). Kept as plain string
-// constants — not real .ts/.tsx module source — so tsc never tries to
+// constants, not real .ts/.tsx module source, so tsc never tries to
 // typecheck the *scaffolded* code against this package's own dependency
 // graph (it's meant to run inside a *consumer* project with different
 // aliases/deps). This file itself is ordinary TS and is built to dist like
@@ -8,7 +8,7 @@
 // Marker strings embedded as comments in the generated next.config.ts /
 // cms.config.ts. `typren apply-settings` (see ../cli.ts) greps a host's
 // existing files for these to decide "already wired" vs "needs manual update"
-// without parsing TS — cheap and never gives a false "wired" on a hand-rolled
+// without parsing TS, which is cheap and never gives a false "wired" on a hand-rolled
 // config that merely happens to import the same package functions.
 export const TYPREN_REWRITE_MARKER = "typren:admin-route-rewrite";
 export const TYPREN_BOOTSTRAP_MARKER = "typren:bootstrap-wired";
@@ -23,11 +23,11 @@ const typrenConfigJson = `{
 `;
 
 // Always scaffolded at the project root (see the "/"-prefixed keys in
-// buildTemplates below) regardless of src/ vs root App Router layout — unlike
+// buildTemplates below) regardless of src/ vs root App Router layout. Unlike
 // cms.config.ts, next.config.ts can't live under src/, and importing JSON
 // keeps the relative path from drifting with baseDir.
 const nextConfigTs = `import type { NextConfig } from "next";
-// ${TYPREN_REWRITE_MARKER} — \`typren apply-settings\` looks for this marker
+// ${TYPREN_REWRITE_MARKER}: \`typren apply-settings\` looks for this marker
 // to confirm the admin-route rewrite below is already wired; don't remove it.
 import bootstrap from "./typren.config.json";
 
@@ -76,8 +76,8 @@ export const cmsConfig: CmsConfig = {
   }),
   previewPath: "/editor/preview",
   // Local-only gate: allows access in dev, fails closed in production (the
-  // editor writes files). Swap for a real auth adapter later — see
-  // "@typren/core/auth/next-auth" or "@typren/core/auth/clerk" — no other change needed.
+  // editor writes files). Swap for a real auth adapter later. See
+  // "@typren/core/auth/next-auth" or "@typren/core/auth/clerk", no other change needed.
   auth: localAuth(),
   mediaAdapter: createFsMediaAdapter({
     dir: path.join(process.cwd(), "public/img"),
@@ -325,8 +325,8 @@ import { cmsConfig, cmsStore } from "@/cms.config";
 import { SliceZone } from "@/slices/slice-zone";
 import PreviewBridge from "../bridge";
 
-// Renders the draft (falling back to published) with the site's real layout —
-// this is what the editor iframes for a true WYSIWYG preview. Each slice is
+// Renders the draft (falling back to published) with the site's real layout.
+// This is what the editor iframes for a true WYSIWYG preview. Each slice is
 // wrapped with data-typren-index so it's click-selectable on the canvas.
 export const dynamic = "force-dynamic";
 
@@ -334,7 +334,7 @@ export default async function PreviewPage({ params }: Readonly<{ params: Promise
   // Belt and braces: \`app/editor/layout.tsx\` already gates everything under
   // /editor on authorize({read}), this route included, so this check is
   // redundant. Kept because this route serves UNPUBLISHED drafts and a layout
-  // gate is easy to lose in a refactor — noindex is not access control.
+  // gate is easy to lose in a refactor. Noindex is not access control.
   if (!(await resolveAuth(cmsConfig).authorize({ action: "read" }))) notFound();
 
   const { slug } = await params;
@@ -359,7 +359,7 @@ import { cmsConfig } from "@/cms.config";
 // sharp needs Node's native bindings, not the edge runtime.
 export const runtime = "nodejs";
 
-// A Route Handler, not a Server Action — Next's default 1MB action body cap
+// A Route Handler, not a Server Action: Next's default 1MB action body cap
 // is the wrong shape for raw image bytes. It also bypasses
 // \`app/editor/layout.tsx\`'s auth gate (Route Handlers don't participate in
 // layouts), so \`handleMediaUpload\` re-checks \`resolveAuth(cmsConfig)\` itself.
@@ -434,7 +434,7 @@ type Props = Readonly<{
   align?: "left" | "center";
 }>;
 
-/** Example slice — replace with your own. Shows a typed props shape, an
+/** Example slice. Replace with your own. Shows a typed props shape, an
  *  optional CTA, and a \`select\`-typed prop (see field-schema.ts). */
 export function Hero({ heading, body, cta, align = "left" }: Props) {
   const centered = align === "center";
@@ -456,7 +456,7 @@ export function Hero({ heading, body, cta, align = "left" }: Props) {
 
 const slicesProse = `type Props = Readonly<{ heading?: string; body: string }>;
 
-/** Example slice — replace with your own. A minimal text block. */
+/** Example slice. Replace with your own. A minimal text block. */
 export function Prose({ heading, body }: Props) {
   return (
     <section className="px-6 py-16">
@@ -492,7 +492,7 @@ title: Site settings
  *  when it has a root-level \`app\`). \`contentDirLiteral\` is the same base
  *  dir joined with "content" (e.g. "src/content" or "content"). A key
  *  starting with "/" is project-ROOT-relative regardless of baseDir (see
- *  ../cli.ts's \`scaffold\`) — used for next.config.ts/typren.config.json,
+ *  ../cli.ts's \`scaffold\`), used for next.config.ts/typren.config.json,
  *  which can never live under src/. */
 export function buildTemplates(contentDirLiteral: string): Record<string, string> {
   return {

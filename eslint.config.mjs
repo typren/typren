@@ -4,7 +4,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import nextPlugin from "@next/eslint-plugin-next";
 import { globalIgnores } from "eslint/config";
 
-// Framework-agnostic flat config, shared across the whole Bun workspace —
+// Framework-agnostic flat config, shared across the whole Bun workspace:
 // ESLint + typescript-eslint recommended, plus the two plugins the source's
 // inline `eslint-disable` directives target (react-hooks, and Next's
 // `no-img-element`). Only the referenced rules are wired; no full Next app

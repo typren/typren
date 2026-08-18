@@ -5,7 +5,7 @@ import { localizedPath } from "../i18n";
 import type { PageSeoMeta, SeoConfig } from "./types";
 
 export type BuildSitemapOptions = {
-  /** Slug that maps to the site root ("/") instead of "/<slug>" — e.g. "home". */
+  /** Slug that maps to the site root ("/") instead of "/<slug>", e.g. "home". */
   homeSlug?: string;
   defaultChangeFrequency?: MetadataRoute.Sitemap[number]["changeFrequency"];
   defaultPriority?: number;
@@ -17,7 +17,7 @@ export type BuildSitemapOptions = {
 
 /** One entry per page in the store, honoring per-page `noindex`/`sitemap`
  *  frontmatter overrides. Does NOT know about non-CMS collections (e.g. a
- *  separate hosted-resources collection) — the host concats those itself. */
+ *  separate hosted-resources collection). The host concats those itself. */
 export function buildSitemap(
   store: ContentStore,
   config: SeoConfig,

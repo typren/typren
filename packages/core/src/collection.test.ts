@@ -112,7 +112,7 @@ describe("listCollectionRecords", () => {
 
     const second = await actions.createPage("Ada Lovelace");
     // Draft only, never published: the row still reflects the last PUBLISHED
-    // content (same draft/published split store.listPages already makes) —
+    // content (same draft/published split store.listPages already makes).
     // hasDraft is the separate signal that unpublished work is pending.
     await actions.saveDraft(second, { meta: { name: "Ada Lovelace" }, slices: [], body: "Draft bio." });
 
@@ -129,8 +129,8 @@ describe("listCollectionRecords", () => {
     ]);
   });
 
-  // Records authored outside the CMS — an existing content directory adopted
-  // by a collection — carry no `slices:` key at all. The Pages listSlugs filter
+  // Records authored outside the CMS, an existing content directory adopted
+  // by a collection, carry no `slices:` key at all. The Pages listSlugs filter
   // treats "carries a slice array" as "is a page", which would hide every one
   // of them and report the collection as empty.
   it("lists hand-authored records that carry no slices key", () => {

@@ -8,7 +8,7 @@ import type { CmsConfig, MediaAsset } from "./types";
 import type { RoutingMode } from "./i18n";
 import type { SaveResult } from "./actions";
 
-/** Content-shaped, locale-aware, hot-editable — a reserved-slug PageContent in
+/** Content-shaped, locale-aware, hot-editable: a reserved-slug PageContent in
  *  a PRIVATE dir (never the Pages dir). */
 export interface SiteSettingsRuntime {
   /** `logoDark` is the variant for dark surfaces (the admin shell in dark mode).
@@ -36,7 +36,7 @@ export interface SettingsAdapter {
   writeBootstrap(patch: Partial<SiteSettingsBootstrap>): void;
 }
 
-/** Default bootstrap adapter — one root JSON, atomic tmp+rename write so no
+/** Default bootstrap adapter: one root JSON, atomic tmp+rename write so no
  *  reader ever observes a half-written config that gates server boot. */
 export function createFsSettingsAdapter(opts: { file: string }): SettingsAdapter {
   const DEFAULTS: SiteSettingsBootstrap = {
@@ -61,10 +61,10 @@ export function createFsSettingsAdapter(opts: { file: string }): SettingsAdapter
 }
 
 /** Runtime half reuses createStore/makeActions verbatim on a private-dir
- *  adapter — ZERO new persistence code, same optimistic-lock + conflict UI.
+ *  adapter. ZERO new persistence code, same optimistic-lock + conflict UI.
  *  Reads/writes still pass through makeActions' own content-write guard, but
  *  settings docs reparameterize what the next boot trusts, so writes ALSO
- *  require the distinct "admin" AuthAction (addendum #4) — checked here,
+ *  require the distinct "admin" AuthAction (addendum #4), checked here,
  *  in front of makeActions, since actions.ts itself stays at zero diff. */
 const SETTINGS_SLUG = "settings";
 
@@ -72,7 +72,7 @@ export interface SettingsStore {
   get(locale?: string): SiteSettingsRuntime;
   /** Version of the stored settings doc, for the same optimistic-lock flow pages
    *  use. Without this a client had nothing to seed `baseVersion` from, so its
-   *  FIRST save passed `undefined` — which `store.saveDraft` treats as "no base
+   *  FIRST save passed `undefined`, which `store.saveDraft` treats as "no base
    *  version to check" and writes unconditionally, silently overwriting whatever
    *  another session had just saved. */
   currentVersion(locale?: string): string | null;

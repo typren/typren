@@ -32,7 +32,7 @@ export function makeCollectionAdapter(config: CmsConfig, section: CollectionSect
 
 export function makeCollectionActions(config: CmsConfig, section: CollectionSection): PageActions {
   const adapter = makeCollectionAdapter(config, section);
-  // ponytail: onPublish/onSaveDraft omitted — their (slug, locale[, version])
+  // ponytail: onPublish/onSaveDraft omitted: their (slug, locale[, version])
   // signature can't identify a collection for revalidation or review-queue
   // triage. Add a per-section hook if a host needs collection revalidation.
   return makeActions({ ...config, adapter, onPublish: undefined, onSaveDraft: undefined }) as PageActions;
@@ -45,7 +45,7 @@ export function buildCollectionActions(config: CmsConfig): Record<string, PageAc
   return out;
 }
 
-/** List every record in a collection section as `CollectionRecordInfo` rows —
+/** List every record in a collection section as `CollectionRecordInfo` rows:
  *  the list view's data source (spec: collections have no client "read"
  *  action, so this is what a host's server-fetch calls into). Reuses the same
  *  adapter construction as makeCollectionActions so the overlap guard and

@@ -44,7 +44,7 @@ describe("createFsMediaAdapter", () => {
     expect(listed[0].width).toBe(2);
   });
 
-  it("upload() never collides — two uploads of the same name get distinct keys", async () => {
+  it("upload() never collides: two uploads of the same name get distinct keys", async () => {
     const adapter = createFsMediaAdapter({ dir: mediaDir, publicPath: "/img" });
     const a = await adapter.upload(await preparedPng());
     const b = await adapter.upload(await preparedPng());

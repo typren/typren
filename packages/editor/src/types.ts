@@ -3,7 +3,7 @@ import type { FieldFormMedia } from "./image-picker-field";
 import type { FieldFormIcons } from "./icon-picker-field";
 
 /**
- * Everything host-specific the editor needs, in one injected object — the
+ * Everything host-specific the editor needs, in one injected object: the
  * seam that lets `apps/studio` and a future hosted console mount the exact
  * same `@typren/editor` without drifting. Nothing in this package reaches
  * outside of `host` for a host-owned concern (auth, storage, the slice
@@ -14,7 +14,7 @@ import type { FieldFormIcons } from "./icon-picker-field";
  * icon set configured needs nothing extra here.
  */
 export interface TyprenEditorHost {
-  /** Auth-gated page CRUD/draft/publish handlers — bind these to Server
+  /** Auth-gated page CRUD/draft/publish handlers: bind these to Server
    *  Actions (or an equivalent RPC) on the host; see `makeActions()`. */
   actions: PageActions;
   /** Slice registry keys, for BlockList's "+ Add block" menu. The host

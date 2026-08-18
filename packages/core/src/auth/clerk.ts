@@ -9,7 +9,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
  * "admin" (settings/onboarding/bootstrap writes) is gated separately from
  * ordinary content writes: it needs `adminRoles` set and a matching org role
  * claim, full stop. Unmapped (no `adminRoles` configured) denies rather than
- * falling back to `allowedRoles`/`allowedUserIds` — a host must opt in to who
+ * falling back to `allowedRoles`/`allowedUserIds`. A host must opt in to who
  * gets to reconfigure the site.
  */
 export function clerkAuthAdapter(

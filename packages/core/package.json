@@ -1,7 +1,7 @@
 {
   "name": "@typren/core",
   "version": "0.1.0",
-  "description": "Framework-agnostic core of Typren: content adapters, draft/publish store, auth-gated actions, i18n, media, SEO/AIO. No UI — see @typren/editor.",
+  "description": "Framework-agnostic core of Typren: content adapters, draft/publish store, auth-gated actions, i18n, media, SEO/AIO. No UI, see @typren/editor.",
   "keywords": [
     "cms",
     "markdown",

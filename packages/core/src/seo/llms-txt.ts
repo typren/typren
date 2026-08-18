@@ -2,8 +2,8 @@ import type { ContentStore } from "../store";
 import { renderSlicesAsMarkdown, type SliceMarkdownRegistry } from "./markdown-render";
 
 /** Generates a detailed, always-fresh markdown export of every page in the
- *  store — the "llms-full.txt" companion to a hand-curated llms.txt (this
- *  function does NOT replace a curated summary file — a hand-authored
+ *  store: the "llms-full.txt" companion to a hand-curated llms.txt (this
+ *  function does NOT replace a curated summary file: a hand-authored
  *  llms.txt still needs a human author for marketing copy). */
 export function generateLlmsFullTxt(store: ContentStore, renderOverrides?: SliceMarkdownRegistry): string {
   return store

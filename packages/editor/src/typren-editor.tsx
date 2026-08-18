@@ -10,7 +10,7 @@ import type { TyprenEditorHost } from "./types";
 export type { TyprenEditorHost };
 
 /**
- * The one component a host mounts. It owns no router of its own — `slug`
+ * The one component a host mounts. It owns no router of its own. `slug`
  * (which page is open, or `null`/undefined for the page picker) is a prop,
  * and every navigation outcome (create, delete, click a page row) is reported
  * via `onNavigate` instead of being applied to `window.location` here. The
@@ -35,7 +35,7 @@ export interface TyprenEditorProps {
   /** Content locale for reads/writes (single-locale hosts omit this). */
   locale?: string;
   onNavigate: (slug: string | null) => void;
-  /** See `EditorShell`'s `onReload` — refresh "this page" after a
+  /** See `EditorShell`'s `onReload`: refresh "this page" after a
    *  discard/publish/conflict-reload, however the host's router does that. */
   onReload: () => void;
   /** Host overrides for the editor UI's strings, deep-merged onto the

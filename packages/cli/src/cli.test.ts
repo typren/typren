@@ -104,7 +104,7 @@ describe("scaffold", () => {
     if (!second.ok) return;
     expect(second.created).toHaveLength(0);
     expect(second.skipped.length).toBe(first.created.length);
-    // The user's edit survived — nothing was overwritten.
+    // The user's edit survived because nothing was overwritten.
     expect(fs.readFileSync(path.join(dir, "src/cms.config.ts"), "utf8")).toContain("// user-edited");
   });
 

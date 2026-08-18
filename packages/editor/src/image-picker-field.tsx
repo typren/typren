@@ -10,8 +10,8 @@ export type { FieldFormMedia };
 
 /** A single image-valued field, styled like a normal CMS media control: a
  *  thumbnail with Replace / Remove when set, or an "Add image" dropzone-button
- *  when empty — no raw path shown. Both open a native `<dialog>` media library
- *  (`.showModal()` gives focus trap/ESC/backdrop from the platform for free —
+ *  when empty, no raw path shown. Both open a native `<dialog>` media library
+ *  (`.showModal()` gives focus trap/ESC/backdrop from the platform for free,
  *  no headless-dialog dependency). When no `media` library is configured the
  *  field degrades to a plain path input (the "it's just a string" escape hatch
  *  for external URLs). */
@@ -35,7 +35,7 @@ export function ImagePickerField({
     if (!media) return;
     setBusy(true);
     try {
-      // Sequential — avoids the fs adapter's random-suffix writes racing each
+      // Sequential: avoids the fs adapter's random-suffix writes racing each
       // other for no benefit.
       for (const file of Array.from(files)) {
         const body = new FormData();
@@ -81,13 +81,13 @@ export function ImagePickerField({
           + Add image
         </button>
       ) : (
-        // No media library configured — fall back to the raw path escape hatch.
+        // No media library configured. Fall back to the raw path escape hatch.
         <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder="/img/…" />
       )}
 
       {/* `m-auto` below is load-bearing: a modal <dialog> is centred by the UA
           stylesheet via `margin: auto`, and Tailwind Preflight resets every
-          margin to 0 — without it the picker opens hard against the top-left
+          margin to 0. Without it the picker opens hard against the top-left
           corner. `backdrop:` dims the page so it reads as modal. */}
       {media && (
         <dialog

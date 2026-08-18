@@ -12,7 +12,7 @@ import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
  * The editor's HTTP API.
  *
  * Why HTTP rather than framework RPC: Server Actions are a Next-only transport,
- * invisible to anything that isn't a React host — no Nuxt/Astro/SvelteKit mount,
+ * invisible to anything that isn't a React host: no Nuxt/Astro/SvelteKit mount,
  * no CLI, no MCP server, no `curl`. The action logic (`makeActions`) was already
  * transport-agnostic, so this exposes it over a seam anything can call, and
  * `createTyprenClient` (./client) turns it back into the same object shape the
@@ -52,7 +52,7 @@ import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
  *
  * ## Security
  * Every write routes through `makeActions`/`createSettingsStore`, which call
- * `authorize()` themselves — the gate is not re-implemented here, so it can't
+ * `authorize()` themselves. The gate is not re-implemented here, so it can't
  * drift. Two things this layer DOES own, because Next's Server Actions used to
  * provide them implicitly:
  *  - **Origin checking** on unsafe methods, so a cookie-authenticated editor
@@ -77,7 +77,7 @@ function json(body: unknown, status = 200): Response {
   return Response.json(body as Record<string, unknown>, { status });
 }
 
-/** Unauthorized from an action guard is a thrown Error, not a status — map it
+/** Unauthorized from an action guard is a thrown Error, not a status. Map it
  *  to 403 and let anything else surface as a 500 rather than being swallowed. */
 function isUnauthorized(e: unknown): boolean {
   return e instanceof Error && /unauthorized/i.test(e.message);
@@ -132,7 +132,7 @@ export function createTyprenApi(config: CmsConfig, options: TyprenApiOptions = {
   const allowed = options.allowedOrigins ?? [];
 
   // One PageActions per collection (writes) plus this route layer's own
-  // adapter/store per collection (reads) — the same actions/store split the
+  // adapter/store per collection (reads), the same actions/store split the
   // Pages resource makes above, since PageActions has no read method (see
   // actions.ts) any more than makeActions' internal store is exposed for Pages.
   const collectionSections = new Map<string, CollectionSection>(
@@ -262,7 +262,7 @@ export function createTyprenApi(config: CmsConfig, options: TyprenApiOptions = {
     return json({ error: "Not found" }, 404);
   }
 
-  /** `rest` is `[id, slug?, sub?]` — `id` is the resolved section id (see
+  /** `rest` is `[id, slug?, sub?]`: `id` is the resolved section id (see
    *  resolveSections), never confusable with a record's own `slug`/`sub`:
    *  `segments()` matches "collections" itself before this function ever sees
    *  the path, so a record whose slug happens to be the literal string
@@ -380,7 +380,7 @@ export function createTyprenApi(config: CmsConfig, options: TyprenApiOptions = {
     }
     if (sub === "bootstrap" && method === "PUT") {
       // Bootstrap writes reparameterize what the next boot trusts, and
-      // SettingsAdapter has no gate of its own — so it's checked here.
+      // SettingsAdapter has no gate of its own, so it's checked here.
       if (!(await auth.authorize({ action: "admin" }))) return json({ error: "Unauthorized" }, 403);
       const { patch } = await body<{ patch?: Partial<SiteSettingsBootstrap> }>(request);
       if (!patch) return json({ error: "patch is required" }, 400);

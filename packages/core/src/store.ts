@@ -43,17 +43,17 @@ export interface ContentStore {
   deletePage(slug: string): void;
   /** Delete a single translation (one locale) + its draft. */
   deleteTranslation(slug: string, locale: string): void;
-  /** Move a page from `slug` to `newSlug` — published AND any draft, in every
+  /** Move a page from `slug` to `newSlug`: published AND any draft, in every
    *  locale the source occupies (see markdown-adapter's per-locale layout).
    *  All-locales, unlike most ops' single optional `locale` param: a page's
    *  slug is the key tying its translations together (`listPages` derives the
    *  canonical page set from the default locale's slugs), so moving only one
    *  locale's file would strand the rest under the old name. Throws
-   *  `SlugExistsError` (not `ConflictError` — a destination collision, not a
+   *  `SlugExistsError` (not `ConflictError`, a destination collision, not a
    *  stale-version race) if `newSlug` already has content anywhere the move
    *  would touch. No-op if `newSlug === slug`. */
   renamePage(slug: string, newSlug: string): void;
-  /** Copy `slug`'s content — published AND draft, whichever exist — to a new,
+  /** Copy `slug`'s content (published AND draft, whichever exist) to a new,
    *  auto-derived non-colliding slug (see `slugify`) and return it. Single-
    *  locale (defaults to the default locale), matching `createPage`'s own
    *  scope; other translations of the source are not duplicated. Throws if
@@ -108,7 +108,7 @@ export function createStore(
     saveDraft(slug, page, baseVersion, locale = defaultLocale) {
       if (baseVersion !== undefined) {
         // Draft-precedence: compare against what the editor actually loaded.
-        // ponytail: read-then-write has a TOCTOU window — fine for a single-node
+        // ponytail: read-then-write has a TOCTOU window: fine for a single-node
         // fs CMS. Upgrade path: an atomic adapter (git blob-sha / KV CAS) moves
         // the compare into the adapter via an optional `expectedVersion` hook.
         const cur = readVersion(slug, locale);
@@ -141,7 +141,7 @@ export function createStore(
 
     createTranslation(slug, fromLocale, toLocale) {
       if (adapter.exists(slug, toLocale) || adapter.hasDraft(slug, toLocale)) return;
-      // Read of `fromLocale` throws if the source page is absent — a translation
+      // Read of `fromLocale` throws if the source page is absent. A translation
       // is always of an existing page.
       const src = adapter.parse(adapter.readRaw(slug, fromLocale));
       adapter.writeDraftRaw(slug, adapter.serialize(src), toLocale); // draft, not published
@@ -194,7 +194,7 @@ export function createStore(
 
       // Copy BOTH tiers that exist: a duplicate is meant to be a faithful
       // clone of the source's current state, not just its last published
-      // snapshot — dropping an in-progress draft silently would surprise
+      // snapshot: dropping an in-progress draft silently would surprise
       // whoever is mid-edit on the source.
       if (published !== null) adapter.writeRaw(newSlug, published, locale);
       if (draft !== null) adapter.writeDraftRaw(newSlug, draft, locale);
