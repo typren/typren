@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Scaffolder CLI for Typren: `typren init`, `typren apply-settings`, `typren review`.",
   "license": "SEE LICENSE IN LICENSE",
-  "private": false,
+  "private": true,
   "type": "module",
   "sideEffects": false,
   "bin": {
