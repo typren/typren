@@ -2,16 +2,16 @@
 /**
  * Post-build fixups for `dist`.
  *
- * `moduleResolution: "bundler"` lets SOURCE keep extensionless relative imports
- * — required so bundlers that consume `src` directly (Turbopack, vite) resolve
+ * `moduleResolution: "bundler"` lets SOURCE keep extensionless relative imports.
+ * This is required so bundlers that consume `src` directly (Turbopack, vite) resolve
  * them, and so a workspace/source consumer isn't broken. But raw Node ESM needs
  * real extensions, and the `typren` CLI package's `dist/cli.js` (a separate package) runs
  * under raw Node and imports this package by its published specifiers, not by
- * reaching into dist directly — so this package's own server-safe entries must
+ * reaching into dist directly, so this package's own server-safe entries must
  * load standalone.
  *
  * So: extensionless in source, extensions added here in dist only. Then smoke
- * it — every server-safe entry must actually load under `node`.
+ * it: every server-safe entry must actually load under `node`.
  */
 import { readdirSync, readFileSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -34,7 +34,7 @@ for (const file of walk(DIST).filter((f) => f.endsWith(".js") || f.endsWith(".d.
   const after = before.replace(RELATIVE_SPECIFIER, (match, lead, quote, spec) => {
     if (path.extname(spec)) return match; // already .js / .json / .css
     const target = path.resolve(path.dirname(file), spec);
-    // `.js` in a .d.ts is correct too — TS maps ./x.js back to ./x.d.ts.
+    // `.js` in a .d.ts is correct too: TS maps ./x.js back to ./x.d.ts.
     const suffix = existsSync(`${target}.js`) ? ".js" : existsSync(path.join(target, "index.js")) ? "/index.js" : null;
     // Doesn't resolve inside dist → it isn't a dist import. `templates/init.js`
     // embeds the scaffolded app's own source as strings; those specifiers belong
@@ -53,8 +53,8 @@ for (const file of walk(DIST).filter((f) => f.endsWith(".js") || f.endsWith(".d.
 copyFileSync("src/theme.css", path.join(DIST, "theme.css"));
 
 // Smoke: raw Node ESM must load every server-safe entry. Excluded on purpose:
-// `seo` imports `next/server`, which next@16 leaves out of its exports map —
-// that entry is Next-runtime-only and can't load under bare node by
+// `seo` imports `next/server`, which next@16 leaves out of its exports map,
+// so that entry is Next-runtime-only and can't load under bare node by
 // construction.
 const SERVER_ENTRIES = ["index.js", "proxy.js", "i18n.js", "auth/local.js"];
 execFileSync(

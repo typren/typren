@@ -11,7 +11,7 @@ export function matchMarkdownMirrorSlug(pathname: string): string | null {
 
 /** Route Handler factory: GET returns "# Title\n\n<flattened slices>" as
  *  text/markdown for a known slug, 404 for an unknown one. Mount at any path
- *  (e.g. src/app/md/[slug]/route.ts) — pair with createMarkdownMirrorMiddleware
+ *  (e.g. src/app/md/[slug]/route.ts) and pair with createMarkdownMirrorMiddleware
  *  (or your own rewrite) to expose it at "/<slug>.md". Next's dynamic Route
  *  Handler segments resolve `params` as a Promise (same as page.tsx). */
 export function createMarkdownRouteHandler(store: ContentStore, renderOverrides?: SliceMarkdownRegistry) {
@@ -33,8 +33,8 @@ export function createMarkdownRouteHandler(store: ContentStore, renderOverrides?
  *  -> "<mirrorPath>/<slug>" so the route handler above (mounted at
  *  mirrorPath) serves it transparently. Ship this as (part of) the host's
  *  proxy file (Next's `middleware.ts` file convention was renamed to
- *  `proxy.ts` in Next 16 — this factory works unchanged either way, only the
- *  host filename/export name changed) — this module exports the matcher
+ *  `proxy.ts` in Next 16, so this factory works unchanged either way, only the
+ *  host filename/export name changed). This module exports the matcher
  *  separately so a host with other proxy concerns can compose them. */
 export function createMarkdownMirrorMiddleware(mirrorPath: string) {
   return function markdownMirrorMiddleware(request: NextRequest) {

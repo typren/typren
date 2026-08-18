@@ -4,7 +4,7 @@ import type { I18nConfig } from "../i18n";
 import { localizedPath } from "../i18n";
 import type { PageSeoMeta, SeoConfig } from "./types";
 
-/** Root-layout `metadata` object defaults — everything a Next app's
+/** Root-layout `metadata` object defaults: everything a Next app's
  *  layout.tsx hand-writes today, parameterized. Host still adds anything
  *  fully site-specific (e.g. Search Console `verification`) by spreading
  *  the result and adding keys. */
@@ -31,10 +31,10 @@ export function buildRootMetadata(config: SeoConfig): Metadata {
 }
 
 /** Per-page Metadata for a slug-routed page, reading the page's frontmatter
- *  (PageSeoMeta fields live directly in PageContent.meta — no new file
+ *  (PageSeoMeta fields live directly in PageContent.meta, no new file
  *  format). The caller is responsible for resolving `slug` to a `PageContent`
- *  first (e.g. via a ContentStore) and handling an unknown slug itself —
- *  this function never throws, so it never needs fs-mocking to test. */
+ *  first (e.g. via a ContentStore) and handling an unknown slug itself.
+ *  This function never throws, so it never needs fs-mocking to test. */
 export async function buildMetadata(
   page: PageContent,
   slug: string,

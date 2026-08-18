@@ -318,7 +318,7 @@ describe("collections resource", () => {
   });
 
   // segments() locates the resource by finding the first path segment that's a
-  // known resource name — a record slug that happens to equal one ("pages"
+  // known resource name. A record slug that happens to equal one ("pages"
   // here) must not get mistaken for the /pages resource, since "collections"
   // itself is always the leftmost match in this path.
   it("is not confused by a record slug equal to a resource name", async () => {
@@ -354,7 +354,7 @@ describe("collections resource", () => {
 });
 
 describe("createTyprenClient over the handler", () => {
-  /** Wires the client straight to the handler — no network, but the full
+  /** Wires the client straight to the handler: no network, but the full
    *  serialize → route → deserialize path, which is what would actually break. */
   const clientFor = (a: ReturnType<typeof createTyprenApi>) =>
     createTyprenClient({

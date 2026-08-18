@@ -57,10 +57,10 @@ export function EditorShell({
   icons?: FieldFormIcons;
   /** Content locale for reads/writes (single-locale hosts omit this). */
   locale?: string;
-  /** A page slug to open, or `null` for the page picker — e.g. after create/delete. */
+  /** A page slug to open, or `null` for the page picker, e.g. after create/delete. */
   onNavigate: (slug: string | null) => void;
   /** Refresh whatever the host considers "this page" after a discard/publish/
-   *  conflict-reload — a full reload, a router refresh, a refetch: the host's
+   *  conflict-reload (a full reload, a router refresh, a refetch): the host's
    *  call, not this package's. */
   onReload: () => void;
 }>) {
@@ -91,7 +91,7 @@ export function EditorShell({
       firstRender.current = false;
       return;
     }
-    // Stop the autosave loop once a conflict is showing — don't keep retrying a
+    // Stop the autosave loop once a conflict is showing. Don't keep retrying a
     // write we already know will lose until the author resolves it.
     if (!dirty || conflict) return;
     const tmr = setTimeout(async () => {

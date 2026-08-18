@@ -15,7 +15,7 @@ export type ScaffoldResult =
 /**
  * Core of `typren init`: detect the App Router base dir, write every
  * template that doesn't already exist (or all of them, with `force`), and
- * report what happened. No process.exit/console — kept pure so it's directly
+ * report what happened. No process.exit/console, kept pure so it's directly
  * testable (see cli.test.ts) and reusable if another entry point ever wants it.
  */
 export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldResult {
@@ -38,7 +38,7 @@ export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldR
 
   for (const [relPath, content] of Object.entries(templates)) {
     // A "/"-prefixed key (next.config.ts, typren.config.json) always lands at
-    // the project root, never under baseDir — see buildTemplates' doc comment.
+    // the project root, never under baseDir. See buildTemplates' doc comment.
     const abs = relPath.startsWith("/") ? path.join(cwd, relPath.slice(1)) : path.join(cwd, baseDir, relPath);
     const rel = path.relative(cwd, abs);
     if (fs.existsSync(abs) && !opts.force) {
@@ -54,7 +54,7 @@ export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldR
 }
 
 // Same SAFE_SLUG-shaped route rule markdown-adapter.ts uses for slugs, plus
-// the reserved-word check — kept as its own copy (not imported) rather than a
+// the reserved-word check, kept as its own copy (not imported) rather than a
 // shared export: this is a Node-side CLI concern, an admin-route settings UI
 // would own its own equivalent, and duplicating one regex + one Set is
 // cheaper than coupling the two layers.
@@ -94,14 +94,14 @@ export type ApplySettingsResult =
 /**
  * Core of `typren apply-settings`: reconciles the host's next.config /
  * cms.config with typren.config.json's bootstrap tier (spec §5's "Admin-route
- * mechanism"). Validates first — never writes anything on a bad config.
+ * mechanism"). Validates first, so it never writes anything on a bad config.
  *
  * Ladder-preferred mechanism: next.config.ts is plain code that runs at
  * config-eval time, so the generated template just `import`s
- * typren.config.json and reads `bootstrap.adminRoute` directly — no codegen,
+ * typren.config.json and reads `bootstrap.adminRoute` directly: no codegen,
  * no regex-patching of the user's rewrite array. When a next.config.* already
  * exists, this function only ever READS it (grepping for the marker comment
- * the template embeds) — auto-patching an arbitrary existing rewrites() body
+ * the template embeds). Auto-patching an arbitrary existing rewrites() body
  * is the unsafe case the spec calls out, so that path prints exact
  * instructions instead of guessing at an edit. Idempotent: a file that's
  * already wired (or a config that's still invalid) makes no writes on rerun.
@@ -136,7 +136,7 @@ export function applySettings(cwd: string): ApplySettingsResult {
   const foundCmsConfig = CMS_CONFIG_CANDIDATES.map((f) => path.join(cwd, f)).find(fs.existsSync);
   if (!foundCmsConfig) {
     cmsConfig = "not-found";
-    notes.push("no cms.config.ts found — run `typren init` first.");
+    notes.push("no cms.config.ts found. Run `typren init` first.");
   } else if (fs.readFileSync(foundCmsConfig, "utf8").includes(TYPREN_BOOTSTRAP_MARKER)) {
     cmsConfig = "already-wired";
   } else {
@@ -154,7 +154,7 @@ export function applySettings(cwd: string): ApplySettingsResult {
 }
 
 // ---------------------------------------------------------------------------
-// `typren review` — deterministic content-review brief (see spec-A). Same
+// `typren review`: deterministic content-review brief (see spec-A). Same
 // pure-function-per-command shape as scaffold()/applySettings() above: no
 // console/process.exit here, just data in -> data out, so it's directly
 // testable and main() stays a thin argv -> function -> formatter wire-up.
@@ -185,7 +185,7 @@ export type ReviewResult = { ok: true; briefs: ReviewBrief[] } | { ok: false; er
 
 /** Mirrors markdown-adapter.ts's `parse()` (same default `frontmatterKey:
  *  "slices"` convention) but works on a raw string rather than a file on
- *  disk — needed here because "before" content comes from `git show`, not
+ *  disk, needed here because "before" content comes from `git show`, not
  *  a path. Not worth instantiating a whole ContentAdapter for a blob string. */
 function parsePage(raw: string): { meta: Record<string, unknown>; slices: Slice[]; hasFrontmatter: boolean } {
   const { data } = matter(raw);
@@ -201,10 +201,10 @@ function readTextSafe(absPath: string): string | null {
   }
 }
 
-/** Best-effort text probe for `export const NAME = "...";` — reads the
+/** Best-effort text probe for `export const NAME = "...";`. Reads the
  *  constant's value without importing the file. Several of the files this
  *  needs to read (src/app/seo.tsx) re-export JSX-bearing modules, and Node's
- *  native TS type-stripping doesn't transform JSX — importing them would
+ *  native TS type-stripping doesn't transform JSX, so importing them would
  *  throw. A regex read of a plain string constant sidesteps that entirely
  *  and never executes host code. */
 function extractStringConst(text: string, name: string): string | null {
@@ -213,7 +213,7 @@ function extractStringConst(text: string, name: string): string | null {
 }
 
 /** Slice names with a `@typren/core/seo` seoRegistry entry, scraped the same
- *  regex-probe way as extractStringConst — see its comment for why this
+ *  regex-probe way as extractStringConst. See its comment for why this
  *  doesn't just `import()` the file. Returns null when the file can't be
  *  read (check that depends on it degrades to "skip", not a guess). */
 function getSeoRegistryKeys(cwd: string): string[] | null {
@@ -228,7 +228,7 @@ function getSiteUrl(cwd: string): string | null {
 }
 
 /** Slugs `createMarkdownAdapter`'s default-locale `listSlugs()` would return
- *  (flat `src/content/*.md` files carrying a `slices` array) — reimplemented
+ *  (flat `src/content/*.md` files carrying a `slices` array), reimplemented
  *  against raw files instead of instantiating the adapter/store because the
  *  host's `src/cms.config.ts` imports "server-only", which throws unless
  *  imported from a React Server Component build (i.e. never from a plain
@@ -248,7 +248,7 @@ function listCmsPageSlugs(cwd: string): string[] {
 
 /** Locates a slug's content file: a routed CMS page (`src/content/<slug>.md`)
  *  or a hosted resource post (`src/content/resources/<slug>.md`, no
- *  frontmatter — see src/lib/resources.ts). Returns a repo-relative path
+ *  frontmatter, see src/lib/resources.ts). Returns a repo-relative path
  *  (what git wants), or null if neither exists. */
 function findContentFile(cwd: string, slug: string): string | null {
   const flat = `src/content/${slug}.md`;
@@ -262,7 +262,7 @@ function gitShow(cwd: string, ref: string, relFile: string): string | null {
   try {
     return execFileSync("git", ["show", `${ref}:${relFile}`], { cwd, encoding: "utf8" });
   } catch {
-    return null; // file didn't exist at `ref` (e.g. a new page) — treated as empty "before"
+    return null; // file didn't exist at `ref` (e.g. a new page), treated as empty "before"
   }
 }
 
@@ -324,7 +324,7 @@ function diffSlices(before: Slice[], after: Slice[]): ReviewBrief["diff"]["slice
 }
 
 /** Recursively finds every `{src, alt}`-shaped media prop (the schema every
- *  media-typed field in src/slices/field-schema.ts actually uses — see
+ *  media-typed field in src/slices/field-schema.ts actually uses, see
  *  hero/big-stat/testimonials/logo-wall/split-feature .tsx) whose `src` is
  *  set but `alt` is missing/empty. Structural, not slice-name-keyed, so a
  *  new slice that follows the same {src, alt} convention is covered for free. */
@@ -348,7 +348,7 @@ function findAltViolations(slices: Slice[]): string[] {
 }
 
 /** Best-effort per §3's own admission: slices don't carry a semantic h1/h2
- *  level today, so this can't be a real DOM-heading-order engine — it only
+ *  level today, so this can't be a real DOM-heading-order engine. It only
  *  catches a `heading`/`subheading` field that's declared but left empty,
  *  which is cheap, deterministic, and still a real signal. Always `warn`,
  *  never `fail` (matches spec). */
@@ -381,7 +381,7 @@ function checkTitleAndDescription(meta: Record<string, unknown>): CheckResult[] 
     return [presentCheck, lengthCheck];
   };
   // A host's titleTemplate (e.g. "%s | Acme Inc") adds its own chars on top
-  // of a page's own <title> — 60 is the recommended ceiling BEFORE that
+  // of a page's own <title>. 60 is the recommended ceiling BEFORE that
   // suffix, per SERP truncation guidance.
   return [...mk("title", 0, 60), ...mk("description", 50, 160)];
 }
@@ -402,7 +402,7 @@ function checkCanonical(meta: Record<string, unknown>, siteUrl: string | null): 
 
 function checkNoindex(meta: Record<string, unknown>): CheckResult {
   return meta.noindex === true
-    ? { id: "seo.noindex.flagged", status: "warn", message: "meta.noindex is true — verify this page is intentionally excluded from nav/sitemap" }
+    ? { id: "seo.noindex.flagged", status: "warn", message: "meta.noindex is true. Verify this page is intentionally excluded from nav/sitemap" }
     : { id: "seo.noindex.flagged", status: "pass" };
 }
 
@@ -460,20 +460,20 @@ function checkHeadingsOrder(slices: Slice[]): CheckResult {
 
 function checkLlmsReachable(slug: string, cmsSlugs: string[]): CheckResult {
   return cmsSlugs.includes(slug)
-    ? { id: "aio.llms.reachable", status: "pass", message: "in cmsStore — covered by generateLlmsFullTxt automatically" }
+    ? { id: "aio.llms.reachable", status: "pass", message: "in cmsStore, covered by generateLlmsFullTxt automatically" }
     : {
         id: "aio.llms.reachable",
         status: "warn",
-        message: `"${slug}" isn't in cmsStore (e.g. a resources/*.md post) — not included in llms-full.txt or public/llms.txt`,
+        message: `"${slug}" isn't in cmsStore (e.g. a resources/*.md post), so it's not included in llms-full.txt or public/llms.txt`,
       };
 }
 
 function checkRobotsCrawlable(meta: Record<string, unknown>): CheckResult {
-  // typren/seo's buildRobots doesn't special-case noindex pages — they stay
+  // typren/seo's buildRobots doesn't special-case noindex pages: they stay
   // crawlable by default (only <meta name="robots"> keeps them out of the
   // index), which is the expected/normal state per spec-A §3, not a finding.
   return meta.noindex === true
-    ? { id: "seo.robots.crawlable", status: "pass", message: "noindex page remains crawlable per robots.ts defaults — expected" }
+    ? { id: "seo.robots.crawlable", status: "pass", message: "noindex page remains crawlable per robots.ts defaults, as expected" }
     : { id: "seo.robots.crawlable", status: "pass" };
 }
 
@@ -486,11 +486,11 @@ function runChecks(
   cmsSlugs: string[]
 ): CheckResult[] {
   // aio.entity.description-present and aio.llms.reachable are repo/registry-
-  // wide invariants, not per-file — still meaningful even for a page with no
+  // wide invariants, not per-file, and are still meaningful even for a page with no
   // frontmatter of its own (e.g. a resources/*.md post body).
   if (!hasFrontmatter) {
     const skip = (id: string, message: string): CheckResult => ({ id, status: "skip", message });
-    const reason = "no frontmatter block found — not a CMS page (e.g. a resources/*.md post body)";
+    const reason = "no frontmatter block found, meaning this isn't a CMS page (e.g. a resources/*.md post body)";
     return [
       skip("seo.description.present", reason),
       skip("seo.description.length", reason),
@@ -554,7 +554,7 @@ function buildBrief(cwd: string, relFile: string, base: string): ReviewBrief {
 /**
  * Core of `typren review [slug] [--base <ref>]`. No slug: one brief per
  * `src/content/**` file changed against `base` (default `origin/main`,
- * working-tree included — a plain `git diff <base> -- <path>`, not a
+ * working-tree included: a plain `git diff <base> -- <path>`, not a
  * merge-base triple-dot, so uncommitted local edits show up too). A slug:
  * one brief for that page's current file vs. its `base` version, found
  * whether it's a routed CMS page or a hosted resources/*.md post.
@@ -591,7 +591,7 @@ export type PrResult =
 
 function briefToMarkdown(brief: ReviewBrief): string {
   return [
-    `Content: \`${brief.slug}\` — auto-generated review brief vs \`${brief.baseRef}\``,
+    `Content: \`${brief.slug}\`, an auto-generated review brief vs \`${brief.baseRef}\``,
     "",
     `**Checks**: ${brief.summary.pass} pass, ${brief.summary.warn} warn, ${brief.summary.fail} fail, ${brief.summary.skip} skip`,
     "",
@@ -614,24 +614,24 @@ function ensureContentReviewLabel(cwd: string): void {
       });
     }
   } catch {
-    // best-effort — a missing label isn't fatal to opening/updating the PR
+    // best-effort: a missing label isn't fatal to opening/updating the PR
   }
 }
 
 /**
  * Opens or updates the `content/<slug>` PR with the review brief in its
- * body — idempotent (`gh pr list --head` first). Guarded: if `gh` isn't
+ * body. It's idempotent (`gh pr list --head` first). Guarded: if `gh` isn't
  * installed this returns `skipped-no-gh` rather than throwing, so callers
  * that only want the brief (`review()` above) are unaffected.
  *
  * Deliberately a SEPARATE, opt-in step from `review()` (main() only calls
- * this behind `--pr`) rather than automatic on every invocation — this one
- * commits and pushes a branch, `review()` itself never touches git state
+ * this behind `--pr`) rather than automatic on every invocation. This one
+ * commits and pushes a branch; `review()` itself never touches git state
  * beyond reading it.
  */
 export function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): PrResult {
   if (!ghAvailable()) {
-    return { ok: true, action: "skipped-no-gh", notes: ["gh CLI not found — brief was printed, no PR opened/updated."] };
+    return { ok: true, action: "skipped-no-gh", notes: ["gh CLI not found, so the brief was printed and no PR was opened or updated."] };
   }
 
   const branch = `content/${brief.slug}`;
@@ -663,7 +663,7 @@ export function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): PrResult
     if (execFileSync("git", ["diff", "--cached", "--name-only"], { cwd, encoding: "utf8" }).trim()) {
       execFileSync("git", ["commit", "-m", `content: update ${brief.slug}`], { cwd });
     } else {
-      notes.push("no staged changes to commit — pushing existing branch state.");
+      notes.push("no staged changes to commit, so the existing branch state is pushed.");
     }
     execFileSync("git", ["push", "-u", "origin", branch], { cwd });
 
@@ -685,13 +685,13 @@ export function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): PrResult
 }
 
 /**
- * `typren review --update-pr <n> --body-file <path>` — the seam for the
- * agent's own judgment pass (voice/brand/SEO prose — see spec-A §3's "not
+ * `typren review --update-pr <n> --body-file <path>`: the seam for the
+ * agent's own judgment pass (voice/brand/SEO prose, see spec-A §3's "not
  * deterministic" list) to post its output onto the PR the deterministic
  * layer above already opened, without every agent reimplementing `gh` calls.
  */
 export function updatePrBody(cwd: string, prNumber: number, bodyFile: string): PrResult {
-  if (!ghAvailable()) return { ok: true, action: "skipped-no-gh", notes: ["gh CLI not found — nothing posted."] };
+  if (!ghAvailable()) return { ok: true, action: "skipped-no-gh", notes: ["gh CLI not found, so nothing was posted."] };
   const resolved = path.resolve(cwd, bodyFile);
   if (!fs.existsSync(resolved)) return { ok: false, error: `--body-file "${bodyFile}" not found` };
   try {
@@ -719,7 +719,7 @@ function printReviewReport(result: ReviewResult, opts: { json?: boolean } = {}):
   for (const b of result.briefs) {
     console.log(`\n${b.slug} (${b.file}) vs ${b.baseRef}`);
     console.log(`  ${b.summary.pass} pass, ${b.summary.warn} warn, ${b.summary.fail} fail, ${b.summary.skip} skip`);
-    for (const c of b.checks) console.log(`  [${c.status.padEnd(4)}] ${c.id}${c.message ? " — " + c.message : ""}`);
+    for (const c of b.checks) console.log(`  [${c.status.padEnd(4)}] ${c.id}${c.message ? ": " + c.message : ""}`);
   }
 }
 
@@ -774,7 +774,7 @@ ${TYPREN_THEME_MAPPING
 }
 
 function printHelp(): void {
-  console.log(`typren — scaffolder CLI
+  console.log(`typren: scaffolder CLI
 
 Usage:
   npx typren init [--force]
@@ -821,7 +821,7 @@ function printApplySettingsReport(result: ApplySettingsResult): void {
   }
 }
 
-/** Same hand-rolled style as the rest of this file's argv handling — no
+/** Same hand-rolled style as the rest of this file's argv handling: no
  *  parsing dependency. Walks argv once, pulling out `review`'s flags/values
  *  and the first bare token after the "review" command word (the slug, if
  *  any) regardless of where the flags fall around it. */
@@ -925,18 +925,18 @@ function main(): void {
     created.forEach((f) => console.log(`  ${f}`));
   }
   if (skipped.length) {
-    console.log("\nSkipped (already exist — rerun with --force to overwrite):");
+    console.log("\nSkipped (already exist; rerun with --force to overwrite):");
     skipped.forEach((f) => console.log(`  ${f}`));
   }
   printNextSteps(baseDir);
 }
 
 // Only run when executed directly (`node dist/cli.js`), not when imported
-// (e.g. by cli.test.ts importing `scaffold`) — importing this module must
+// (e.g. by cli.test.ts importing `scaffold`). Importing this module must
 // never have the side effect of scaffolding into the real cwd. Resolve
 // argv[1] through realpath first: npm/npx invoke the CLI via the
 // node_modules/.bin symlink, but Node's ESM loader resolves import.meta.url
-// to the symlink's *target* — comparing the raw argv[1] against that would
+// to the symlink's *target*, so comparing the raw argv[1] against that would
 // never match and main() would silently never run.
 function isDirectRun(): boolean {
   const entry = process.argv[1];

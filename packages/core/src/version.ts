@@ -22,7 +22,7 @@ export class ConflictError extends Error {
 
 /** Thrown by the store when a rename/duplicate would land on a slug that
  *  already has content (published or draft) in some locale. Distinct from
- *  `ConflictError` — that's an optimistic-lock version race on ONE resource;
+ *  `ConflictError`: that's an optimistic-lock version race on ONE resource;
  *  this is two resources colliding, so there's no `currentVersion`/`baseVersion`
  *  to report. Carries the same `code: "conflict"` discriminant so the action
  *  layer's result union and the 409 mapping in `api/routes.ts`'s `saveResult()`

@@ -1,7 +1,7 @@
 {
   "name": "@typren/editor",
   "version": "0.1.0",
-  "description": "Typren's editor UI — the pluggable React admin shell for pages, blocks and fields.",
+  "description": "Typren's editor UI: the pluggable React admin shell for pages, blocks and fields.",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",

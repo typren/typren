@@ -15,7 +15,7 @@ const EXT_FOR_MIME: Record<string, string> = {
   "image/svg+xml": ".svg",
 };
 
-// ponytail: blocklist heuristic, not real SVG sanitization — swap in
+// ponytail: blocklist heuristic, not real SVG sanitization. Swap in
 // dompurify+jsdom or svg-sanitizer if upload access ever extends beyond
 // authorize()-gated authors.
 const SVG_SCRIPT_RE = /<script|on\w+\s*=|javascript:/i;
@@ -27,7 +27,7 @@ function slugifyBase(filename: string): string {
 }
 
 /** Validates + web-optimizes a raw upload. Never trusts the client-supplied
- *  mime/extension — sniffs actual bytes via sharp.metadata(). Throws with a
+ *  mime/extension: sniffs actual bytes via sharp.metadata(). Throws with a
  *  user-facing message on any rejection. */
 export async function processUpload(input: { name: string; buffer: Buffer }): Promise<PreparedFile> {
   if (input.buffer.length > MAX_UPLOAD_BYTES) {
@@ -35,7 +35,7 @@ export async function processUpload(input: { name: string; buffer: Buffer }): Pr
   }
 
   // Trust boundary: sharp's own sniff of the actual bytes decides what
-  // happens next — never the Content-Type header or filename extension
+  // happens next, never the Content-Type header or filename extension
   // (both are attacker-controlled).
   const meta = await sharp(input.buffer).metadata();
 
@@ -46,7 +46,7 @@ export async function processUpload(input: { name: string; buffer: Buffer }): Pr
 
   if (meta.format === "svg") {
     if (SVG_SCRIPT_RE.test(input.buffer.toString("utf8"))) {
-      throw new Error("typren: SVG upload rejected — contains script-like content");
+      throw new Error("typren: SVG upload rejected: it contains script-like content");
     }
     mime = "image/svg+xml";
     buffer = input.buffer;
@@ -57,7 +57,7 @@ export async function processUpload(input: { name: string; buffer: Buffer }): Pr
     meta.format === "tiff"
   ) {
     // .rotate() auto-orients from EXIF before sharp's default metadata-stripping
-    // on output — otherwise phone photos come out sideways.
+    // on output; otherwise phone photos come out sideways.
     const { data, info } = await sharp(input.buffer)
       .rotate()
       .resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: "inside", withoutEnlargement: true })
@@ -80,7 +80,7 @@ export async function processUpload(input: { name: string; buffer: Buffer }): Pr
   return { name: `${slugifyBase(input.name)}${EXT_FOR_MIME[mime]}`, mime, buffer, width, height };
 }
 
-/** Route Handler body. The host's route.ts is a thin wrapper — same
+/** Route Handler body. The host's route.ts is a thin wrapper, the same
  *  "host owns the boundary, package supplies the logic" split actions.ts
  *  already uses for Server Actions.
  *

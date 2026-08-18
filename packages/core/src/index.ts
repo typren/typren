@@ -13,7 +13,7 @@ export type {
   MediaAdapter,
   PreparedFile,
 } from "./types";
-// Locale/routing helpers (pure — also re-exported from the edge-safe "./i18n"
+// Locale/routing helpers (pure, also re-exported from the edge-safe "./i18n"
 // subpath for middleware/proxy, which must not pull in node:fs).
 export {
   resolveI18n,
@@ -41,7 +41,7 @@ export {
   type AuthUser,
 } from "./auth-adapter";
 export { versionOf, ConflictError } from "./version";
-// SDUI admin shell — server-safe helpers (node:fs-backed) + their contracts.
+// SDUI admin shell: server-safe helpers (node:fs-backed) + their contracts.
 // The client UI (built fresh in React + Base UI) lives in @typren/editor.
 export {
   resolveSections,

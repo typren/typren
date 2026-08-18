@@ -1,7 +1,7 @@
 {
   "name": "typren",
   "version": "0.1.0",
-  "description": "Typren — a modular, markdown-based, AI-buildable site builder + pluggable editor. Monorepo root (private).",
+  "description": "Typren: a modular, markdown-based, AI-buildable site builder + pluggable editor. Monorepo root (private).",
   "private": true,
   "license": "AGPL-3.0-only",
   "type": "module",

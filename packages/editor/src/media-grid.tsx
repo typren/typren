@@ -15,7 +15,7 @@ function humanSize(bytes: number): string {
 
 /** Shared presentational grid, used both standalone (media library page) and
  *  inside the picker dialog. `assets` is expected pre-filtered by the caller
- *  (over the already-fetched full list) — this component only displays
+ *  (over the already-fetched full list). This component only displays
  *  `query`/`onQueryChange`, it doesn't filter itself. */
 export function MediaGrid({
   assets,
@@ -33,7 +33,7 @@ export function MediaGrid({
   onQueryChange: (q: string) => void;
   onSelect?: (asset: MediaAsset) => void; // picker mode
   onDelete?: (id: string) => void; // library mode
-  onUploadFiles: (files: FileList) => void; // both — drag/drop + file-picker upload
+  onUploadFiles: (files: FileList) => void; // both: drag/drop + file-picker upload
   busy?: boolean;
 }>) {
   const inputRef = useRef<HTMLInputElement | null>(null);

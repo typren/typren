@@ -26,9 +26,9 @@ export type MarkdownAdapterOptions = {
    *  That filter is a Pages-section heuristic: the Pages dir is shared with
    *  non-page markdown (site.md, legal bodies), and carrying a slice array is
    *  what distinguishes an editable page without a hardcoded exclude list. A
-   *  *collection* dir has no such mixture — every `.md` in it is a record, and
+   *  *collection* dir has no such mixture: every `.md` in it is a record, and
    *  records are frontmatter + prose that may legitimately have no slices at
-   *  all — so collections set this to false (see makeCollectionAdapter). */
+   *  all, so collections set this to false (see makeCollectionAdapter). */
   requireSliceArray?: boolean;
 };
 
@@ -36,13 +36,13 @@ export type MarkdownAdapterOptions = {
  * Filesystem + gray-matter adapter. A page's frontmatter carries the slice
  * array under `frontmatterKey`; everything else in the frontmatter is preserved
  * as `meta`, and the markdown body is preserved verbatim, so publish is a
- * lossless round-trip (modulo YAML reformatting — the CMS owns the file format
+ * lossless round-trip (modulo YAML reformatting: the CMS owns the file format
  * once a page is edited through it).
  *
  * Locale is purely a path prefix: the default locale lives flat at `contentDir`
  * (so a single-locale site needs no file moves and is byte-identical), and
  * non-default locales live under `contentDir/<locale>/`. `parse`/`serialize`
- * are locale-agnostic — the locale never enters the file.
+ * are locale-agnostic. The locale never enters the file.
  */
 export function createMarkdownAdapter({
   contentDir,
@@ -53,14 +53,14 @@ export function createMarkdownAdapter({
   draftSubdir = ".drafts",
   requireSliceArray = true,
 }: MarkdownAdapterOptions): ContentAdapter {
-  // Slugs flow in from client actions and become filesystem paths — reject
+  // Slugs flow in from client actions and become filesystem paths. Reject
   // anything that isn't a plain slug so "../" can't escape the content dir.
   const SAFE_SLUG = /^[a-z0-9][a-z0-9-]*$/i;
   const safe = (slug: string) => {
     if (!SAFE_SLUG.test(slug)) throw new Error(`typren: unsafe slug "${slug}"`);
     return slug;
   };
-  // The locale is also a path segment (a trust boundary) — the allowlist check
+  // The locale is also a path segment (a trust boundary), so the allowlist check
   // is the primary traversal guard for it, not the slug regex.
   const safeLocale = (loc: string) => {
     if (!locales.includes(loc)) throw new Error(`typren: unknown locale "${loc}"`);
@@ -79,7 +79,7 @@ export function createMarkdownAdapter({
     const { data, content } = matter(raw);
     const { [frontmatterKey]: slices, ...meta } = data;
     // gray-matter caches parsed results by input string and returns shared
-    // references — deep-clone so editing the returned content can never mutate
+    // references. Deep-clone the result so editing the returned content can never mutate
     // that cache (which would corrupt later reads of the same source).
     return structuredClone({
       meta,
@@ -106,7 +106,7 @@ export function createMarkdownAdapter({
         .readdirSync(dir, { withFileTypes: true })
         .filter((e) => e.isFile() && e.name.endsWith(".md"))
         .map((e) => e.name.replace(/\.md$/, ""))
-        // Only pages that actually carry a slice array — skips site.md, legal
+        // Only pages that actually carry a slice array: skips site.md, legal
         // bodies, etc. without a hardcoded exclude list. Collections opt out:
         // every .md in a collection dir is a record, slices or not.
         .filter(

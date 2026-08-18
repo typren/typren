@@ -3,7 +3,7 @@ import type { Slice } from "../types";
 /** Best-effort generic slice -> prose flattener: pulls heading/body (common
  *  to nearly every slice), plus common repeating-item shapes (columns/cards/
  *  items/quotes/stats), each rendered as "title: body"-style lines. This is
- *  a *default*, not a registry — a typren consumer whose slices don't fit
+ *  a *default*, not a registry: a typren consumer whose slices don't fit
  *  this shape can pass its own `renderSlice` override per slice name (mirrors
  *  the sliceJsonLd registry's opt-in shape) via `overrides`. */
 export type SliceMarkdownRegistry = Record<string, (props: Record<string, unknown>) => string>;
@@ -25,7 +25,7 @@ function flattenSlice(slice: Slice): string {
 }
 
 /** Renders one page's slices as plain-text prose, in slice order. Used for
- *  both the raw-markdown mirror and llms-full.txt — one flattening pass, two
+ *  both the raw-markdown mirror and llms-full.txt: one flattening pass, two
  *  consumers, so a slice-shape fix only happens once. */
 export function renderSlicesAsMarkdown(slices: Slice[], overrides: SliceMarkdownRegistry = {}): string {
   return slices

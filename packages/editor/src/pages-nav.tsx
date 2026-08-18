@@ -13,7 +13,7 @@ import { cn } from "./primitives/cn";
  *  page. Locale-aware: when a site has more than one locale, each row shows
  *  which locales the page exists in.
  *
- *  No routing inside this component — every navigation outcome (a newly
+ *  No routing inside this component. Every navigation outcome (a newly
  *  created page, a delete, clicking a row) is reported via `onNavigate`
  *  rather than an `<a href>`/`window.location` write; the host decides what
  *  a slug (or `null`, meaning "back to the page picker") means for its URLs. */

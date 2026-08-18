@@ -25,7 +25,7 @@ export type LocalizedPage = PageContent & { locale: string; isFallback: boolean 
 export type PageInfo = { slug: string; title: string; hasDraft: boolean; locales: string[] };
 
 /** One row of a collection's list view. A record IS a `PageContent` with
- *  `slices: []` (see collection.ts) — `meta` is the schema-shaped prop bag,
+ *  `slices: []` (see collection.ts). `meta` is the schema-shaped prop bag,
  *  `hasDraft`/`locale` mirror `PageInfo`'s draft/translation status but are
  *  kept as a local type (not `PageInfo`) since a collection record's display
  *  value comes from an arbitrary schema key, not a fixed `title` field. */
@@ -35,7 +35,7 @@ export type CollectionRecordInfo = {
   /** The record's markdown body. Required, not optional: an optional field
    *  would let a host omit it, and a UI round-tripping this through a save
    *  (see `TyprenCollection._save`) would then silently blank the file's
-   *  body — the exact bug this field exists to prevent. */
+   *  body: the exact bug this field exists to prevent. */
   body: string;
   hasDraft: boolean;
   /** v1 gap: collections aren't locale-switcher aware; this is an
@@ -45,8 +45,8 @@ export type CollectionRecordInfo = {
 
 /** Editor hint for a single prop. Without one, the control is auto-detected
  *  from the value (string→input, number→number, boolean→checkbox, object→YAML).
- *  With one, `type` (and `options` for "select") pick the control explicitly —
- *  this is how enum props become dropdowns. "image"/"media" render the media
+ *  With one, `type` (and `options` for "select") pick the control explicitly.
+ *  This is how enum props become dropdowns. "image"/"media" render the media
  *  picker (see FieldForm) for a bare string or a `{src, alt}` object prop.
  *  Additive: every existing value keeps working byte-identical; the new ones
  *  below only ever activate when a schema explicitly asks for them. */
@@ -58,17 +58,17 @@ export type FieldDef = {
     | "boolean"
     | "select"
     | "yaml"
-    | "image" // media picker for a bare string or `{src, alt}` prop — alias of "media" kept for back-compat, identical control
+    | "image" // media picker for a bare string or `{src, alt}` prop, alias of "media" kept for back-compat, identical control
     | "media" // same control as "image"; the name new schemas should reach for
-    | "richtext" // multi-line formatted copy — a textarea today (no editor dependency added); distinct from "textarea" so a schema can say "this holds markdown" ahead of a future upgrade
-    | "icon" // a name from the host's icon library — searchable picker, see FieldForm's `icons` prop (FieldFormIcons); the package never imports an icon library itself
-    | "color" // a token choice rendered as a real swatch, not the word — reuses `options`; each token resolves through a host-defined `--typren-swatch-<token>` CSS custom property (the package can't know the host's palette any more than it can its icon library)
+    | "richtext" // multi-line formatted copy, a textarea today (no editor dependency added); distinct from "textarea" so a schema can say "this holds markdown" ahead of a future upgrade
+    | "icon" // a name from the host's icon library: searchable picker, see FieldForm's `icons` prop (FieldFormIcons); the package never imports an icon library itself
+    | "color" // a token choice rendered as a real swatch, not the word: reuses `options`; each token resolves through a host-defined `--typren-swatch-<token>` CSS custom property (the package can't know the host's palette any more than it can its icon library)
     | "link" // `{label, href, external?}` authored as one control (text + url + a "opens in new tab" toggle)
-    | "slot"; // a repeatable list of typed sub-items — see `of`/`itemLabel` below; recursive (an item can itself declare an "icon"/"link"/"slot" field)
+    | "slot"; // a repeatable list of typed sub-items, see `of`/`itemLabel` below; recursive (an item can itself declare an "icon"/"link"/"slot" field)
   options?: string[];
   label?: string;
   /** "slot" only: field schema for ONE item in the list (not the list itself).
-   *  Recursion is expected — an item's own fields can include another "slot". */
+   *  Recursion is expected: an item's own fields can include another "slot". */
   of?: SliceSchema;
   /** "slot" only: which item field's value to show as a row's heading in the
    *  editor (e.g. "title"). Falls back to "Item N" when absent, not a string,
@@ -79,7 +79,7 @@ export type FieldDef = {
 /** Field hints for one slice, keyed by prop name. */
 export type SliceSchema = Record<string, FieldDef>;
 
-/** Metadata for one stored media asset. width/height are optional — the fs
+/** Metadata for one stored media asset. width/height are optional. The fs
  *  adapter always populates them for freshly uploaded files (sharp probes
  *  them during processUpload), but can't retroactively know them for files
  *  that were already sitting in the media dir before this feature existed. */
@@ -96,7 +96,7 @@ export type MediaAsset = {
 
 /** A file that has already passed validation + web-optimization (see
  *  media.ts's processUpload) and is ready to persist. Adapters never see
- *  raw client uploads — only this. */
+ *  raw client uploads, only this. */
 export type PreparedFile = {
   name: string; // slugified base name, already carrying the final extension
   mime: string; // final mime AFTER conversion
@@ -109,7 +109,7 @@ export type PreparedFile = {
  * The ONLY thing that knows where/how media files are stored. Phase 1 ships
  * a filesystem adapter over `public/img`; an S3/Vercel Blob adapter drops in
  * behind the same interface later without touching processUpload, FieldForm,
- * or the media library UI — same seam as ContentAdapter (see above).
+ * or the media library UI, same seam as ContentAdapter (see above).
  */
 export interface MediaAdapter {
   list(): Promise<MediaAsset[]>;
@@ -140,7 +140,7 @@ export interface ContentAdapter {
   /** Locales in which `slug` has a published file (switcher / translation status). */
   listLocales(slug: string): string[];
   exists(slug: string, locale?: string): boolean;
-  /** Raw published source (throws if absent — callers gate with `exists`). */
+  /** Raw published source (throws if absent; callers gate with `exists`). */
   readRaw(slug: string, locale?: string): string;
   writeRaw(slug: string, raw: string, locale?: string): void;
   /** Delete the published source (and let the store also drop any draft). */
@@ -150,7 +150,7 @@ export interface ContentAdapter {
   writeDraftRaw(slug: string, raw: string, locale?: string): void;
   deleteDraft(slug: string, locale?: string): void;
   hasDraft(slug: string, locale?: string): boolean;
-  /** Parse raw source into structured content, and back. Locale-agnostic — the
+  /** Parse raw source into structured content, and back. Locale-agnostic: the
    *  locale is a path segment, never inside the file. */
   parse(raw: string): PageContent;
   serialize(page: PageContent): string;
@@ -176,7 +176,7 @@ export interface CmsConfig {
    *  which both the action guard and the layout gate share. */
   auth?: AuthAdapter;
   /** @deprecated Use `auth`. Legacy zero-arg gate; wrapped via `legacyAuthAdapter`.
-   *  Kept optional for back-compat — a config must set either `auth` or this. */
+   *  Kept optional for back-compat: a config must set either `auth` or this. */
   authorize?(): boolean | Promise<boolean>;
   /** Locale set, default locale, URL routing preset, and editor-UI message
    *  overrides. Omit for a single implicit locale (byte-identical behavior).
@@ -185,17 +185,17 @@ export interface CmsConfig {
   /** Optional publish side-effect (Phase 2: revalidatePath + GitHub commit).
    *  Gains `locale` so a revalidate can target the right localized path. */
   onPublish?(slug: string, locale: string): void | Promise<void>;
-  /** Optional save-draft side-effect — mirrors onPublish but for the draft
+  /** Optional save-draft side-effect: mirrors onPublish but for the draft
    *  write. Fired synchronously right after the draft file is written, before
    *  the HTTP response is sent. Keep it fast (a marker-file write, not a
-   *  network call) — store.saveDraft is synchronous and does not await this. */
+   *  network call). store.saveDraft is synchronous and does not await this. */
   onSaveDraft?(slug: string, locale: string, version: string): void;
-  /** Optional media library. Omit to disable media management — image-typed
+  /** Optional media library. Omit to disable media management. Image-typed
    *  fields (see FieldDef) still render, just as a plain text input with no
    *  "Browse library" button. */
   mediaAdapter?: MediaAdapter;
   /** Left-nav section registry. Omit → resolveSections() returns the default
-   *  trio (pages, media, settings) — existing hosts get byte-identical
+   *  trio (pages, media, settings); existing hosts get byte-identical
    *  behavior, mirroring resolveI18n's omitted-block collapse. */
   sections?: Section[];
   /** Where SiteSettings persists. Omit → derived from `adapter`'s root: runtime

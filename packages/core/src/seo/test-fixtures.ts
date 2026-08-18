@@ -4,7 +4,7 @@ import type { PageContent, Slice } from "../types";
 type FixturePage = { slug: string; meta?: Record<string, unknown>; slices?: Slice[] };
 
 /** Minimal in-memory ContentStore for the pure-function tests in this
- *  directory — no fs, no adapter. Only listPages/getPublished are real;
+ *  directory: no fs, no adapter. Only listPages/getPublished are real;
  *  the rest of the interface is stubbed since nothing under test calls it. */
 export function fakeStore(pages: FixturePage[]): ContentStore {
   const byId = new Map<string, PageContent>(

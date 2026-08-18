@@ -1,7 +1,7 @@
 import type { AuthAdapter, AuthUser } from "../auth-adapter";
 
-/** next-auth v5's `auth()` is created per-app, so it's injected, not imported —
- *  this entry (`@typren/core/auth/next-auth`) never resolves `next-auth` itself. */
+/** next-auth v5's `auth()` is created per-app, so it's injected, not imported.
+ *  This entry (`@typren/core/auth/next-auth`) never resolves `next-auth` itself. */
 type Session = {
   user?: { id?: string; email?: string; name?: string; roles?: string[] };
 } | null;
@@ -9,13 +9,13 @@ type Session = {
 /**
  * DEFAULT-OPEN CAVEAT: with neither `allowedEmails` nor `allowedRoles` set,
  * ANY signed-in user is authorized. For a public editor that is almost never
- * what you want — require at least one allowlist in production.
+ * what you want. Require at least one allowlist in production.
  *
- * "admin" (settings/onboarding/bootstrap writes — they reparameterize what the
+ * "admin" (settings/onboarding/bootstrap writes; they reparameterize what the
  * next boot trusts) is gated separately from ordinary content writes: it needs
  * `adminRoles` set and an intersecting role, full stop. Unmapped (no
- * `adminRoles` configured) denies rather than falling back to `allowedRoles` —
- * a host must opt in to who gets to reconfigure the site.
+ * `adminRoles` configured) denies rather than falling back to `allowedRoles`.
+ * A host must opt in to who gets to reconfigure the site.
  */
 export function nextAuthAdapter(opts: {
   /** The host's `auth` from `NextAuth(config)` (reads the session cookie). */

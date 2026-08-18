@@ -3,7 +3,7 @@ import type { SeoConfig } from "./types";
 /**
  * Renders a JSON-LD <script> tag. Escapes `<` so a `</script>` (or any other
  * tag) can never appear literally inside the payload and break out of the
- * script context — the standard mitigation for embedding untrusted-shaped
+ * script context. This is the standard mitigation for embedding untrusted-shaped
  * JSON in HTML (OWASP "JSON in HTML" guidance).
  */
 export function JsonLd({ data }: Readonly<{ data: object }>) {
@@ -32,7 +32,7 @@ export function websiteJsonLd(config: SeoConfig) {
 }
 
 /** items: ordered list, position is 1-based index + 1. First item is
- *  conventionally the site's Home page — pass `path: ""` for it so its
+ *  conventionally the site's Home page. Pass `path: ""` for it so its
  *  `item` URL is the bare site root, not `${siteUrl}/`. */
 export function breadcrumbJsonLd(config: SeoConfig, items: { name: string; path: string }[]) {
   return {

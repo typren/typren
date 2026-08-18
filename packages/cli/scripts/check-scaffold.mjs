@@ -2,7 +2,7 @@
 /**
  * Typecheck what `typren init` actually emits.
  *
- * The scaffold templates are STRINGS — `tsc` never sees them, and the unit tests
+ * The scaffold templates are STRINGS, so `tsc` never sees them, and the unit tests
  * can only assert on substrings. So a template can ship a type error, a wrong
  * import path or a stale API for a whole release and every check stays green.
  * This scaffolds into a throwaway dir inside the repo and compiles the result

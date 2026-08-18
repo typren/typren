@@ -1,4 +1,4 @@
-// Pure locale/routing logic. NO node imports (fs, path, next/server) — this
+// Pure locale/routing logic. NO node imports (fs, path, next/server). This
 // module is safe to import from the edge (proxy.ts) and the host's edge-safe
 // locale constants. Everything content-storage-related lives in the adapter.
 

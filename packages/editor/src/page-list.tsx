@@ -4,7 +4,7 @@ import { PencilLine } from "lucide-react";
 import type { PageInfo } from "@typren/core";
 
 /** Page picker shown when no page is selected. Presentational except for the
- *  navigation callback — the host, not this component, decides what "open
+ *  navigation callback: the host, not this component, decides what "open
  *  this slug" means for its own router. */
 export function PageList({
   pages,
@@ -34,7 +34,7 @@ export function PageList({
         ))}
         {pages.length === 0 && (
           <li className="px-4 py-8 text-center text-sm text-[var(--typren-muted-fg)]">
-            No pages yet — add one from the sidebar.
+            No pages yet. Add one from the sidebar.
           </li>
         )}
       </ul>

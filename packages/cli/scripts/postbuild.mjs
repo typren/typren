@@ -2,16 +2,16 @@
 /**
  * Post-build fixups for `dist`.
  *
- * `moduleResolution: "bundler"` lets SOURCE keep extensionless relative imports
- * — required so bundlers that consume `src` directly (Turbopack, vite) resolve
+ * `moduleResolution: "bundler"` lets SOURCE keep extensionless relative imports.
+ * This is required so bundlers that consume `src` directly (Turbopack, vite) resolve
  * them, and so a workspace/source consumer isn't broken. But raw Node ESM needs
  * real extensions, and the published `bin` (`dist/cli.js`) runs under raw Node.
  *
  * So: extensionless in source, extensions added here in dist only (currently a
- * no-op — `cli.ts` only imports bare package specifiers like `@typren/core`,
- * which Node resolves via `node_modules` either way — kept generic so it still
+ * no-op: `cli.ts` only imports bare package specifiers like `@typren/core`,
+ * which Node resolves via `node_modules` either way. It's kept generic so it still
  * does the right thing if this package ever grows local relative imports).
- * Then smoke it — the bin must actually load under `node`.
+ * Then smoke it: the bin must actually load under `node`.
  */
 import { readdirSync, readFileSync, writeFileSync, chmodSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -34,7 +34,7 @@ for (const file of walk(DIST).filter((f) => f.endsWith(".js") || f.endsWith(".d.
   const after = before.replace(RELATIVE_SPECIFIER, (match, lead, quote, spec) => {
     if (path.extname(spec)) return match; // already .js / .json / .css
     const target = path.resolve(path.dirname(file), spec);
-    // `.js` in a .d.ts is correct too — TS maps ./x.js back to ./x.d.ts.
+    // `.js` in a .d.ts is correct too: TS maps ./x.js back to ./x.d.ts.
     const suffix = existsSync(`${target}.js`) ? ".js" : existsSync(path.join(target, "index.js")) ? "/index.js" : null;
     if (!suffix) {
       skipped.push(`${file} → ${spec}`);

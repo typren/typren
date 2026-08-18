@@ -8,7 +8,7 @@ import { Select } from "./primitives/select";
 import { cn } from "./primitives/cn";
 
 /** Reorderable list of slices: native drag-drop + keyboard-accessible up/down,
- *  plus add / duplicate / delete / select. Pure UI — all state changes go up. */
+ *  plus add / duplicate / delete / select. Pure UI: all state changes go up. */
 export function BlockList({
   slices,
   selectedIndex,
@@ -84,7 +84,7 @@ export function BlockList({
               >
                 <span className="font-medium">{s.slice}</span>
                 {typeof s.heading === "string" && (
-                  <span className="ml-1 text-[var(--typren-muted-fg)]">— {s.heading.replaceAll("**", "")}</span>
+                  <span className="ml-1 text-[var(--typren-muted-fg)]">· {s.heading.replaceAll("**", "")}</span>
                 )}
               </button>
               <Button variant="ghost" size="icon" disabled={i === 0} aria-label="Move up" onClick={() => onReorder(i, i - 1)}>
@@ -110,7 +110,7 @@ export function BlockList({
         })}
         {slices.length === 0 && (
           <li className="px-2 py-4 text-center text-sm text-[var(--typren-muted-fg)]">
-            No blocks yet — add one above.
+            No blocks yet. Add one above.
           </li>
         )}
       </ol>

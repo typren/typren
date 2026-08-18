@@ -50,10 +50,10 @@ export interface SettingsSection extends SectionBase {
 export interface CollectionSection extends SectionBase {
   kind: "collection";
   /** Repo-relative dir, e.g. "content/authors". Gets its OWN ContentAdapter
-   *  instance — MUST NOT resolve inside the Pages contentDir (guarded at
+   *  instance. MUST NOT resolve inside the Pages contentDir (guarded at
    *  buildCollectionActions time, throws loud). */
   dir: string;
-  /** Reuses FieldDef/SliceSchema verbatim — a record IS a slice-shaped prop bag. */
+  /** Reuses FieldDef/SliceSchema verbatim: a record IS a slice-shaped prop bag. */
   schema: SliceSchema;
   /** Which schema key is the list-view primary column. Default: "title", then
    *  the first schema key, then the slug. */
@@ -73,7 +73,7 @@ export interface CustomSection extends SectionBase {
   /** `host: true` = the EMBEDDING SHELL renders this section itself, keyed by
    *  `id`. For a React host that owns its own screens, requiring a custom
    *  element or an imperative mount would mean wrapping a React tree in a
-   *  fake mount just to satisfy the contract — so a section can instead declare
+   *  fake mount just to satisfy the contract. A section can instead declare
    *  that its renderer lives in the host. A generic shell can't render these
    *  and should say so loudly rather than paint an empty pane. */
   host?: true;
@@ -95,19 +95,19 @@ export interface SectionCtx {
   readonly config: {
     /** Server-only handles, hence optional: every element that reads this ctx
      *  runs in the browser, so a host assembling the ctx client-side (the
-     *  normal case in a React-Server-Components app — a slice registry of
+     *  normal case in a React-Server-Components app, since a slice registry of
      *  components and an fs-backed adapter can't cross that boundary) simply
      *  omits them. Nothing in the shell reads either one client-side; they're
      *  here for a section renderer that does have server reach. */
     readonly registry?: Record<string, ComponentType<unknown>>;
     readonly adapter?: ContentAdapter;
-    /** `list`/`delete` only — the two a browser can call. Uploads go through
+    /** `list`/`delete` only: the two a browser can call. Uploads go through
      *  the host's upload route (`MediaSectionProps.uploadPath`), never this
      *  handle, so a full server-side `MediaAdapter` satisfies this and a
      *  client-side facade of two server actions does too. */
     readonly mediaAdapter?: Pick<MediaAdapter, "list" | "delete">;
   };
-  /** Pages-section actions — the existing PageActions, unchanged shape. */
+  /** Pages-section actions: the existing PageActions, unchanged shape. */
   readonly actions: PageActions;
   /** One PageActions per declared collection, keyed by section id. */
   readonly collections: Record<string, PageActions>;
@@ -132,7 +132,7 @@ export interface SectionCtx {
   readonly capabilities: ReadonlySet<string>;
 }
 
-/** Resolved section the shell renders — every default filled. Internal. */
+/** Resolved section the shell renders, every default filled. Internal. */
 export interface ResolvedSection {
   raw: Section;
   id: string;
@@ -148,7 +148,7 @@ export const DEFAULT_SECTIONS: Section[] = [
   { kind: "settings", label: "Settings", group: "other" },
 ];
 
-/** Back-compat resolver — same shape/spirit as resolveI18n(). Omitted or empty
+/** Back-compat resolver, same shape/spirit as resolveI18n(). Omitted or empty
  *  sections → DEFAULT_SECTIONS. Also fills ids/defaults and validates loud. */
 export function resolveSections(config: { sections?: Section[] }): ResolvedSection[] {
   const src = config.sections?.length ? config.sections : DEFAULT_SECTIONS;

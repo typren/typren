@@ -2,7 +2,7 @@ import type { ComponentProps } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "./cn";
 
-/** shadcn-styled native select — most accessible option, no extra primitive
+/** shadcn-styled native select: most accessible option, no extra primitive
  *  library. Lucide chevron for the shadcn look. */
 function Select({ className, children, ...props }: Readonly<ComponentProps<"select">>) {
   return (

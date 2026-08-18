@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import type { PageContent } from "../types";
 
-/** Per-page SEO frontmatter fields. All optional — a page with none of
+/** Per-page SEO frontmatter fields. All optional. A page with none of
  *  these still gets the site defaults from SeoConfig. Lives inside a
  *  page's existing `meta` (frontmatter minus `slices:`), no new file format. */
 export type PageSeoMeta = {
@@ -20,8 +20,8 @@ export type PageSeoMeta = {
 
 /** A slice declares structured data for its own props. Returns one JSON-LD
  *  object, several (e.g. one per FAQ-like item group), or null to emit
- *  nothing for that slice instance. Never throws on missing/malformed props
- *  — return null instead, a bad content edit shouldn't break the page. */
+ *  nothing for that slice instance. Never throws on missing/malformed props.
+ *  Returns null instead, since a bad content edit shouldn't break the page. */
 export type SliceJsonLd<P = Record<string, unknown>> = (props: P) => object | object[] | null;
 
 export type OrganizationConfig = {
@@ -32,13 +32,13 @@ export type OrganizationConfig = {
   sameAs?: string[];
 };
 
-/** One object wires the SEO/AIO module into a project — same spirit as
+/** One object wires the SEO/AIO module into a project, same spirit as
  *  CmsConfig, kept separate from it: this governs public rendering
  *  (metadata/sitemap/robots/JSON-LD), CmsConfig governs the editor. */
 export type SeoConfig = {
   siteUrl: string;
   siteName: string;
-  /** Longer canonical "what is this org" statement — JSON-LD Organization.description
+  /** Longer canonical "what is this org" statement. JSON-LD Organization.description
    *  and llms.txt/llms-full.txt are not SERP-length-constrained like <meta description>,
    *  so this is deliberately allowed to be longer than defaultDescription. */
   entityDescription: string;
@@ -53,7 +53,7 @@ export type SeoConfig = {
   organization?: OrganizationConfig;
   /** Defaults to DEFAULT_AI_CRAWLERS (robots.ts) if omitted. */
   aiCrawlers?: readonly string[];
-  /** Schema-per-slice registry, keyed by slice name — same key shape as
+  /** Schema-per-slice registry, keyed by slice name, same key shape as
    *  CmsConfig.registry / fieldSchema. Optional: slices with no entry
    *  simply emit no JSON-LD. */
   sliceJsonLd?: Record<string, SliceJsonLd>;

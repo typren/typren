@@ -30,10 +30,10 @@ const mimeFromExt = (ext: string) => MIME_FROM_EXT[ext.toLowerCase()] ?? "applic
  * Filesystem media adapter over a flat directory (mirrors `markdown-adapter.ts`'s
  * conventions: a `create*Adapter(opts)` factory, a `SAFE_*` traversal guard,
  * idempotent delete). Async throughout (unlike `ContentAdapter`) because
- * `list()` probes image dimensions via sharp — see `types.ts`'s `MediaAdapter`.
+ * `list()` probes image dimensions via sharp. See `types.ts`'s `MediaAdapter`.
  */
 export function createFsMediaAdapter({ dir, publicPath }: FsMediaAdapterOptions): MediaAdapter {
-  // Ids/filenames reach fs calls straight from a Server Action argument — reject
+  // Ids/filenames reach fs calls straight from a Server Action argument, so reject
   // anything that isn't a plain filename so "../" can't escape the media dir.
   const SAFE_NAME = /^[a-z0-9][a-z0-9._-]*$/i;
   const safe = (id: string) => {
@@ -59,7 +59,7 @@ export function createFsMediaAdapter({ dir, publicPath }: FsMediaAdapterOptions)
             width = meta.width;
             height = meta.height;
           } catch {
-            // Corrupt or dimensionless file (e.g. a malformed SVG) — leave
+            // Corrupt or dimensionless file (e.g. a malformed SVG): leave
             // width/height undefined rather than fail the whole listing.
           }
           return {
@@ -80,7 +80,7 @@ export function createFsMediaAdapter({ dir, publicPath }: FsMediaAdapterOptions)
 
     async upload(file: PreparedFile): Promise<MediaAsset> {
       fs.mkdirSync(dir, { recursive: true });
-      // Unconditional random suffix — no existence-check-then-write race.
+      // Unconditional random suffix: no existence-check-then-write race.
       // `file.name` is already slugified by processUpload; split its extension
       // back off so it isn't re-slugified (which would mangle the leading dot).
       const { name: root, ext } = path.parse(file.name);

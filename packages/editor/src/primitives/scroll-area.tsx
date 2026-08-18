@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react";
 import { cn } from "./cn";
 
-/** shadcn-style scroll container — thin, rounded, themeable scrollbars via CSS
+/** shadcn-style scroll container: thin, rounded, themeable scrollbars via CSS
  *  (no primitive-lib dependency, so the package stays self-contained). */
 function ScrollArea({ className, children, ...props }: Readonly<ComponentProps<"div">>) {
   return (

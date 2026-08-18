@@ -9,7 +9,7 @@ import type { PageContent } from "./types";
  *  The store AND the host public read path both call THIS, so their fallback
  *  rules cannot drift. `null` loc = page-level fallback (serve base as-is).
  *  // ponytail: slices are whole-array per locale; per-slice/per-field merge
- *  // only if partial translation is demanded — key slices by an id and merge then. */
+ *  // only if partial translation is demanded: key slices by an id and merge then. */
 export function mergeLocalized(base: PageContent, loc: PageContent | null): PageContent {
   if (!loc) return base;
   return {
@@ -20,7 +20,7 @@ export function mergeLocalized(base: PageContent, loc: PageContent | null): Page
 }
 
 /** Path segment for a locale's content, matching the adapter's on-disk layout:
- *  the default locale lives FLAT at the content root ("" — so a single-locale
+ *  the default locale lives FLAT at the content root ("", so a single-locale
  *  site needs no file moves), non-default locales under "<locale>/". Shared so
  *  the adapter and the host read path resolve the same file. */
 export function localeSubdir(locale: string, defaultLocale: string): string {

@@ -49,7 +49,7 @@ describe("processUpload", () => {
   });
 
   it("never trusts the client-supplied name's extension over the sniffed bytes", async () => {
-    // A PNG's real bytes, mislabeled with a .txt name — still converts to WebP.
+    // A PNG's real bytes, mislabeled with a .txt name, still converts to WebP.
     const result = await processUpload({ name: "totally-not-an-image.txt", buffer: await png() });
     expect(result.mime).toBe("image/webp");
     expect(result.name).toBe("totally-not-an-image.webp");
