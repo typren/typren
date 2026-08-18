@@ -1,12 +1,15 @@
 # Local CI. Runs before any push reaches GitHub, with no cloud minutes spent.
-# Same set as "bun run verify". check:scaffold typechecks what `typren init`
-# emits against the live @typren/core and @typren/editor source APIs; it runs
-# last because it executes the built CLI, so it needs build's output.
+# Same set as "bun run verify". build runs first: @typren/core's exports point
+# at dist (see vitest.config.ts's alias comment for why), so typecheck can't
+# resolve @typren/core from a sibling package until dist exists. lint and test
+# don't need it, lint isn't type-aware and vitest aliases straight to src, but
+# reordering the whole gate is simpler than special-casing one step.
+# check:scaffold runs last because it executes the built CLI too.
 #
 # coverage:new gates CHANGED LINES at 90% (scripts/coverage-new-code.mjs); the
 # whole-repo floor is enforced by vitest's own ratcheting thresholds inside
 # test:coverage. Two different questions, both worth asking.
-bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run build && bun run check:scaffold
+bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold
 status=$?
 if [ $status -ne 0 ]; then
   exit $status
