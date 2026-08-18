@@ -747,9 +747,15 @@ const TYPREN_THEME_MAPPING = `:root {
   --typren-destructive: #ef4444;
 }`;
 
-function printNextSteps(baseDir: string): void {
+/** Split from `printNextSteps` so the text is assertable without capturing
+ *  stdout, matching how the rest of this file keeps its logic pure. */
+export function nextSteps(baseDir: string): string {
   const appDir = baseDir === "." ? "app" : `${baseDir}/app`;
-  console.log(`
+  return `
+Heads up: @typren/editor is not published to npm yet, so installing it will
+fail. Everything scaffolded below is correct and the editor route compiles as
+soon as that package ships. Watch https://github.com/typren/typren for it.
+
 Next steps:
 
 1. Add typren's editor styles near your Tailwind entry (usually ${appDir}/globals.css):
@@ -770,7 +776,11 @@ ${TYPREN_THEME_MAPPING
      "@/*": ["./${baseDir === "." ? "" : baseDir + "/"}*"]
 
 3. Start your dev server and open /editor.
-`);
+`;
+}
+
+function printNextSteps(baseDir: string): void {
+  console.log(nextSteps(baseDir));
 }
 
 function printHelp(): void {
