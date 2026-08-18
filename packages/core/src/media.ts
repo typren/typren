@@ -67,11 +67,16 @@ export async function processUpload(input: { name: string; buffer: Buffer }): Pr
     buffer = data;
     width = info.width;
     height = info.height;
-  } else if (meta.format === "webp" || meta.format === "avif") {
+  } else if (meta.format === "webp" || (meta.format === "heif" && meta.compression === "av1")) {
+    // sharp 0.35 folded AVIF detection into the "heif" decoder: an AVIF file
+    // now reports format "heif" with compression "av1", while classic HEIC
+    // reports "hevc". Checking compression here is what keeps this branch
+    // from silently starting to accept plain HEIC uploads too.
+    //
     // ponytail: doesn't enforce MAX_DIMENSION on already-webp/avif uploads;
     // acceptable for a v1 authorize()-gated admin tool, revisit if this ever
     // becomes open upload.
-    mime = `image/${meta.format}`;
+    mime = meta.format === "webp" ? "image/webp" : "image/avif";
     buffer = input.buffer;
   } else {
     throw new Error(`Unsupported image format: ${meta.format}. Upload PNG, JPEG, GIF, WebP, AVIF, or SVG.`);

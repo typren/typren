@@ -54,4 +54,24 @@ describe("processUpload", () => {
     expect(result.mime).toBe("image/webp");
     expect(result.name).toBe("totally-not-an-image.webp");
   });
+
+  it("passes an already-WebP upload through unconverted", async () => {
+    const webp = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+      .webp()
+      .toBuffer();
+    const result = await processUpload({ name: "already.webp", buffer: webp });
+    expect(result.mime).toBe("image/webp");
+    expect(result.buffer).toBe(webp); // ponytail branch: passthrough, not re-encoded
+  });
+
+  it("passes an already-AVIF upload through unconverted", async () => {
+    // sharp 0.35 reports AVIF as format "heif" with compression "av1", not a
+    // dedicated "avif" format. Locks in that this branch still recognizes it.
+    const avif = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+      .avif()
+      .toBuffer();
+    const result = await processUpload({ name: "already.avif", buffer: avif });
+    expect(result.mime).toBe("image/avif");
+    expect(result.buffer).toBe(avif);
+  });
 });
