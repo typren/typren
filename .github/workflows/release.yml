@@ -44,11 +44,13 @@ jobs:
 
       # Re-run the gate on a clean checkout. The local hook already ran it, but
       # that was against a working tree, and this proves the tag builds green from
-      # nothing, which is the artifact people actually install.
+      # nothing, which is the artifact people actually install. build runs first:
+      # @typren/core's exports point at dist, so a fresh checkout has no dist
+      # for sibling packages to resolve @typren/core against until it's built.
+      - run: bun run build
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run test
-      - run: bun run build
 
       - name: Publish to npm
         run: bunx changeset publish
