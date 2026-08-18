@@ -2,7 +2,7 @@
   "name": "typren",
   "version": "0.1.0",
   "description": "Scaffolder CLI for Typren: `typren init`, `typren apply-settings`, `typren review`.",
-  "license": "AGPL-3.0-only",
+  "license": "SEE LICENSE IN LICENSE",
   "private": false,
   "type": "module",
   "sideEffects": false,

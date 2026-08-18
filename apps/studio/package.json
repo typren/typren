@@ -2,6 +2,6 @@
   "name": "@typren/studio",
   "version": "0.1.0",
   "description": "STUB. Will be the thin Next.js host that mounts @typren/editor.",
-  "license": "AGPL-3.0-only",
+  "license": "SEE LICENSE IN LICENSE",
   "private": true
 }

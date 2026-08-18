@@ -4,8 +4,8 @@
 # pre-push hook, see CONTRIBUTING.md. This one exists because npm provenance
 # cannot be produced from a laptop: the attestation that a tarball was built
 # from a specific commit in a specific public repo requires OIDC from a
-# supported CI. For an AGPL package asking people to trust its supply chain,
-# that attestation is worth the exception.
+# supported CI. For a source-available package asking people to trust its
+# supply chain, that attestation is worth the exception.
 #
 # Two more things fall out of publishing here rather than locally:
 #   - No long-lived npm token on anyone's machine (OIDC, short-lived).

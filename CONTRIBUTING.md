@@ -6,14 +6,17 @@ it's a real constraint, not boilerplate, and it's better to know up front.
 ## Contributor licence agreement
 
 **Typren requires a CLA on every contribution.** You keep copyright in your
-work; you grant us the right to license it under terms other than AGPL. The full
-text is in [CLA.md](CLA.md).
+work; you grant us the right to license it under terms other than the project's
+own. The full text is in [CLA.md](CLA.md).
 
-We need this because Typren is dual-licensed: AGPL for everyone, plus a
-proprietary grant that lets us run the hosted service. That only works while a
-single party holds the rights to the whole codebase. Once code lands without a
-CLA it can never be relicensed, which would take the hosted service off the
-table permanently.
+Typren is released under the Functional Source License, which already stops
+anyone from standing up a competing hosted version, so the CLA isn't what
+protects that. What it protects is our ability to change license terms later
+without tracking down every past contributor first: shortening or lengthening
+the two-year window before code converts to Apache 2.0, offering a different
+commercial arrangement to a specific customer, or relicensing entirely if the
+project's needs change. Without a CLA, any of those would need everyone who
+ever contributed to agree again.
 
 You may disagree with that model. It is a legitimate thing to dislike, and we would
 rather say so plainly than bury it. If you would rather not sign, open an issue
