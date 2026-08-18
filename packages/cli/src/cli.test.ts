@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { applySettings, scaffold } from "./cli";
+import { applySettings, nextSteps, scaffold } from "./cli";
 
 let dir: string;
 
@@ -210,5 +210,22 @@ describe("applySettings", () => {
     expect(result.cmsConfig).toBe("needs-manual-update");
     expect(result.notes.join("\n")).toContain("cms.config.ts");
     expect(fs.readFileSync(path.join(dir, "cms.config.ts"), "utf8")).toBe("export const cmsConfig = {};\n");
+  });
+});
+
+describe("nextSteps", () => {
+  // The editor package is still private, so `npm install` on a scaffolded app
+  // cannot resolve it. Saying so beats letting the install fail unexplained.
+  it("warns that the editor is not published yet", () => {
+    expect(nextSteps("src")).toContain("not published to npm yet");
+  });
+
+  it("points Tailwind at the editor dist, which is where the classes live", () => {
+    expect(nextSteps("src")).toContain("@typren/editor/dist");
+  });
+
+  it("roots the app dir in baseDir", () => {
+    expect(nextSteps("src")).toContain("src/app/globals.css");
+    expect(nextSteps(".")).toContain("app/globals.css");
   });
 });
