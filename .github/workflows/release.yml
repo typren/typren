@@ -31,7 +31,7 @@ jobs:
     # is also the environment name to enter on npm's Trusted Publisher form.
     environment: release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # changesets needs history
 
@@ -41,7 +41,7 @@ jobs:
 
       # npm (not bun) does the publishing: provenance attestation is an npm
       # feature and needs a recent npm on a Node runtime.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
