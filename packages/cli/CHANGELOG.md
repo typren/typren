@@ -1,4 +1,4 @@
-# @typren/core
+# typren
 
 ## 0.1.2
 
@@ -7,20 +7,5 @@
 - Prepare the `typren` CLI for its first npm release, and align the `typren init` scaffold with what is actually published. The scaffold no longer emits the unpublished `@typren/editor` UI: the editor routes are gone, the content Server Actions now live in `cms-actions.ts`, and the media upload route now lives at `app/media/upload/route.ts`. The CLI gains `--version`, a `typren telemetry on|off` command (inert until a collector endpoint exists, disabled by `DO_NOT_TRACK`, `TYPREN_TELEMETRY=0`, or `CI`), and `typren review` now detects its paths instead of assuming a fixed layout, overridable via a `review` key in `typren.config.json`. CLI packaging is now npm-correct: `@typren/core` is declared as a semver range instead of `workspace:*`, and LICENSE and README ship in the package.
   
   This core release matters for the CLI even though the core API is unchanged: `buildTemplates` lives in `@typren/core/templates/init`, so the CLI must resolve a core version that contains the editor-free scaffold. Publishing the CLI against core 0.1.1 would scaffold imports of the unpublished editor package.
-
-## 0.1.1
-
-### Patch Changes
-
-- Patch sharp to close four high-severity libvips CVEs (CVE-2026-33327,
-  CVE-2026-33328, CVE-2026-35590, CVE-2026-35591). The fix shipped in sharp
-  0.35.0, which `^0.34.5` could never reach, so this raises the range to
-  `^0.35.3`.
-  
-  sharp 0.35 also folded AVIF detection into its heif decoder, so an AVIF upload
-  now reports format `heif` with compression `av1` rather than a dedicated
-  `avif` format. The upload guard checks compression alongside format, which
-  keeps AVIF passthrough working without silently starting to accept plain HEIC.
-  
-  Adds a package README, so the npm page describes the package instead of
-  showing nothing.
+- Updated dependencies
+  - @typren/core@0.1.2

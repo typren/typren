@@ -89,9 +89,9 @@ export async function processUpload(input: { name: string; buffer: Buffer }): Pr
  *  "host owns the boundary, package supplies the logic" split actions.ts
  *  already uses for Server Actions.
  *
- *  Route Handlers don't participate in `app/editor/layout.tsx`'s auth gate
- *  (a sibling `route.ts` never runs through a parent layout), so this
- *  re-checks auth itself via the same `resolveAuth` the action guard uses. */
+ *  Route Handlers never run through a parent layout's auth gate (a
+ *  `route.ts` renders no layout tree at all), so this re-checks auth itself
+ *  via the same `resolveAuth` the action guard uses. */
 export async function handleMediaUpload(config: CmsConfig, request: Request): Promise<Response> {
   if (!(await resolveAuth(config).authorize({ action: "uploadMedia" }))) {
     return new Response("Unauthorized", { status: 401 });

@@ -150,9 +150,10 @@ export type CmsActions = ReturnType<typeof makeActions>;
 /** The subset of `CmsActions` the page/site/media editor shells actually call
  *  (page CRUD + draft/publish, for PagesNav's create/delete-page controls and
  *  EditorShell's save flow). `listMedia`/`deleteMedia` are wired separately
- *  via each shell's `media` prop. Hosts pass a reconstructed literal here
- *  (see the scaffolded `app/editor/actions.ts`), not the real `makeActions()`
- *  object, so this must list only what's used, not the full action registry.
+ *  via each shell's `media` prop. Hosts mounting `@typren/editor` pass a
+ *  reconstructed literal here, assembled in their own editor wiring (the CLI
+ *  scaffold no longer emits one), not the real `makeActions()` object, so
+ *  this must list only what's used, not the full action registry.
  *
  *  `renamePage`/`duplicatePage` are excluded for the same reason: no shipped
  *  UI shell calls them yet (this API landed ahead of its UI), so a required

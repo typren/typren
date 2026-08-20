@@ -27,8 +27,9 @@
  * }
  * ```
  *
- * Auth is unchanged by this module: `app/editor/layout.tsx` still gates on
- * `resolveAuth(config).authorize(...)` exactly as today. This only rewrites
+ * Auth is unchanged by this module: whatever gate the host mounts in front of
+ * its editor routes (a layout calling `resolveAuth(config).authorize(...)`)
+ * still runs exactly as today. This only rewrites
  * the URL an already-authorized request resolves to. Renaming the admin route
  * makes `/editor/**` itself 404 for anyone hitting it directly post-rename
  * (URL hygiene), it does not touch the auth boundary.

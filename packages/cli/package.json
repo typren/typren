@@ -1,16 +1,17 @@
 {
   "name": "typren",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Scaffolder CLI for Typren: `typren init`, `typren apply-settings`, `typren review`.",
   "license": "SEE LICENSE IN LICENSE",
-  "private": true,
+  "private": false,
   "type": "module",
   "sideEffects": false,
   "bin": {
     "typren": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
@@ -18,7 +19,7 @@
     "check:scaffold": "node scripts/check-scaffold.mjs"
   },
   "dependencies": {
-    "@typren/core": "workspace:*",
+    "@typren/core": "^0.1.2",
     "gray-matter": "^4.0.3"
   },
   "devDependencies": {

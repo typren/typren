@@ -3,10 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import matter from "gray-matter";
 import { buildTemplates, TYPREN_BOOTSTRAP_MARKER, TYPREN_REWRITE_MARKER } from "@typren/core/templates/init";
 import { createFsSettingsAdapter, resolveI18n, type SiteSettingsBootstrap, type Slice } from "@typren/core";
+import { firstRunNotice, isEnabled, record, setEnabled } from "./telemetry";
 
 export type ScaffoldResult =
   | { ok: true; baseDir: string; created: string[]; skipped: string[] }
@@ -201,6 +202,51 @@ function readTextSafe(absPath: string): string | null {
   }
 }
 
+/** Every path `review`'s checks read from, all repo-relative (what both `fs`
+ *  and `git` want here). */
+export type ReviewPaths = {
+  contentDir: string;
+  resourcesDir: string;
+  seoFile: string;
+  seoRegistryFile: string;
+};
+
+/** Auto-detected defaults for a project with no `review` overrides: the same
+ *  src/-vs-root convention `scaffold()` uses to pick its base dir (prefer
+ *  `src/content` when a `src/` directory exists, else `content`), so a
+ *  zero-config `review` lines up with what `init` just scaffolded. */
+function detectReviewPaths(cwd: string): ReviewPaths {
+  const baseDir = fs.existsSync(path.join(cwd, "src")) ? "src" : ".";
+  const under = (rel: string) => (baseDir === "." ? rel : `${baseDir}/${rel}`);
+  return {
+    contentDir: under("content"),
+    resourcesDir: under("content/resources"),
+    seoFile: under("app/seo.tsx"),
+    seoRegistryFile: under("slices/seo-registry.ts"),
+  };
+}
+
+/**
+ * Resolves the paths `review` reads from: the auto-detected defaults above,
+ * with any `review` key in typren.config.json overriding individual fields.
+ * None of these files are required to exist, on purpose. A predecessor
+ * project's layout, or a scaffold that no longer emits seo.tsx at all, both
+ * degrade the same way: the checks that depend on a missing file report
+ * "skip" (see runChecks/checkEntityDescription/checkCanonical/
+ * checkFaqRegistration), never a hard failure and never a silent pass.
+ */
+export function resolveReviewPaths(cwd: string): ReviewPaths {
+  const defaults = detectReviewPaths(cwd);
+  const raw = readTextSafe(path.join(cwd, "typren.config.json"));
+  if (!raw) return defaults;
+  try {
+    const parsed = JSON.parse(raw) as { review?: Partial<ReviewPaths> };
+    return { ...defaults, ...parsed.review };
+  } catch {
+    return defaults; // malformed typren.config.json: fall back rather than crash `review`.
+  }
+}
+
 /** Best-effort text probe for `export const NAME = "...";`. Reads the
  *  constant's value without importing the file. Several of the files this
  *  needs to read (src/app/seo.tsx) re-export JSX-bearing modules, and Node's
@@ -216,25 +262,26 @@ function extractStringConst(text: string, name: string): string | null {
  *  regex-probe way as extractStringConst. See its comment for why this
  *  doesn't just `import()` the file. Returns null when the file can't be
  *  read (check that depends on it degrades to "skip", not a guess). */
-function getSeoRegistryKeys(cwd: string): string[] | null {
-  const text = readTextSafe(path.join(cwd, "src/slices/seo-registry.ts"));
+function getSeoRegistryKeys(cwd: string, paths: ReviewPaths): string[] | null {
+  const text = readTextSafe(path.join(cwd, paths.seoRegistryFile));
   if (text === null) return null;
   return [...text.matchAll(/^\s*(\w+):\s*(?:async\s*)?\(/gm)].map((m) => m[1]);
 }
 
-function getSiteUrl(cwd: string): string | null {
-  const text = readTextSafe(path.join(cwd, "src/app/seo.tsx"));
+function getSiteUrl(cwd: string, paths: ReviewPaths): string | null {
+  const text = readTextSafe(path.join(cwd, paths.seoFile));
   return text === null ? null : extractStringConst(text, "SITE_URL");
 }
 
 /** Slugs `createMarkdownAdapter`'s default-locale `listSlugs()` would return
- *  (flat `src/content/*.md` files carrying a `slices` array), reimplemented
- *  against raw files instead of instantiating the adapter/store because the
- *  host's `src/cms.config.ts` imports "server-only", which throws unless
- *  imported from a React Server Component build (i.e. never from a plain
- *  Node CLI process). Same reasoning as parsePage() above. */
-function listCmsPageSlugs(cwd: string): string[] {
-  const dir = path.join(cwd, "src/content");
+ *  (flat `*.md` files carrying a `slices` array, directly under the resolved
+ *  content dir), reimplemented against raw files instead of instantiating
+ *  the adapter/store because the host's `cms.config.ts` imports
+ *  "server-only", which throws unless imported from a React Server
+ *  Component build (i.e. never from a plain Node CLI process). Same
+ *  reasoning as parsePage() above. */
+function listCmsPageSlugs(cwd: string, paths: ReviewPaths): string[] {
+  const dir = path.join(cwd, paths.contentDir);
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir, { withFileTypes: true })
@@ -246,14 +293,14 @@ function listCmsPageSlugs(cwd: string): string[] {
     });
 }
 
-/** Locates a slug's content file: a routed CMS page (`src/content/<slug>.md`)
- *  or a hosted resource post (`src/content/resources/<slug>.md`, no
- *  frontmatter, see src/lib/resources.ts). Returns a repo-relative path
- *  (what git wants), or null if neither exists. */
-function findContentFile(cwd: string, slug: string): string | null {
-  const flat = `src/content/${slug}.md`;
+/** Locates a slug's content file: a routed CMS page (`<contentDir>/<slug>.md`)
+ *  or a hosted resource post (`<resourcesDir>/<slug>.md`, no frontmatter, see
+ *  src/lib/resources.ts). Returns a repo-relative path (what git wants), or
+ *  null if neither exists. */
+function findContentFile(cwd: string, slug: string, paths: ReviewPaths): string | null {
+  const flat = `${paths.contentDir}/${slug}.md`;
   if (fs.existsSync(path.join(cwd, flat))) return flat;
-  const nested = `src/content/resources/${slug}.md`;
+  const nested = `${paths.resourcesDir}/${slug}.md`;
   if (fs.existsSync(path.join(cwd, nested))) return nested;
   return null;
 }
@@ -274,14 +321,18 @@ function gitDiffRaw(cwd: string, base: string, relFile: string): string {
   }
 }
 
-function gitChangedContentFiles(cwd: string, base: string): { ok: true; files: string[] } | { ok: false; error: string } {
+function gitChangedContentFiles(
+  cwd: string,
+  base: string,
+  contentDir: string
+): { ok: true; files: string[] } | { ok: false; error: string } {
   try {
-    const out = execFileSync("git", ["diff", "--name-only", base, "--", "src/content"], { cwd, encoding: "utf8" });
+    const out = execFileSync("git", ["diff", "--name-only", base, "--", contentDir], { cwd, encoding: "utf8" });
     return { ok: true, files: out.split("\n").map((l) => l.trim()).filter((l) => l.endsWith(".md")) };
   } catch (e) {
     return {
       ok: false,
-      error: `\`git diff --name-only ${base} -- src/content\` failed: ${
+      error: `\`git diff --name-only ${base} -- ${contentDir}\` failed: ${
         e instanceof Error ? e.message : String(e)
       } (is "${base}" fetched locally?)`,
     };
@@ -386,7 +437,7 @@ function checkTitleAndDescription(meta: Record<string, unknown>): CheckResult[] 
   return [...mk("title", 0, 60), ...mk("description", 50, 160)];
 }
 
-function checkCanonical(meta: Record<string, unknown>, siteUrl: string | null): CheckResult {
+function checkCanonical(meta: Record<string, unknown>, siteUrl: string | null, seoFile: string): CheckResult {
   const canonical = meta.canonical;
   if (canonical === undefined || canonical === null || canonical === "") {
     return { id: "seo.canonical.consistency", status: "skip", message: "no canonical set" };
@@ -397,7 +448,7 @@ function checkCanonical(meta: Record<string, unknown>, siteUrl: string | null): 
   }
   return siteUrl
     ? { id: "seo.canonical.consistency", status: "fail", message: `canonical "${canonical}" is not under SITE_URL (${siteUrl}) or a same-site path` }
-    : { id: "seo.canonical.consistency", status: "skip", message: "couldn't read SITE_URL from src/app/seo.tsx to validate against" };
+    : { id: "seo.canonical.consistency", status: "skip", message: `couldn't read SITE_URL from ${seoFile} to validate against` };
 }
 
 function checkNoindex(meta: Record<string, unknown>): CheckResult {
@@ -417,18 +468,18 @@ function checkSitemapPriority(meta: Record<string, unknown>): CheckResult {
     : { id: "seo.sitemap.priority-range", status: "fail", message: `sitemap.priority (${JSON.stringify(p)}) must be a number between 0 and 1` };
 }
 
-function checkEntityDescription(cwd: string): CheckResult {
-  const text = readTextSafe(path.join(cwd, "src/app/seo.tsx"));
-  if (text === null) return { id: "aio.entity.description-present", status: "skip", message: "src/app/seo.tsx not found" };
+function checkEntityDescription(cwd: string, paths: ReviewPaths): CheckResult {
+  const text = readTextSafe(path.join(cwd, paths.seoFile));
+  if (text === null) return { id: "aio.entity.description-present", status: "skip", message: `${paths.seoFile} not found` };
   const val = extractStringConst(text, "SITE_ENTITY_DESCRIPTION");
   return val && val.trim().length > 0
     ? { id: "aio.entity.description-present", status: "pass" }
-    : { id: "aio.entity.description-present", status: "fail", message: "SITE_ENTITY_DESCRIPTION is missing or empty in src/app/seo.tsx" };
+    : { id: "aio.entity.description-present", status: "fail", message: `SITE_ENTITY_DESCRIPTION is missing or empty in ${paths.seoFile}` };
 }
 
-function checkFaqRegistration(slices: Slice[], registeredKeys: string[] | null): CheckResult {
+function checkFaqRegistration(slices: Slice[], registeredKeys: string[] | null, seoRegistryFile: string): CheckResult {
   if (registeredKeys === null) {
-    return { id: "aio.jsonld.slice-registered", status: "skip", message: "couldn't read src/slices/seo-registry.ts" };
+    return { id: "aio.jsonld.slice-registered", status: "skip", message: `couldn't read ${seoRegistryFile}` };
   }
   const isFaqShaped = (s: Slice) => {
     const items = (s as Record<string, unknown>).items;
@@ -483,7 +534,8 @@ function runChecks(
   meta: Record<string, unknown>,
   slices: Slice[],
   hasFrontmatter: boolean,
-  cmsSlugs: string[]
+  cmsSlugs: string[],
+  paths: ReviewPaths
 ): CheckResult[] {
   // aio.entity.description-present and aio.llms.reachable are repo/registry-
   // wide invariants, not per-file, and are still meaningful even for a page with no
@@ -499,7 +551,7 @@ function runChecks(
       skip("seo.canonical.consistency", reason),
       skip("seo.noindex.flagged", reason),
       skip("seo.sitemap.priority-range", reason),
-      checkEntityDescription(cwd),
+      checkEntityDescription(cwd, paths),
       skip("aio.jsonld.slice-registered", reason),
       skip("a11y.alt.present", reason),
       skip("seo.headings.order", reason),
@@ -508,15 +560,15 @@ function runChecks(
     ];
   }
 
-  const siteUrl = getSiteUrl(cwd);
-  const registeredKeys = getSeoRegistryKeys(cwd);
+  const siteUrl = getSiteUrl(cwd, paths);
+  const registeredKeys = getSeoRegistryKeys(cwd, paths);
   return [
     ...checkTitleAndDescription(meta),
-    checkCanonical(meta, siteUrl),
+    checkCanonical(meta, siteUrl, paths.seoFile),
     checkNoindex(meta),
     checkSitemapPriority(meta),
-    checkEntityDescription(cwd),
-    checkFaqRegistration(slices, registeredKeys),
+    checkEntityDescription(cwd, paths),
+    checkFaqRegistration(slices, registeredKeys, paths.seoRegistryFile),
     checkAlt(slices),
     checkHeadingsOrder(slices),
     checkLlmsReachable(slug, cmsSlugs),
@@ -524,15 +576,15 @@ function runChecks(
   ];
 }
 
-function buildBrief(cwd: string, relFile: string, base: string): ReviewBrief {
+function buildBrief(cwd: string, relFile: string, base: string, paths: ReviewPaths): ReviewBrief {
   const slug = path.basename(relFile, ".md");
   const rawAfter = readTextSafe(path.join(cwd, relFile)) ?? "";
   const rawBefore = gitShow(cwd, base, relFile) ?? "";
   const after = parsePage(rawAfter);
   const before = parsePage(rawBefore);
 
-  const cmsSlugs = listCmsPageSlugs(cwd);
-  const checks = runChecks(cwd, slug, after.meta, after.slices, after.hasFrontmatter, cmsSlugs);
+  const cmsSlugs = listCmsPageSlugs(cwd, paths);
+  const checks = runChecks(cwd, slug, after.meta, after.slices, after.hasFrontmatter, cmsSlugs, paths);
   const summary: Record<CheckStatus, number> = { pass: 0, warn: 0, fail: 0, skip: 0 };
   for (const c of checks) summary[c.status]++;
 
@@ -553,27 +605,33 @@ function buildBrief(cwd: string, relFile: string, base: string): ReviewBrief {
 
 /**
  * Core of `typren review [slug] [--base <ref>]`. No slug: one brief per
- * `src/content/**` file changed against `base` (default `origin/main`,
- * working-tree included: a plain `git diff <base> -- <path>`, not a
- * merge-base triple-dot, so uncommitted local edits show up too). A slug:
- * one brief for that page's current file vs. its `base` version, found
- * whether it's a routed CMS page or a hosted resources/*.md post.
+ * content file changed against `base` (default `origin/main`, working-tree
+ * included: a plain `git diff <base> -- <path>`, not a merge-base
+ * triple-dot, so uncommitted local edits show up too). A slug: one brief for
+ * that page's current file vs. its `base` version, found whether it's a
+ * routed CMS page or a hosted resources/*.md post.
+ *
+ * Paths (content dir, resources dir, SEO files) come from
+ * resolveReviewPaths: auto-detected, or overridden by typren.config.json's
+ * "review" key. Resolved once per call so every brief in a multi-file run
+ * uses the same paths.
  */
 export function review(cwd: string, opts: { slug?: string; base?: string } = {}): ReviewResult {
   const base = opts.base ?? "origin/main";
+  const paths = resolveReviewPaths(cwd);
   if (opts.slug) {
-    const relFile = findContentFile(cwd, opts.slug);
+    const relFile = findContentFile(cwd, opts.slug, paths);
     if (!relFile) {
       return {
         ok: false,
-        error: `no content file found for slug "${opts.slug}" (looked in src/content/${opts.slug}.md and src/content/resources/${opts.slug}.md)`,
+        error: `no content file found for slug "${opts.slug}" (looked in ${paths.contentDir}/${opts.slug}.md and ${paths.resourcesDir}/${opts.slug}.md)`,
       };
     }
-    return { ok: true, briefs: [buildBrief(cwd, relFile, base)] };
+    return { ok: true, briefs: [buildBrief(cwd, relFile, base, paths)] };
   }
-  const changed = gitChangedContentFiles(cwd, base);
+  const changed = gitChangedContentFiles(cwd, base, paths.contentDir);
   if (!changed.ok) return { ok: false, error: changed.error };
-  return { ok: true, briefs: changed.files.map((f) => buildBrief(cwd, f, base)) };
+  return { ok: true, briefs: changed.files.map((f) => buildBrief(cwd, f, base, paths)) };
 }
 
 function ghAvailable(): boolean {
@@ -713,7 +771,7 @@ function printReviewReport(result: ReviewResult, opts: { json?: boolean } = {}):
     return;
   }
   if (!result.briefs.length) {
-    console.log("typren review: no changed files under src/content against the base ref.");
+    console.log("typren review: no changed content files found against the base ref.");
     return;
   }
   for (const b of result.briefs) {
@@ -723,59 +781,37 @@ function printReviewReport(result: ReviewResult, opts: { json?: boolean } = {}):
   }
 }
 
-const TYPREN_THEME_MAPPING = `:root {
-  --typren-bg: var(--background, #ffffff);
-  --typren-fg: var(--foreground, #18181b);
-  --typren-muted: var(--muted, #f4f4f5);
-  --typren-muted-fg: var(--muted-foreground, #71717a);
-  --typren-border: var(--border, #e4e4e7);
-  --typren-primary: var(--primary, #2563eb);
-  --typren-primary-fg: var(--primary-foreground, #ffffff);
-  --typren-ring: var(--ring, #3b82f6);
-  --typren-destructive: var(--destructive, #dc2626);
-}
-.dark {
-  color-scheme: dark;
-  --typren-bg: #09090b;
-  --typren-fg: #fafafa;
-  --typren-muted: #27272a;
-  --typren-muted-fg: #a1a1aa;
-  --typren-border: #27272a;
-  --typren-primary: var(--primary, #3b82f6);
-  --typren-primary-fg: var(--primary-foreground, #ffffff);
-  --typren-ring: var(--ring, #3b82f6);
-  --typren-destructive: #ef4444;
-}`;
-
 /** Split from `printNextSteps` so the text is assertable without capturing
- *  stdout, matching how the rest of this file keeps its logic pure. */
+ *  stdout, matching how the rest of this file keeps its logic pure.
+ *
+ *  No Tailwind/theme step here: @typren/core/theme.css's tokens are read
+ *  ONLY by @typren/editor's own UI (see that file's own doc comment), and
+ *  this scaffold no longer emits an editor route at all, so importing it
+ *  would wire up styling for a component that isn't there. Nothing below
+ *  tells the user to open /editor either, for the same reason: that route
+ *  doesn't exist in this scaffold's output. */
 export function nextSteps(baseDir: string): string {
   const appDir = baseDir === "." ? "app" : `${baseDir}/app`;
   return `
-Heads up: @typren/editor is not published to npm yet, so installing it will
-fail. Everything scaffolded below is correct and the editor route compiles as
-soon as that package ships. Watch https://github.com/typren/typren for it.
+Note: @typren/editor, typren's visual editor UI, is a separate package and is
+not published to npm yet. This scaffold only wires the content layer (no
+editor route, nothing to style), so nothing here depends on it. cms-actions.ts
+and the slices under slices/ already work standalone; install @typren/editor
+later if and when you want a UI on top of them.
 
 Next steps:
 
-1. Add typren's editor styles near your Tailwind entry (usually ${appDir}/globals.css):
-
-     @import "@typren/core/theme.css";
-     @source "../node_modules/@typren/editor/dist"; /* Tailwind v4: adjust the relative path to your CSS file's location */
-
-   Then map the --typren-* tokens it defines onto your own design tokens (adjust
-   the fallbacks/dark values to match your theme):
-
-${TYPREN_THEME_MAPPING
-  .split("\n")
-  .map((l) => "     " + l)
-  .join("\n")}
-
-2. Make sure your tsconfig.json has a "@/*" path alias:
+1. Make sure your tsconfig.json has a "@/*" path alias:
 
      "@/*": ["./${baseDir === "." ? "" : baseDir + "/"}*"]
 
-3. Start your dev server and open /editor.
+2. Render your content: import \`cmsStore\` from "@/cms.config" and
+   \`SliceZone\` from "@/slices/slice-zone" into a page under ${appDir}/, e.g.:
+
+     const page = cmsStore.getPublished("home");
+     return <SliceZone slices={page.slices} />;
+
+3. Start your dev server.
 `;
 }
 
@@ -791,8 +827,10 @@ Usage:
   npx typren apply-settings
   npx typren review [slug] [--base <ref>] [--json] [--pr]
   npx typren review --update-pr <number> --body-file <path>
+  npx typren telemetry [on|off]
+  npx typren --version
 
-  init             Scaffold typren's editor wiring into the current project
+  init             Scaffold typren's content layer into the current project
                    (default command). Never overwrites an existing file
                    unless --force is given.
 
@@ -800,17 +838,24 @@ Usage:
                    typren.config.json's adminRoute/locales/defaultLocale
                    (spec §5). Safe to run repeatedly.
 
-  review           Deterministic content-review brief for src/content/**.
-                   No slug: one brief per file changed vs --base (default
-                   origin/main). A slug: that page's current file vs base.
+  review           Deterministic content-review brief for the project's
+                   content directory (auto-detected: src/content when src/
+                   exists, else content; override via typren.config.json's
+                   "review" key). No slug: one brief per file changed vs
+                   --base (default origin/main). A slug: that page's
+                   current file vs base.
                      --base <ref>        Compare against this ref (default origin/main).
                      --json               Print the raw review-brief JSON instead of a table.
                      --pr                 Also open/update the content/<slug> PR (needs gh).
                      --update-pr <n>      Post an existing PR body from --body-file (no brief run).
                      --body-file <path>   Markdown file to post with --update-pr.
 
+  telemetry [on|off]   Enable/disable anonymous CLI usage telemetry, or print
+                   the current state with no argument.
+
   --force          Overwrite files that already exist (init only).
   --help           Show this help.
+  --version, -v    Print the installed typren version.
 `);
 }
 
@@ -858,7 +903,9 @@ function parseReviewArgs(args: string[]) {
   return { slug, base, json, pr, updatePr, bodyFile };
 }
 
-function runReviewCommand(args: string[]): void {
+/** Returns whether the command actually succeeded, so `main()` knows
+ *  whether to record a telemetry event for it (never for a run that errored). */
+function runReviewCommand(args: string[]): boolean {
   const opts = parseReviewArgs(args);
 
   if (opts.updatePr !== undefined) {
@@ -866,67 +913,145 @@ function runReviewCommand(args: string[]): void {
     if (!Number.isInteger(prNumber) || !opts.bodyFile) {
       console.error("typren review: --update-pr <number> requires a numeric PR number and --body-file <path>");
       process.exitCode = 1;
-      return;
+      return false;
     }
     const result = updatePrBody(process.cwd(), prNumber, opts.bodyFile);
     if (!result.ok) {
       console.error(`typren review: ${result.error}`);
       process.exitCode = 1;
-      return;
+      return false;
     }
     console.log(`typren review: PR #${prNumber} ${result.action}.`);
-    return;
+    return true;
   }
 
   const result = review(process.cwd(), { slug: opts.slug, base: opts.base });
   printReviewReport(result, { json: opts.json });
   if (!result.ok) {
     process.exitCode = 1;
-    return;
+    return false;
   }
+  let ok = true;
   if (opts.pr) {
     for (const brief of result.briefs) {
       const prResult = openOrUpdateContentPr(process.cwd(), brief);
       if (!prResult.ok) {
         console.error(`typren review: PR step failed for "${brief.slug}": ${prResult.error}`);
         process.exitCode = 1;
+        ok = false;
       } else {
         console.log(`typren review: PR ${prResult.action} for "${brief.slug}"${prResult.url ? ` (${prResult.url})` : ""}.`);
         prResult.notes.forEach((n) => console.log(`  ${n}`));
       }
     }
   }
+  return ok;
 }
 
-function main(): void {
-  const args = process.argv.slice(2);
+/** Same hand-rolled style as parseReviewArgs: the first bare token after
+ *  "telemetry" itself (skipping any flags, though this command takes none). */
+function parseTelemetrySubcommand(args: string[]): string | undefined {
+  let sawCommand = false;
+  for (const a of args) {
+    if (a.startsWith("-")) continue;
+    if (!sawCommand) {
+      sawCommand = true; // consumes "telemetry" itself
+      continue;
+    }
+    return a;
+  }
+  return undefined;
+}
+
+function runTelemetryCommand(args: string[]): void {
+  const sub = parseTelemetrySubcommand(args);
+  if (sub === undefined) {
+    console.log(`typren telemetry: ${isEnabled() ? "on" : "off"}`);
+    return;
+  }
+  if (sub === "on" || sub === "off") {
+    setEnabled(sub === "on");
+    console.log(`typren telemetry: ${sub}.`);
+    return;
+  }
+  console.error(`typren telemetry: unknown argument "${sub}" (expected "on" or "off")`);
+  process.exitCode = 1;
+}
+
+/** Reads this package's own version out of its package.json rather than a
+ *  hardcoded string that drifts on every release bump, the same
+ *  import.meta.url-relative approach telemetry.ts's readCliVersion() uses
+ *  (this file also ships as dist/cli.js, a sibling of dist/telemetry.js, so
+ *  "../package.json" resolves the same way from either). */
+function readCliVersion(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const pkg = JSON.parse(fs.readFileSync(path.join(here, "..", "package.json"), "utf8")) as { version?: unknown };
+  return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+}
+
+// Every command word `main()` actually dispatches to. `--help`/`--version`
+// short-circuit above this and an unrecognized word errors out below it,
+// neither ever reaching the telemetry notice/record calls: those aren't
+// usage signals, and --version's own error path shouldn't announce telemetry
+// on its way out.
+const KNOWN_COMMANDS = new Set(["init", "apply-settings", "review", "telemetry"]);
+
+/** `argv` defaults to the real process argv so direct runs (isDirectRun()
+ *  below) need no change, but takes an explicit array so tests can drive
+ *  every dispatch branch without touching the real process.argv or
+ *  capturing stdout beyond spying on console.*, matching how `nextSteps()`
+ *  was already split out of `printNextSteps()` for the same reason. */
+export function main(argv: string[] = process.argv.slice(2)): void {
+  const args = argv;
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
+    return;
+  }
+  if (args.includes("--version") || args.includes("-v")) {
+    console.log(readCliVersion());
     return;
   }
 
   const force = args.includes("--force");
   const command = args.find((a) => !a.startsWith("-")) ?? "init";
-  if (command === "apply-settings") {
-    printApplySettingsReport(applySettings(process.cwd()));
-    return;
-  }
-  if (command === "review") {
-    runReviewCommand(args);
-    return;
-  }
-  if (command !== "init") {
-    console.error(`typren: unknown command "${command}" (only "init", "apply-settings", and "review" are supported)`);
+  if (!KNOWN_COMMANDS.has(command)) {
+    console.error(`typren: unknown command "${command}" (only "init", "apply-settings", "review", and "telemetry" are supported)`);
     process.exitCode = 1;
     return;
   }
 
+  // Printed before the command's own output (per firstRunNotice()'s own
+  // contract) so a long `review` report can't push it off screen. Only
+  // reached for a recognized command, matching record() below: --help,
+  // --version, and an unknown command never see this either.
+  const notice = firstRunNotice();
+  if (notice) console.log(notice);
+
+  if (command === "telemetry") {
+    runTelemetryCommand(args);
+    return;
+  }
+
+  if (command === "apply-settings") {
+    const result = applySettings(process.cwd());
+    printApplySettingsReport(result);
+    if (result.ok) record("apply-settings");
+    return;
+  }
+
+  if (command === "review") {
+    if (runReviewCommand(args)) record("review");
+    return;
+  }
+
+  // command === "init"
   const result = scaffold(process.cwd(), { force });
   if (!result.ok) {
     console.error(`typren init: ${result.error}`);
     process.exitCode = 1;
     return;
   }
+  record("init");
 
   const { created, skipped, baseDir } = result;
   console.log(`typren init: ${created.length} file(s) created, ${skipped.length} skipped (already exist).`);
