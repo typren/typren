@@ -28,6 +28,10 @@ instructions, you reply with the sentence it asks for, and your signature is
 recorded on the `cla-signatures` branch of this repository against your username.
 It covers every contribution you make afterwards, so you only do it once.
 
+The check runs on pull requests into `develop`, which is where contributions
+arrive. Release promotions from `develop` into `main` skip it, because they
+carry no new authorship.
+
 ## Setup
 
 Requires [Bun](https://bun.sh) and, for the secret scan,

@@ -21,7 +21,15 @@ on:
   # code: doing so would run a stranger's code with write permissions to this
   # repo. There is deliberately no `actions/checkout` step below, and none should
   # be added.
+  #
+  # Scoped to pull requests into `develop`, which is where contributions
+  # actually enter the codebase. A `develop` -> `main` promotion introduces no
+  # new authorship: everything in it already passed this check on the way in,
+  # so re-running it there is redundant, and a release pull request carrying a
+  # permanently red CLA check just teaches everyone to ignore the check that
+  # matters.
   pull_request_target:
+    branches: [develop]
     types: [opened, synchronize, closed]
   # Signing happens by commenting on the pull request, so comments are a trigger.
   issue_comment:
