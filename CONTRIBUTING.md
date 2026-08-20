@@ -86,6 +86,37 @@ Pick the packages and bump type, describe the change for the changelog. Pre-1.0,
 breaking changes bump **minor**. Skip this only for changes that don't affect
 published output (docs, tests, CI).
 
+## Branches and releasing
+
+Two long-lived branches:
+
+- **`develop`** is where work integrates. Open your pull request against this
+  one, not `main`.
+- **`main`** is the released line. Every commit on it corresponds to what is
+  published on npm.
+
+Releasing is a promotion, in four steps:
+
+```bash
+git switch develop && git pull
+bun changeset version      # applies queued changesets, bumps versions, writes CHANGELOGs
+git commit -am "chore(release): <versions>"
+gh pr create --base main --head develop
+```
+
+Merging that pull request publishes. There is no tag to create by hand: pushing
+to `main` runs the release workflow, which republishes nothing it has already
+published, then creates and pushes the per-package tags itself
+(`@typren/core@0.1.2` and so on).
+
+The version bump living in the promotion pull request is the point. Its diff is
+the release proposal, so the exact versions and changelog entries get reviewed
+before anything reaches the registry rather than after.
+
+The workflow additionally waits on a required reviewer for the `release`
+environment, so a merge alone does not publish; someone still approves the run.
+That is deliberate belt and braces, because an npm publish cannot be undone.
+
 ## Architecture
 
 Read the Architecture section of the [README](README.md#architecture) first.

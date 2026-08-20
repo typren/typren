@@ -13,9 +13,19 @@
 #     be sitting in a local dist/, which is how stale or debug builds ship.
 name: Release
 
+# Fires on every push to main, which under this repo's flow means a promotion
+# merge from develop. That is safe without any extra guard because
+# `changeset publish` is idempotent: it compares each package's version against
+# the registry and skips anything already there. A merge that carries no
+# version bump therefore publishes nothing and exits clean.
+#
+# There is no manual tag step. `changeset publish` creates per-package tags
+# itself (@typren/core@0.1.2 and so on), which is the accurate shape for a
+# monorepo where the two packages could drift; this workflow pushes those
+# rather than a hand-rolled repo-wide v* tag.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: write # create the GitHub Release
@@ -54,7 +64,7 @@ jobs:
       - run: npm install -g npm@latest
 
       # Re-run the gate on a clean checkout. The local hook already ran it, but
-      # that was against a working tree, and this proves the tag builds green from
+      # that was against a working tree, and this proves main builds green from
       # nothing, which is the artifact people actually install. build runs first:
       # @typren/core's exports point at dist, so a fresh checkout has no dist
       # for sibling packages to resolve @typren/core against until it's built.
@@ -71,7 +81,21 @@ jobs:
       - name: Publish to npm
         run: bunx changeset publish
 
-      - name: GitHub Release
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+      # changeset publish made the tags locally; without this they die with the
+      # runner. Pushing them is what makes a published version findable in git.
+      - name: Push the release tags
+        run: git push origin --tags
+
+      # Best effort, and deliberately not gated on: the CHANGELOG.md files in
+      # each package are the authoritative record. A missing GitHub Release is
+      # cosmetic and must not fail a run whose packages are already public,
+      # since npm publishes cannot be undone.
+      - name: GitHub Releases
+        continue-on-error: true
+        run: |
+          for tag in $(git tag --points-at HEAD); do
+            gh release view "$tag" >/dev/null 2>&1 && continue
+            gh release create "$tag" --generate-notes --verify-tag --title "$tag"
+          done
         env:
           GH_TOKEN: ${{ github.token }}
