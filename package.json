@@ -27,7 +27,7 @@
     "@commitlint/config-conventional": "^19.6.0",
     "@eslint/js": "^9.18.0",
     "@next/eslint-plugin-next": "^16.2.12",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@vitejs/plugin-react": "^6.1.0",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9",
     "eslint-plugin-react-hooks": "^5.2.0",
