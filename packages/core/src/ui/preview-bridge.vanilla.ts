@@ -21,8 +21,16 @@ const STYLE = `
  * Attach the preview bridge listeners + inject its stylesheet into
  * `document.head` (once). Returns a cleanup function that removes the
  * listeners (the injected `<style>` is left in place: idempotent, harmless).
+ *
+ * `allowedOrigin` is the one origin this frame will post to and accept
+ * messages from. Omit it and the bridge defaults to `window.location.origin`
+ * (byte-identical to the old same-origin-only behavior, for local/self-host
+ * setups embedding their own dashboard). A hosted dashboard framing a
+ * customer's site is cross-origin by definition, so it must pass its own
+ * origin explicitly here (learned from the site record) — this is never
+ * `"*"`; the channel always compares against one explicit value.
  */
-export function initPreviewBridge(): () => void {
+export function initPreviewBridge(allowedOrigin?: string): () => void {
   if (!document.getElementById(STYLE_ID)) {
     const style = document.createElement("style");
     style.id = STYLE_ID;
@@ -30,7 +38,7 @@ export function initPreviewBridge(): () => void {
     document.head.appendChild(style);
   }
 
-  const origin = window.location.origin;
+  const origin = allowedOrigin ?? window.location.origin;
   const wrapperIndex = (node: EventTarget | null): number | null => {
     const el = (node as Element | null)?.closest?.("[data-typren-index]");
     return el ? Number(el.getAttribute("data-typren-index")) : null;
