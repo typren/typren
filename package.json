@@ -30,7 +30,7 @@
     "@next/eslint-plugin-next": "^16.2.12",
     "@vitejs/plugin-react": "^4.7.0",
     "@vitest/coverage-v8": "^4.1.10",
-    "eslint": "^9",
+    "eslint": "^10",
     "eslint-plugin-react-hooks": "^5.2.0",
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
