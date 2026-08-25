@@ -555,6 +555,38 @@ the site deploys. Sequenced last deliberately: revenue-adjacent rather than
 product-critical, and registrar commitments are the least reversible decision
 here.
 
+## Cross-repo compatibility
+
+Three consumers of one core (editor, cloud, template) plus outside
+contributors changing that core. Sync is layered contract discipline, most of
+it mechanical:
+
+1. **Explicit contract, machine-checked.** The public contract is the exports
+   maps, the route/API shapes, the bridge protocol key, the token names, and
+   the element tags — Part I's rename-surface table is the inventory. CI
+   builds the `.d.ts` and diffs the public surface against the last release
+   (api-extractor/publint); any change without a changeset declaring it fails
+   the PR. Accidental breakage from an outside PR becomes a red check, not a
+   runtime surprise.
+2. **Changesets as law.** Any PR touching `packages/*/src` must carry a
+   changeset; breaking changes must say so. Already installed; the CI gate is
+   the missing half.
+3. **Conformance suites are the sync mechanism.** Core ships
+   `@typren/contract-tests`: fixture suites for the REST contract, the bridge
+   protocol, the token set, and each port. Editor, cloud, and every provider
+   run them in *their* CI against the core version they consume — a breaking
+   core change fails in the consumer's CI naming the exact contract.
+4. **Release canary.** The release workflow fires `repository_dispatch` at
+   the cloud and template repos; their CI installs the fresh core and runs
+   the contract suites. Renovate keeps bumps small and frequent — the
+   core↔cloud tax is unavoidable, frequency keeps each payment small.
+5. **Protocol version fields.** `apiVersion` in ctx and a versioned bridge
+   key; a new dashboard accepts old+new for one release (Part I's rule).
+6. **Human gate where machines can't judge.** CODEOWNERS on contract-bearing
+   files (exports maps, `routes.ts`, `auth-adapter.ts`, `theme.css`, the
+   bridge) requiring owner review; branch protection; the CLA already gates
+   rights.
+
 ## Sequencing
 
 1. Part I pre-work checklist — unchanged, still first (items 1–3 now also
