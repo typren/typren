@@ -44,6 +44,12 @@ export {
 } from "./auth-adapter";
 export { filePolicy, type AccessPolicyFile } from "./file-policy";
 export { versionOf, ConflictError } from "./version";
+export {
+  serializeFieldSchema,
+  parseFieldSchema,
+  isFieldSchema,
+  type SerializedFieldSchema,
+} from "./field-schema";
 // SDUI admin shell: server-safe helpers (node:fs-backed) + their contracts.
 // The client UI (built fresh in React + Base UI) lives in @typren/editor.
 export {
