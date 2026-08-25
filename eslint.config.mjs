@@ -10,7 +10,9 @@ import { globalIgnores } from "eslint/config";
 // `no-img-element`). Only the referenced rules are wired; no full Next app
 // ruleset.
 export default tseslint.config(
-  globalIgnores(["**/dist/**", "**/coverage/**", "**/node_modules/**", "**/.tmp-scaffold-check/**"]),
+  // `.claude/**` holds agent worktrees: full checkouts whose in-progress state
+  // must not fail a repo-wide `eslint .` run from the primary checkout.
+  globalIgnores(["**/dist/**", "**/coverage/**", "**/node_modules/**", "**/.tmp-scaffold-check/**", ".claude/**"]),
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
