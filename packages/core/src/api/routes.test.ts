@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTyprenApi } from "./routes";
 import { createTyprenClient } from "./client";
 import { createMarkdownAdapter } from "../markdown-adapter";
+import { createFsSettingsAdapter } from "../settings";
 import type { AuthAdapter } from "../auth-adapter";
 import type { CmsConfig } from "../types";
 
@@ -144,6 +145,54 @@ describe("typren HTTP API", () => {
 
   it("404s media when no adapter is configured", async () => {
     expect((await api.handler(req("GET", "/media"))).status).toBe(500); // listMedia throws: not configured
+  });
+});
+
+// The hosted model needs siteId/accountId on every AuthContext the package
+// builds so a hosted authorize() can enforce tenant isolation structurally
+// (docs/hosted-platform.md, "Tenant isolation"). This checks the plumbing
+// end to end through the HTTP layer: reads, content writes, and the admin
+// (bootstrap) path all reach authorize() with the config's tenant scope.
+describe("tenant scope (siteId/accountId)", () => {
+  it("threads config.siteId/accountId into every authorize() call", async () => {
+    const seen: Array<{ action: string; siteId?: string; accountId?: string }> = [];
+    const scoped: CmsConfig = {
+      ...makeConfig(),
+      siteId: "site_1",
+      accountId: "acct_1",
+      settingsAdapter: createFsSettingsAdapter({ file: path.join(dir, "typren.config.json") }),
+      auth: {
+        authorize: async (ctx) => {
+          seen.push({ action: ctx.action, siteId: ctx.siteId, accountId: ctx.accountId });
+          return true;
+        },
+      },
+    };
+    const scopedApi = createTyprenApi(scoped, { basePath: BASE });
+
+    await scopedApi.handler(req("GET", "/pages"));
+    await scopedApi.handler(
+      jsonReq("PUT", "/pages/home/draft", { page: { meta: {}, slices: [], body: "x" } })
+    );
+    await scopedApi.handler(jsonReq("PUT", "/settings/bootstrap", { patch: { onboarded: true } }));
+
+    expect(seen.length).toBeGreaterThanOrEqual(3);
+    for (const ctx of seen) expect(ctx).toMatchObject({ siteId: "site_1", accountId: "acct_1" });
+  });
+
+  it("leaves siteId/accountId undefined for a single-site config (back-compat)", async () => {
+    const seen: Array<{ siteId?: string; accountId?: string }> = [];
+    const single: CmsConfig = {
+      ...makeConfig(),
+      auth: {
+        authorize: async (ctx) => {
+          seen.push({ siteId: ctx.siteId, accountId: ctx.accountId });
+          return true;
+        },
+      },
+    };
+    await createTyprenApi(single, { basePath: BASE }).handler(req("GET", "/pages"));
+    expect(seen).toEqual([{ siteId: undefined, accountId: undefined }]);
   });
 });
 

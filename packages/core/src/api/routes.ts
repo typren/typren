@@ -172,7 +172,9 @@ export function createTyprenApi(config: CmsConfig, options: TyprenApiOptions = {
   }
 
   async function requireRead(): Promise<Response | null> {
-    return (await auth.authorize({ action: "read" })) ? null : json({ error: "Unauthorized" }, 403);
+    return (await auth.authorize({ action: "read", siteId: config.siteId, accountId: config.accountId }))
+      ? null
+      : json({ error: "Unauthorized" }, 403);
   }
 
   /** A conflict is a normal outcome of optimistic locking, not a failure: it
@@ -381,7 +383,8 @@ export function createTyprenApi(config: CmsConfig, options: TyprenApiOptions = {
     if (sub === "bootstrap" && method === "PUT") {
       // Bootstrap writes reparameterize what the next boot trusts, and
       // SettingsAdapter has no gate of its own, so it's checked here.
-      if (!(await auth.authorize({ action: "admin" }))) return json({ error: "Unauthorized" }, 403);
+      if (!(await auth.authorize({ action: "admin", siteId: config.siteId, accountId: config.accountId })))
+        return json({ error: "Unauthorized" }, 403);
       const { patch } = await body<{ patch?: Partial<SiteSettingsBootstrap> }>(request);
       if (!patch) return json({ error: "patch is required" }, 400);
       settings.bootstrap.writeBootstrap(patch);

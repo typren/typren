@@ -26,6 +26,15 @@ export type AuthContext = {
   action: AuthAction;
   /** Target slug when the action has one (undefined for "read" of the index / createPage). */
   slug?: string;
+  /** Hosted-platform tenant scope, resolved server-side (session -> user ->
+   *  account -> membership -> site) and NEVER taken from client input.
+   *  Optional: a single-site local/self-host config omits both and every
+   *  existing adapter keeps working unchanged. A hosted `authorize()` uses
+   *  these to make cross-tenant access structurally impossible to forget
+   *  rather than merely documented (docs/hosted-platform.md, "Tenant
+   *  isolation"). */
+  siteId?: string;
+  accountId?: string;
 };
 
 /** Normalized identity. Adapters map their lib's user onto this. */

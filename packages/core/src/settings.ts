@@ -92,7 +92,8 @@ export function createSettingsStore(config: CmsConfig): SettingsStore {
   const store = createStore(adapter);
   const auth = resolveAuth(config);
   const guardAdmin = async () => {
-    if (!(await auth.authorize({ action: "admin" }))) throw new Error("typren: unauthorized");
+    if (!(await auth.authorize({ action: "admin", siteId: config.siteId, accountId: config.accountId })))
+      throw new Error("typren: unauthorized");
   };
   const EMPTY: SiteSettingsRuntime = { brand: { name: "" }, seo: {} };
   return {
