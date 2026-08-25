@@ -6,6 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applySettings, main, nextSteps, resolveReviewPaths, review, scaffold } from "./cli";
 import * as telemetry from "./telemetry";
 
+/** When this suite runs inside a git hook (the repo's own pre-push runs it),
+ *  git has exported GIT_DIR and friends, which redirect every git call below
+ *  — and the CLI's own — at the surrounding repository instead of the tmp
+ *  dirs the tests set up. Left in place, initGitRepo's `git init` re-inits
+ *  the real repo (flipping it bare) and the review tests read the wrong
+ *  history. Scrub the inherited overrides before anything shells out. */
+for (const key of Object.keys(process.env)) {
+  if (key.startsWith("GIT_")) delete process.env[key];
+}
+
 /** A throwaway git repo for the `review` paths that shell out to `git`
  *  (gitChangedContentFiles, gitShow, gitDiffRaw). Lives under the tmp `dir`
  *  each test already gets, so it's cleaned up the same way. */

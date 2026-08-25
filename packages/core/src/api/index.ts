@@ -6,5 +6,5 @@
 // it. Browser code must import "@typren/core/api/client" instead: the same
 // `createTyprenClient`, none of the server graph. (A consumer that took this
 // barrel client-side had to hand-roll a 100-line fetch shim to avoid it.)
-export { createTyprenApi, type TyprenApiOptions } from "./routes";
+export { createTyprenApi, type TyprenApiOptions, type CmsConfigFactory } from "./routes";
 export { createTyprenClient, TyprenApiError, type TyprenClient, type TyprenClientOptions } from "./client";

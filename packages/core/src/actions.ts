@@ -38,7 +38,8 @@ export function makeActions(config: CmsConfig) {
   const defaultLocale = config.adapter.defaultLocale;
 
   async function guard(action: AuthAction, slug?: string) {
-    if (!(await auth.authorize({ action, slug }))) throw new Error("typren: unauthorized");
+    if (!(await auth.authorize({ action, slug, siteId: config.siteId, accountId: config.accountId })))
+      throw new Error("typren: unauthorized");
   }
 
   return {

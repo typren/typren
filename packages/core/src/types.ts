@@ -205,6 +205,14 @@ export interface CmsConfig {
   /** `false` disables first-run onboarding (embeds, tests, hosts that seed
    *  settings out-of-band). Omit = auto-detect via bootstrap `onboarded` flag. */
   onboarding?: false;
+  /** Hosted-platform tenant scope for this config instance. Threaded into
+   *  every `AuthContext` the package builds (actions.ts, settings.ts,
+   *  media.ts, api/routes.ts) so a hosted `authorize()` can enforce isolation
+   *  structurally. Resolve server-side per request (see `createTyprenApi`'s
+   *  config-factory form) — never take these from the client. Omit for a
+   *  single-site config; behavior is byte-identical. */
+  siteId?: string;
+  accountId?: string;
 }
 
 export type { I18nConfig, Messages, RoutingMode } from "./i18n";
