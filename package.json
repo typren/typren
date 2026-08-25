@@ -23,21 +23,21 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.0",
+    "@changesets/cli": "^3.0.1",
     "@commitlint/cli": "^19.6.1",
     "@commitlint/config-conventional": "^19.6.0",
     "@eslint/js": "^9.18.0",
-    "@next/eslint-plugin-next": "^16.2.12",
-    "@vitejs/plugin-react": "^4.7.0",
-    "@vitest/coverage-v8": "^4.1.10",
-    "eslint": "^9",
-    "eslint-plugin-react-hooks": "^5.2.0",
+    "@next/eslint-plugin-next": "^16.3.2",
+    "@vitejs/plugin-react": "^6.1.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^10",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
     "lint-staged": "^15.4.3",
     "typescript": "^5",
     "typescript-eslint": "^8.20.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "lint-staged": {
     "*.{ts,tsx}": "eslint --fix"

@@ -41,7 +41,7 @@ function sanitizeSvg(raw: string): string {
 
 /** basename minus extension, lowercased, non-alnum runs collapsed to "-". */
 function slugifyBase(filename: string): string {
-  const base = path.parse(filename).name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const base = path.parse(filename).name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return base || "image";
 }
 

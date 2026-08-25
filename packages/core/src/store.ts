@@ -11,7 +11,7 @@ export function slugify(text: string): string {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-|-$/g, "");
 }
 
 /** Read/draft/publish operations over an adapter. Storage-agnostic. Every read
