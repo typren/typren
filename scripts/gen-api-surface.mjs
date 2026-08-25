@@ -59,7 +59,7 @@ function entryPoints(pkgDir, pkgJson) {
     if (!types || !types.endsWith(".d.ts")) continue; // e.g. "./theme.css"
     if (types.includes("*")) {
       const dir = path.resolve(pkgDir, path.dirname(types));
-      const suffix = path.basename(types).replace("*", "");
+      const suffix = path.basename(types).replaceAll("*", "");
       for (const f of readdirSync(dir)) if (f.endsWith(suffix)) files.add(path.join(dir, f));
     } else {
       files.add(path.resolve(pkgDir, types));
