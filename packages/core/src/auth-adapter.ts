@@ -64,6 +64,38 @@ export function legacyAuthAdapter(fn: () => boolean | Promise<boolean>): AuthAda
   return { authorize: async () => Boolean(await fn()) };
 }
 
+/** The "what may they do?" half of `withPolicy`'s split (see below): given
+ *  the user identity has already resolved, decide the action. No identity
+ *  resolution of its own — `filePolicy` (file-policy.ts) is the first
+ *  implementation. */
+export interface Policy {
+  authorize(user: AuthUser | null, ctx: AuthContext): boolean | Promise<boolean>;
+}
+
+/**
+ * Compose an identity adapter ("who is this?") with a `Policy` ("what may
+ * they do?") into one `AuthAdapter`. `identity.getUser()` resolves the user;
+ * `policy.authorize()` decides. The identity adapter's OWN `authorize()` (if
+ * any) is never called — the policy is authoritative, so adding a group
+ * policy can't silently be opted out of by picking a different identity
+ * adapter. Fails closed: no `getUser`, no user, or any error resolving
+ * either side denies. See docs/hosted-platform.md, "Compose identity and
+ * policy — do not fuse them".
+ */
+export function withPolicy(identity: AuthAdapter, policy: Policy): AuthAdapter {
+  return {
+    getUser: identity.getUser,
+    async authorize(ctx) {
+      try {
+        const user = identity.getUser ? await identity.getUser(ctx) : null;
+        return Boolean(await policy.authorize(user, ctx));
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
 /** Single resolution point used by BOTH the action guard and the layout gate,
  *  so they can never diverge. Throws at construction if a config has neither. */
 export function resolveAuth(config: {
