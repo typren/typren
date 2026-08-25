@@ -70,6 +70,12 @@ export interface TyprenApiOptions {
   allowedOrigins?: string[];
 }
 
+/** Resolves a `CmsConfig` fresh per request (session -> user -> account ->
+ *  membership -> site, per docs/hosted-platform.md), for a host serving more
+ *  than one tenant from one process. Never take `siteId`/`accountId` from
+ *  the request yourself here -- resolve them server-side same as identity. */
+export type CmsConfigFactory = (request: Request) => CmsConfig | Promise<CmsConfig>;
+
 const RESOURCES = ["pages", "media", "settings", "collections"] as const;
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -112,24 +118,16 @@ async function body<T>(request: Request): Promise<T> {
   }
 }
 
-/**
- * Builds the handler. Mount it in Next as:
- *
- * ```ts
- * // app/api/typren/[...path]/route.ts
- * import { createTyprenApi } from "@typren/core/api";
- * import { cmsConfig } from "@/cms.config";
- * export const { GET, POST, PUT, DELETE } = createTyprenApi(cmsConfig, {
- *   basePath: "/api/typren",
- * });
- * ```
- */
-export function createTyprenApi(config: CmsConfig, options: TyprenApiOptions = {}) {
+/** Everything derived from a single `CmsConfig`: actions/store/settings/auth
+ *  plus the per-collection registry. Pure function of `config` -- called once
+ *  at construction for a plain-config call, or fresh per request for a
+ *  factory (see `createTyprenApi`), so it must never read or mutate anything
+ *  outside its argument. */
+function build(config: CmsConfig) {
   const actions = makeActions(config);
   const store = createStore(config.adapter, { onPublish: config.onPublish });
   const settings = createSettingsStore(config);
   const auth = resolveAuth(config);
-  const allowed = options.allowedOrigins ?? [];
 
   // One PageActions per collection (writes) plus this route layer's own
   // adapter/store per collection (reads), the same actions/store split the
@@ -149,10 +147,61 @@ export function createTyprenApi(config: CmsConfig, options: TyprenApiOptions = {
     collectionStores.set(id, createStore(adapter));
   }
 
+  return {
+    config,
+    actions,
+    store,
+    settings,
+    auth,
+    collectionSections,
+    collectionActions,
+    collectionAdapters,
+    collectionStores,
+  };
+}
+
+type Built = ReturnType<typeof build>;
+
+/** A conflict is a normal outcome of optimistic locking, not a failure: it
+ *  comes back as `{ ok: false, code: "conflict" }`. Surfaced as 409 so HTTP
+ *  callers can branch on status, with the body kept intact for the client. */
+function saveResult(result: { ok: boolean; code?: string }): Response {
+  return json(result, result.ok ? 200 : result.code === "conflict" ? 409 : 400);
+}
+
+/**
+ * Builds the handler. Mount it in Next as:
+ *
+ * ```ts
+ * // app/api/typren/[...path]/route.ts
+ * import { createTyprenApi } from "@typren/core/api";
+ * import { cmsConfig } from "@/cms.config";
+ * export const { GET, POST, PUT, DELETE } = createTyprenApi(cmsConfig, {
+ *   basePath: "/api/typren",
+ * });
+ * ```
+ *
+ * `config` may also be a `CmsConfigFactory`, resolved (and rebuilt: actions,
+ * store, settings, auth, the collection registry -- everything `build()`
+ * derives) fresh on EVERY request, for a hosted host serving more than one
+ * tenant from one process. That result is never cached across requests: two
+ * concurrent requests for different tenants must never be able to observe
+ * each other's resolved config, so per-request state stays local to that
+ * request's `handler()` call rather than shared/reassigned on this closure.
+ * A plain `CmsConfig` keeps building once here, byte-identical to before
+ * this factory form existed.
+ */
+export function createTyprenApi(config: CmsConfig | CmsConfigFactory, options: TyprenApiOptions = {}) {
+  const allowed = options.allowedOrigins ?? [];
+  const isFactory = typeof config === "function";
+  const cached = isFactory ? null : build(config);
+
   async function handler(request: Request): Promise<Response> {
     if (!SAFE_METHODS.has(request.method) && !sameOrigin(request, allowed)) {
       return json({ error: "Cross-origin request refused" }, 403);
     }
+
+    const built = cached ?? build(await (config as CmsConfigFactory)(request));
 
     const url = new URL(request.url);
     const [resource, ...rest] = segments(url, options.basePath);
@@ -160,238 +209,15 @@ export function createTyprenApi(config: CmsConfig, options: TyprenApiOptions = {
     const method = request.method;
 
     try {
-      if (resource === "pages") return await pages(request, method, rest, locale);
-      if (resource === "media") return await media(request, method, rest);
-      if (resource === "settings") return await settingsRoutes(request, method, rest, locale);
-      if (resource === "collections") return await collections(request, method, rest, locale);
+      if (resource === "pages") return await pages(built, request, method, rest, locale);
+      if (resource === "media") return await media(built, request, method, rest);
+      if (resource === "settings") return await settingsRoutes(built, request, method, rest, locale);
+      if (resource === "collections") return await collections(built, request, method, rest, locale);
       return json({ error: "Not found" }, 404);
     } catch (e) {
       if (isUnauthorized(e)) return json({ error: "Unauthorized" }, 403);
       return json({ error: e instanceof Error ? e.message : "Internal error" }, 500);
     }
-  }
-
-  async function requireRead(): Promise<Response | null> {
-    return (await auth.authorize({ action: "read", siteId: config.siteId, accountId: config.accountId }))
-      ? null
-      : json({ error: "Unauthorized" }, 403);
-  }
-
-  /** A conflict is a normal outcome of optimistic locking, not a failure: it
-   *  comes back as `{ ok: false, code: "conflict" }`. Surfaced as 409 so HTTP
-   *  callers can branch on status, with the body kept intact for the client. */
-  function saveResult(result: { ok: boolean; code?: string }): Response {
-    return json(result, result.ok ? 200 : result.code === "conflict" ? 409 : 400);
-  }
-
-  async function pages(request: Request, method: string, rest: string[], locale?: string): Promise<Response> {
-    const [slug, sub, subId] = rest;
-
-    if (!slug) {
-      if (method === "GET") {
-        const denied = await requireRead();
-        return denied ?? json({ pages: store.listPages(locale) });
-      }
-      if (method === "POST") {
-        const { title } = await body<{ title?: string }>(request);
-        if (!title) return json({ error: "title is required" }, 400);
-        return json({ slug: await actions.createPage(title, locale) }, 201);
-      }
-      return json({ error: "Method not allowed" }, 405);
-    }
-
-    if (!sub) {
-      if (method === "GET") {
-        const denied = await requireRead();
-        if (denied) return denied;
-        if (!config.adapter.exists(slug, config.adapter.defaultLocale)) return json({ error: "Not found" }, 404);
-        const draft = store.getDraft(slug, locale);
-        const published = store.getPublished(slug, locale);
-        return json({
-          page: draft ?? published,
-          version: store.currentVersion(slug, locale),
-          hasDraft: Boolean(draft),
-        });
-      }
-      if (method === "DELETE") {
-        await actions.deletePage(slug);
-        return json({ ok: true });
-      }
-      return json({ error: "Method not allowed" }, 405);
-    }
-
-    if (sub === "draft") {
-      if (method === "PUT") {
-        const { page, baseVersion } = await body<{ page?: PageContent; baseVersion?: string }>(request);
-        if (!page) return json({ error: "page is required" }, 400);
-        return saveResult(await actions.saveDraft(slug, page, baseVersion, locale));
-      }
-      if (method === "DELETE") {
-        await actions.discardDraft(slug, locale);
-        return json({ ok: true });
-      }
-      return json({ error: "Method not allowed" }, 405);
-    }
-
-    if (sub === "publish" && method === "POST") {
-      const { baseVersion } = await body<{ baseVersion?: string }>(request);
-      return saveResult(await actions.publish(slug, baseVersion, locale));
-    }
-
-    if (sub === "rename" && method === "POST") {
-      const { newSlug } = await body<{ newSlug?: string }>(request);
-      if (!newSlug) return json({ error: "newSlug is required" }, 400);
-      return saveResult(await actions.renamePage(slug, newSlug));
-    }
-
-    if (sub === "duplicate" && method === "POST") {
-      return json({ slug: await actions.duplicatePage(slug, locale) }, 201);
-    }
-
-    if (sub === "translations") {
-      if (method === "POST") {
-        const { toLocale } = await body<{ toLocale?: string }>(request);
-        if (!toLocale) return json({ error: "toLocale is required" }, 400);
-        await actions.createTranslation(slug, toLocale);
-        return json({ ok: true }, 201);
-      }
-      if (method === "DELETE" && subId) {
-        await actions.deleteTranslation(slug, subId);
-        return json({ ok: true });
-      }
-    }
-
-    return json({ error: "Not found" }, 404);
-  }
-
-  /** `rest` is `[id, slug?, sub?]`: `id` is the resolved section id (see
-   *  resolveSections), never confusable with a record's own `slug`/`sub`:
-   *  `segments()` matches "collections" itself before this function ever sees
-   *  the path, so a record whose slug happens to be the literal string
-   *  "pages"/"media"/"settings" (or even "collections") still lands as `slug`
-   *  here, not as a top-level resource (see routes.test.ts). */
-  async function collections(request: Request, method: string, rest: string[], locale?: string): Promise<Response> {
-    const [id, slug, sub] = rest;
-    const section = collectionSections.get(id);
-    const actions = collectionActions[id];
-    if (!section || !actions) return json({ error: "Not found" }, 404);
-
-    if (!slug) {
-      if (method === "GET") {
-        const denied = await requireRead();
-        return denied ?? json({ records: listCollectionRecords(config, section, locale) });
-      }
-      if (method === "POST") {
-        const { title } = await body<{ title?: string }>(request);
-        if (!title) return json({ error: "title is required" }, 400);
-        return json({ slug: await actions.createPage(title, locale) }, 201);
-      }
-      return json({ error: "Method not allowed" }, 405);
-    }
-
-    if (!sub) {
-      if (method === "GET") {
-        const denied = await requireRead();
-        if (denied) return denied;
-        const adapter = collectionAdapters.get(id)!;
-        if (!adapter.exists(slug, adapter.defaultLocale)) return json({ error: "Not found" }, 404);
-        const collectionStore = collectionStores.get(id)!;
-        const draft = collectionStore.getDraft(slug, locale);
-        const published = collectionStore.getPublished(slug, locale);
-        return json({
-          page: draft ?? published,
-          version: collectionStore.currentVersion(slug, locale),
-          hasDraft: Boolean(draft),
-        });
-      }
-      if (method === "DELETE") {
-        await actions.deletePage(slug);
-        return json({ ok: true });
-      }
-      return json({ error: "Method not allowed" }, 405);
-    }
-
-    if (sub === "draft") {
-      if (method === "PUT") {
-        const { page, baseVersion } = await body<{ page?: PageContent; baseVersion?: string }>(request);
-        if (!page) return json({ error: "page is required" }, 400);
-        return saveResult(await actions.saveDraft(slug, page, baseVersion, locale));
-      }
-      if (method === "DELETE") {
-        await actions.discardDraft(slug, locale);
-        return json({ ok: true });
-      }
-      return json({ error: "Method not allowed" }, 405);
-    }
-
-    if (sub === "publish" && method === "POST") {
-      const { baseVersion } = await body<{ baseVersion?: string }>(request);
-      return saveResult(await actions.publish(slug, baseVersion, locale));
-    }
-
-    return json({ error: "Not found" }, 404);
-  }
-
-  async function media(request: Request, method: string, rest: string[]): Promise<Response> {
-    const [id] = rest;
-    if (!id) {
-      if (method === "GET") return json({ media: await actions.listMedia() });
-      // Delegated: upload owns its own validation, conversion and auth action.
-      if (method === "POST") return handleMediaUpload(config, request);
-      return json({ error: "Method not allowed" }, 405);
-    }
-    if (method === "DELETE") {
-      await actions.deleteMedia(decodeURIComponent(id));
-      return json({ ok: true });
-    }
-    return json({ error: "Method not allowed" }, 405);
-  }
-
-  async function settingsRoutes(
-    request: Request,
-    method: string,
-    rest: string[],
-    locale?: string
-  ): Promise<Response> {
-    const [sub] = rest;
-
-    if (!sub && method === "GET") {
-      const denied = await requireRead();
-      // `version` completes the optimistic-lock loop: a client had no way to read
-      // it, so its first save sent no baseVersion and could not conflict-detect.
-      return (
-        denied ??
-        json({
-          ...settings.get(locale),
-          bootstrap: settings.bootstrap.readBootstrap(),
-          version: settings.currentVersion(locale),
-        })
-      );
-    }
-    if (sub === "draft" && method === "PUT") {
-      const { settings: next, baseVersion } = await body<{
-        settings?: SiteSettingsRuntime;
-        baseVersion?: string;
-      }>(request);
-      if (!next) return json({ error: "settings is required" }, 400);
-      return saveResult(await settings.saveDraft(next, baseVersion, locale));
-    }
-    if (sub === "publish" && method === "POST") {
-      const { baseVersion } = await body<{ baseVersion?: string }>(request);
-      return saveResult(await settings.publish(baseVersion, locale));
-    }
-    if (sub === "bootstrap" && method === "PUT") {
-      // Bootstrap writes reparameterize what the next boot trusts, and
-      // SettingsAdapter has no gate of its own, so it's checked here.
-      if (!(await auth.authorize({ action: "admin", siteId: config.siteId, accountId: config.accountId })))
-        return json({ error: "Unauthorized" }, 403);
-      const { patch } = await body<{ patch?: Partial<SiteSettingsBootstrap> }>(request);
-      if (!patch) return json({ error: "patch is required" }, 400);
-      settings.bootstrap.writeBootstrap(patch);
-      return json({ ok: true });
-    }
-
-    return json({ error: "Not found" }, 404);
   }
 
   return {
@@ -403,4 +229,237 @@ export function createTyprenApi(config: CmsConfig, options: TyprenApiOptions = {
     PATCH: handler,
     DELETE: handler,
   };
+}
+
+async function requireRead(built: Built): Promise<Response | null> {
+  return (await built.auth.authorize({ action: "read", siteId: built.config.siteId, accountId: built.config.accountId }))
+    ? null
+    : json({ error: "Unauthorized" }, 403);
+}
+
+async function pages(
+  built: Built,
+  request: Request,
+  method: string,
+  rest: string[],
+  locale?: string
+): Promise<Response> {
+  const { config, actions, store } = built;
+  const [slug, sub, subId] = rest;
+
+  if (!slug) {
+    if (method === "GET") {
+      const denied = await requireRead(built);
+      return denied ?? json({ pages: store.listPages(locale) });
+    }
+    if (method === "POST") {
+      const { title } = await body<{ title?: string }>(request);
+      if (!title) return json({ error: "title is required" }, 400);
+      return json({ slug: await actions.createPage(title, locale) }, 201);
+    }
+    return json({ error: "Method not allowed" }, 405);
+  }
+
+  if (!sub) {
+    if (method === "GET") {
+      const denied = await requireRead(built);
+      if (denied) return denied;
+      if (!config.adapter.exists(slug, config.adapter.defaultLocale)) return json({ error: "Not found" }, 404);
+      const draft = store.getDraft(slug, locale);
+      const published = store.getPublished(slug, locale);
+      return json({
+        page: draft ?? published,
+        version: store.currentVersion(slug, locale),
+        hasDraft: Boolean(draft),
+      });
+    }
+    if (method === "DELETE") {
+      await actions.deletePage(slug);
+      return json({ ok: true });
+    }
+    return json({ error: "Method not allowed" }, 405);
+  }
+
+  if (sub === "draft") {
+    if (method === "PUT") {
+      const { page, baseVersion } = await body<{ page?: PageContent; baseVersion?: string }>(request);
+      if (!page) return json({ error: "page is required" }, 400);
+      return saveResult(await actions.saveDraft(slug, page, baseVersion, locale));
+    }
+    if (method === "DELETE") {
+      await actions.discardDraft(slug, locale);
+      return json({ ok: true });
+    }
+    return json({ error: "Method not allowed" }, 405);
+  }
+
+  if (sub === "publish" && method === "POST") {
+    const { baseVersion } = await body<{ baseVersion?: string }>(request);
+    return saveResult(await actions.publish(slug, baseVersion, locale));
+  }
+
+  if (sub === "rename" && method === "POST") {
+    const { newSlug } = await body<{ newSlug?: string }>(request);
+    if (!newSlug) return json({ error: "newSlug is required" }, 400);
+    return saveResult(await actions.renamePage(slug, newSlug));
+  }
+
+  if (sub === "duplicate" && method === "POST") {
+    return json({ slug: await actions.duplicatePage(slug, locale) }, 201);
+  }
+
+  if (sub === "translations") {
+    if (method === "POST") {
+      const { toLocale } = await body<{ toLocale?: string }>(request);
+      if (!toLocale) return json({ error: "toLocale is required" }, 400);
+      await actions.createTranslation(slug, toLocale);
+      return json({ ok: true }, 201);
+    }
+    if (method === "DELETE" && subId) {
+      await actions.deleteTranslation(slug, subId);
+      return json({ ok: true });
+    }
+  }
+
+  return json({ error: "Not found" }, 404);
+}
+
+/** `rest` is `[id, slug?, sub?]`: `id` is the resolved section id (see
+ *  resolveSections), never confusable with a record's own `slug`/`sub`:
+ *  `segments()` matches "collections" itself before this function ever sees
+ *  the path, so a record whose slug happens to be the literal string
+ *  "pages"/"media"/"settings" (or even "collections") still lands as `slug`
+ *  here, not as a top-level resource (see routes.test.ts). */
+async function collections(
+  built: Built,
+  request: Request,
+  method: string,
+  rest: string[],
+  locale?: string
+): Promise<Response> {
+  const { config, collectionSections, collectionActions, collectionAdapters, collectionStores } = built;
+  const [id, slug, sub] = rest;
+  const section = collectionSections.get(id);
+  const actions = collectionActions[id];
+  if (!section || !actions) return json({ error: "Not found" }, 404);
+
+  if (!slug) {
+    if (method === "GET") {
+      const denied = await requireRead(built);
+      return denied ?? json({ records: listCollectionRecords(config, section, locale) });
+    }
+    if (method === "POST") {
+      const { title } = await body<{ title?: string }>(request);
+      if (!title) return json({ error: "title is required" }, 400);
+      return json({ slug: await actions.createPage(title, locale) }, 201);
+    }
+    return json({ error: "Method not allowed" }, 405);
+  }
+
+  if (!sub) {
+    if (method === "GET") {
+      const denied = await requireRead(built);
+      if (denied) return denied;
+      const adapter = collectionAdapters.get(id)!;
+      if (!adapter.exists(slug, adapter.defaultLocale)) return json({ error: "Not found" }, 404);
+      const collectionStore = collectionStores.get(id)!;
+      const draft = collectionStore.getDraft(slug, locale);
+      const published = collectionStore.getPublished(slug, locale);
+      return json({
+        page: draft ?? published,
+        version: collectionStore.currentVersion(slug, locale),
+        hasDraft: Boolean(draft),
+      });
+    }
+    if (method === "DELETE") {
+      await actions.deletePage(slug);
+      return json({ ok: true });
+    }
+    return json({ error: "Method not allowed" }, 405);
+  }
+
+  if (sub === "draft") {
+    if (method === "PUT") {
+      const { page, baseVersion } = await body<{ page?: PageContent; baseVersion?: string }>(request);
+      if (!page) return json({ error: "page is required" }, 400);
+      return saveResult(await actions.saveDraft(slug, page, baseVersion, locale));
+    }
+    if (method === "DELETE") {
+      await actions.discardDraft(slug, locale);
+      return json({ ok: true });
+    }
+    return json({ error: "Method not allowed" }, 405);
+  }
+
+  if (sub === "publish" && method === "POST") {
+    const { baseVersion } = await body<{ baseVersion?: string }>(request);
+    return saveResult(await actions.publish(slug, baseVersion, locale));
+  }
+
+  return json({ error: "Not found" }, 404);
+}
+
+async function media(built: Built, request: Request, method: string, rest: string[]): Promise<Response> {
+  const { config, actions } = built;
+  const [id] = rest;
+  if (!id) {
+    if (method === "GET") return json({ media: await actions.listMedia() });
+    // Delegated: upload owns its own validation, conversion and auth action.
+    if (method === "POST") return handleMediaUpload(config, request);
+    return json({ error: "Method not allowed" }, 405);
+  }
+  if (method === "DELETE") {
+    await actions.deleteMedia(decodeURIComponent(id));
+    return json({ ok: true });
+  }
+  return json({ error: "Method not allowed" }, 405);
+}
+
+async function settingsRoutes(
+  built: Built,
+  request: Request,
+  method: string,
+  rest: string[],
+  locale?: string
+): Promise<Response> {
+  const { config, auth, settings } = built;
+  const [sub] = rest;
+
+  if (!sub && method === "GET") {
+    const denied = await requireRead(built);
+    // `version` completes the optimistic-lock loop: a client had no way to read
+    // it, so its first save sent no baseVersion and could not conflict-detect.
+    return (
+      denied ??
+      json({
+        ...settings.get(locale),
+        bootstrap: settings.bootstrap.readBootstrap(),
+        version: settings.currentVersion(locale),
+      })
+    );
+  }
+  if (sub === "draft" && method === "PUT") {
+    const { settings: next, baseVersion } = await body<{
+      settings?: SiteSettingsRuntime;
+      baseVersion?: string;
+    }>(request);
+    if (!next) return json({ error: "settings is required" }, 400);
+    return saveResult(await settings.saveDraft(next, baseVersion, locale));
+  }
+  if (sub === "publish" && method === "POST") {
+    const { baseVersion } = await body<{ baseVersion?: string }>(request);
+    return saveResult(await settings.publish(baseVersion, locale));
+  }
+  if (sub === "bootstrap" && method === "PUT") {
+    // Bootstrap writes reparameterize what the next boot trusts, and
+    // SettingsAdapter has no gate of its own, so it's checked here.
+    if (!(await auth.authorize({ action: "admin", siteId: config.siteId, accountId: config.accountId })))
+      return json({ error: "Unauthorized" }, 403);
+    const { patch } = await body<{ patch?: Partial<SiteSettingsBootstrap> }>(request);
+    if (!patch) return json({ error: "patch is required" }, 400);
+    settings.bootstrap.writeBootstrap(patch);
+    return json({ ok: true });
+  }
+
+  return json({ error: "Not found" }, 404);
 }
