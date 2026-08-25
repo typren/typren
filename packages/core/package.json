@@ -73,13 +73,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "dompurify": "^3.4.14",
     "gray-matter": "^4.0.3",
     "js-yaml": "^4.1.0",
+    "jsdom": "^29.1.1",
     "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.2",
     "@types/js-yaml": "^4.0.9",
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -10,6 +10,10 @@ const png = (width = 4, height = 4) =>
 const SVG_CLEAN = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle r="5"/></svg>';
 const SVG_SCRIPT =
   '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>alert(1)</script></svg>';
+const SVG_ONLOAD =
+  '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)" width="10" height="10"><circle r="5"/></svg>';
+const SVG_JS_HREF =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><a href="javascript:alert(1)"><circle r="5"/></a></svg>';
 
 describe("processUpload", () => {
   it("converts a raster upload (PNG) to web-optimized WebP", async () => {
@@ -29,14 +33,33 @@ describe("processUpload", () => {
     expect(result.height).toBe(667); // fit:"inside" preserves aspect ratio
   });
 
-  it("passes through a clean SVG unchanged, sniffing the real mime", async () => {
+  it("passes a clean SVG through sanitization intact, sniffing the real mime", async () => {
     const result = await processUpload({ name: "icon.svg", buffer: Buffer.from(SVG_CLEAN) });
     expect(result.mime).toBe("image/svg+xml");
-    expect(result.buffer.toString("utf8")).toBe(SVG_CLEAN);
+    // DOMPurify re-serializes (self-closing tags become open/close pairs), so
+    // this is a structural check, not a byte-identical one.
+    expect(result.buffer.toString("utf8")).toContain('<circle r="5">');
+    expect(result.buffer.toString("utf8")).toContain('width="10"');
   });
 
-  it("rejects an SVG containing a <script> tag (stored-XSS vector)", async () => {
-    await expect(processUpload({ name: "evil.svg", buffer: Buffer.from(SVG_SCRIPT) })).rejects.toThrow(/script/i);
+  it("strips a <script> tag from an SVG upload (stored-XSS vector) but keeps the rest", async () => {
+    const result = await processUpload({ name: "evil.svg", buffer: Buffer.from(SVG_SCRIPT) });
+    const out = result.buffer.toString("utf8");
+    expect(out).not.toMatch(/<script/i);
+    expect(out).toContain("<svg");
+  });
+
+  it("strips an onload/onclick-style event handler attribute from an SVG upload", async () => {
+    const result = await processUpload({ name: "evil-onload.svg", buffer: Buffer.from(SVG_ONLOAD) });
+    const out = result.buffer.toString("utf8");
+    expect(out).not.toMatch(/onload/i);
+    expect(out).toContain('<circle r="5">');
+  });
+
+  it("strips a javascript: URI from an SVG upload's href", async () => {
+    const result = await processUpload({ name: "evil-href.svg", buffer: Buffer.from(SVG_JS_HREF) });
+    const out = result.buffer.toString("utf8");
+    expect(out).not.toMatch(/javascript:/i);
   });
 
   it("rejects a buffer over MAX_UPLOAD_BYTES before even sniffing it", async () => {

@@ -1,5 +1,7 @@
 import path from "node:path";
 import sharp from "sharp";
+import { JSDOM } from "jsdom";
+import DOMPurify, { type WindowLike } from "dompurify";
 import { resolveAuth } from "./auth-adapter";
 import type { CmsConfig, PreparedFile } from "./types";
 
@@ -15,10 +17,27 @@ const EXT_FOR_MIME: Record<string, string> = {
   "image/svg+xml": ".svg",
 };
 
-// ponytail: blocklist heuristic, not real SVG sanitization. Swap in
-// dompurify+jsdom or svg-sanitizer if upload access ever extends beyond
-// authorize()-gated authors.
-const SVG_SCRIPT_RE = /<script|on\w+\s*=|javascript:/i;
+// Real (allowlist) SVG sanitization: DOMPurify's "svg"/"svgFilters"
+// profiles strip <script>, event-handler attributes (onload, onclick, ...),
+// and javascript:/data:text-html URIs while keeping the rest of the markup
+// (shape/paint/structure elements and attributes) intact. This replaced a
+// <script>|on\w+=|javascript: blocklist regex, which upload access
+// extending beyond authorize()-gated authors (hosted multi-tenant) made
+// inadequate: a blocklist only ever covers the bypasses someone thought of.
+//
+// DOMPurify needs a DOM to run against; jsdom is the pairing its own docs
+// use for Node. Built lazily (constructing a JSDOM has real, if small,
+// startup cost) and reused, since most CmsConfig setups never touch SVG.
+let svgPurifier: ReturnType<typeof DOMPurify> | null = null;
+function getSvgPurifier(): ReturnType<typeof DOMPurify> {
+  if (!svgPurifier) svgPurifier = DOMPurify(new JSDOM("").window as unknown as WindowLike);
+  return svgPurifier;
+}
+
+/** Strips dangerous elements/attributes from an SVG's source, keeping the rest. */
+function sanitizeSvg(raw: string): string {
+  return getSvgPurifier().sanitize(raw, { USE_PROFILES: { svg: true, svgFilters: true } });
+}
 
 /** basename minus extension, lowercased, non-alnum runs collapsed to "-". */
 function slugifyBase(filename: string): string {
@@ -45,11 +64,8 @@ export async function processUpload(input: { name: string; buffer: Buffer }): Pr
   let height = meta.height;
 
   if (meta.format === "svg") {
-    if (SVG_SCRIPT_RE.test(input.buffer.toString("utf8"))) {
-      throw new Error("typren: SVG upload rejected: it contains script-like content");
-    }
     mime = "image/svg+xml";
-    buffer = input.buffer;
+    buffer = Buffer.from(sanitizeSvg(input.buffer.toString("utf8")), "utf8");
   } else if (
     meta.format === "png" ||
     meta.format === "jpeg" ||
