@@ -1,0 +1,33 @@
+# Labels pull requests by the paths they touch, using the rules in
+# .github/labeler.yml.
+#
+# `pull_request_target` runs in the context of the base repository, the same
+# reason cla.yml uses it: a labeler that only ran on same-repo pull requests
+# would silently do nothing for fork contributions, which is most of them.
+#
+# SECURITY: that means this job holds write permissions while a stranger's
+# pull request is open, so like cla.yml there is deliberately no
+# actions/checkout step here, and none should be added. actions/labeler reads
+# the list of changed file paths through the GitHub API, not from a local
+# checkout, so a fork's code is never pulled onto a runner that can label or
+# comment with this repo's credentials.
+name: Labeler
+
+on:
+  pull_request_target:
+    branches: [develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  labeler:
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to a commit SHA for the same reason as the CLA action: this
+      # job carries write permissions. actions/labeler v7.0.0; bump the
+      # comment and the SHA together.
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13
+        with:
+          sync-labels: true
