@@ -1,0 +1,43 @@
+# Opens or updates the "Version Packages" pull request whenever a changeset
+# lands on develop, doing on every push what CONTRIBUTING.md's release
+# section otherwise asks a maintainer to run by hand
+# (`bun changeset version` + `chore(release): <versions>` commit).
+#
+# This is versioning only. It never publishes: `publish-script` is left unset
+# below, so the action stops after opening/updating the PR, and the actual
+# `npm publish` still happens in release.yml on push to main, gated behind
+# the required reviewer on the `release` environment. Two separate jobs for
+# two separate trust levels: this one just writes version bumps and
+# changelogs to a PR for review; that one holds the npm credentials.
+name: Version Packages
+
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: write # push the version-bump commit to the PR branch
+  pull-requests: write # open/update the Version Packages PR
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # changesets needs history
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      # Pinned to a commit SHA: this job carries write permissions, same
+      # reasoning as the CLA and labeler actions. changesets/action v2.1.1;
+      # bump the comment and the SHA together.
+      - uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1
+        with:
+          version-script: bunx changeset version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
