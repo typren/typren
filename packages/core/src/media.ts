@@ -93,7 +93,13 @@ export async function processUpload(input: { name: string; buffer: Buffer }): Pr
  *  `route.ts` renders no layout tree at all), so this re-checks auth itself
  *  via the same `resolveAuth` the action guard uses. */
 export async function handleMediaUpload(config: CmsConfig, request: Request): Promise<Response> {
-  if (!(await resolveAuth(config).authorize({ action: "uploadMedia" }))) {
+  if (
+    !(await resolveAuth(config).authorize({
+      action: "uploadMedia",
+      siteId: config.siteId,
+      accountId: config.accountId,
+    }))
+  ) {
     return new Response("Unauthorized", { status: 401 });
   }
   if (!config.mediaAdapter) return new Response("Media not configured", { status: 404 });

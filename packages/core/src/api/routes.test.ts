@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTyprenApi } from "./routes";
 import { createTyprenClient } from "./client";
 import { createMarkdownAdapter } from "../markdown-adapter";
+import { createFsMediaAdapter } from "../fs-media-adapter";
+import { createFsSettingsAdapter } from "../settings";
 import type { AuthAdapter } from "../auth-adapter";
 import type { CmsConfig } from "../types";
 
@@ -147,6 +149,109 @@ describe("typren HTTP API", () => {
   });
 });
 
+// The hosted model needs siteId/accountId on every AuthContext the package
+// builds so a hosted authorize() can enforce tenant isolation structurally
+// (docs/hosted-platform.md, "Tenant isolation"). This checks the plumbing
+// end to end through the HTTP layer: reads, content writes, and the admin
+// (bootstrap) path all reach authorize() with the config's tenant scope.
+describe("tenant scope (siteId/accountId)", () => {
+  it("threads config.siteId/accountId into every authorize() call", async () => {
+    const seen: Array<{ action: string; siteId?: string; accountId?: string }> = [];
+    const scoped: CmsConfig = {
+      ...makeConfig(),
+      siteId: "site_1",
+      accountId: "acct_1",
+      settingsAdapter: createFsSettingsAdapter({ file: path.join(dir, "typren.config.json") }),
+      auth: {
+        authorize: async (ctx) => {
+          seen.push({ action: ctx.action, siteId: ctx.siteId, accountId: ctx.accountId });
+          return true;
+        },
+      },
+    };
+    const scopedApi = createTyprenApi(scoped, { basePath: BASE });
+
+    await scopedApi.handler(req("GET", "/pages"));
+    await scopedApi.handler(
+      jsonReq("PUT", "/pages/home/draft", { page: { meta: {}, slices: [], body: "x" } })
+    );
+    await scopedApi.handler(jsonReq("PUT", "/settings/bootstrap", { patch: { onboarded: true } }));
+
+    expect(seen.length).toBeGreaterThanOrEqual(3);
+    for (const ctx of seen) expect(ctx).toMatchObject({ siteId: "site_1", accountId: "acct_1" });
+  });
+
+  it("leaves siteId/accountId undefined for a single-site config (back-compat)", async () => {
+    const seen: Array<{ siteId?: string; accountId?: string }> = [];
+    const single: CmsConfig = {
+      ...makeConfig(),
+      auth: {
+        authorize: async (ctx) => {
+          seen.push({ siteId: ctx.siteId, accountId: ctx.accountId });
+          return true;
+        },
+      },
+    };
+    await createTyprenApi(single, { basePath: BASE }).handler(req("GET", "/pages"));
+    expect(seen).toEqual([{ siteId: undefined, accountId: undefined }]);
+  });
+});
+
+// Item 3: createTyprenApi(config) built everything once at construction --
+// one process, one tenant. A hosted host needs a fresh config resolved per
+// request instead, without losing the plain-config call signature.
+describe("config factory (per-request resolution)", () => {
+  it("calls the factory again on every request instead of once at construction", async () => {
+    let calls = 0;
+    const factoryApi = createTyprenApi(() => {
+      calls++;
+      return makeConfig();
+    }, { basePath: BASE });
+
+    expect(calls).toBe(0); // not resolved at construction time
+
+    await factoryApi.handler(req("GET", "/pages"));
+    await factoryApi.handler(req("GET", "/pages"));
+    expect(calls).toBe(2);
+  });
+
+  it("isolates concurrent requests for different tenants (no shared/reassigned state)", async () => {
+    const dirA = fs.mkdtempSync(path.join(os.tmpdir(), "typren-tenant-a-"));
+    const dirB = fs.mkdtempSync(path.join(os.tmpdir(), "typren-tenant-b-"));
+    try {
+      fs.writeFileSync(path.join(dirA, "home.md"), "---\ntitle: Tenant A\nslices: []\n---\n");
+      fs.writeFileSync(path.join(dirB, "home.md"), "---\ntitle: Tenant B\nslices: []\n---\n");
+
+      const configFor = (tenant: "a" | "b"): CmsConfig => ({
+        registry: {},
+        defaults: {},
+        adapter: createMarkdownAdapter({ contentDir: tenant === "a" ? dirA : dirB }),
+        previewPath: "/editor/preview",
+        siteId: tenant,
+        auth: openAuth(),
+      });
+
+      const factoryApi = createTyprenApi(
+        (request) => configFor(request.headers.get("x-tenant") === "b" ? "b" : "a"),
+        { basePath: BASE }
+      );
+      const reqFor = (tenant: "a" | "b") => req("GET", "/pages", { headers: { "x-tenant": tenant } });
+
+      // Fire both concurrently: if per-request state ever leaked through a
+      // shared/reassigned closure variable, one of these could observe the
+      // OTHER tenant's adapter mid-flight.
+      const [resA, resB] = await Promise.all([factoryApi.handler(reqFor("a")), factoryApi.handler(reqFor("b"))]);
+      const [bodyA, bodyB] = await Promise.all([resA.json(), resB.json()]);
+
+      expect(bodyA.pages[0].title).toBe("Tenant A");
+      expect(bodyB.pages[0].title).toBe("Tenant B");
+    } finally {
+      fs.rmSync(dirA, { recursive: true, force: true });
+      fs.rmSync(dirB, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("rename", () => {
   it("moves both the published file and any draft to the new slug", async () => {
     await api.handler(
@@ -233,6 +338,142 @@ describe("duplicate", () => {
   });
 });
 
+describe("secondary write paths and method-not-allowed", () => {
+  it("405s an unsupported method on a page and on its draft sub-resource", async () => {
+    expect((await api.handler(req("PATCH", "/pages/home"))).status).toBe(405);
+    expect((await api.handler(req("PATCH", "/pages/home/draft"))).status).toBe(405);
+  });
+
+  it("discards a draft via DELETE", async () => {
+    await api.handler(jsonReq("PUT", "/pages/home/draft", { page: { meta: {}, slices: [], body: "wip" } }));
+    expect(fs.existsSync(path.join(dir, ".drafts", "home.md"))).toBe(true);
+    expect((await api.handler(req("DELETE", "/pages/home/draft"))).status).toBe(200);
+    expect(fs.existsSync(path.join(dir, ".drafts", "home.md"))).toBe(false);
+  });
+
+  it("creates and deletes a translation", async () => {
+    const i18nApi = createTyprenApi(
+      { ...makeConfig(), adapter: createMarkdownAdapter({ contentDir: dir, locales: ["en", "es"], defaultLocale: "en" }) },
+      { basePath: BASE }
+    );
+
+    const created = await i18nApi.handler(jsonReq("POST", "/pages/home/translations", { toLocale: "es" }));
+    expect(created.status).toBe(201);
+    expect(fs.existsSync(path.join(dir, "es", ".drafts", "home.md"))).toBe(true);
+
+    const rejected = await i18nApi.handler(jsonReq("POST", "/pages/home/translations", {}));
+    expect(rejected.status).toBe(400);
+
+    const deleted = await i18nApi.handler(req("DELETE", "/pages/home/translations/es"));
+    expect(deleted.status).toBe(200);
+    expect(fs.existsSync(path.join(dir, "es", ".drafts", "home.md"))).toBe(false);
+  });
+
+  it("404s an unmatched pages sub-route", async () => {
+    expect((await api.handler(req("GET", "/pages/home/nonsense"))).status).toBe(404);
+  });
+});
+
+describe("media resource", () => {
+  let mediaDir: string;
+  let mediaApi: ReturnType<typeof createTyprenApi>;
+
+  beforeEach(() => {
+    mediaDir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-media-"));
+    mediaApi = createTyprenApi(
+      { ...makeConfig(), mediaAdapter: createFsMediaAdapter({ dir: mediaDir, publicPath: "/img" }) },
+      { basePath: BASE }
+    );
+  });
+
+  afterEach(() => fs.rmSync(mediaDir, { recursive: true, force: true }));
+
+  // A real binary multipart round-trip (constructing `File`/`FormData` and
+  // reading them back via `Request.formData()`) is exercised end to end by
+  // `media.test.ts`'s `processUpload` suite; jsdom's own FormData/File
+  // implementation isn't reliably interchangeable with Node's in this
+  // environment, so this level sticks to the dispatch/auth/adapter wiring.
+  it("routes a POST with no file to handleMediaUpload, which rejects it", async () => {
+    const form = new FormData();
+    form.set("notes", "no file field here");
+    const res = await mediaApi.handler(
+      new Request(`https://example.test${BASE}/media`, { method: "POST", body: form })
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.stringMatching(/no file/i) });
+  });
+
+  it("lists and deletes a media asset (delete is idempotent)", async () => {
+    fs.mkdirSync(mediaDir, { recursive: true });
+    fs.writeFileSync(path.join(mediaDir, "photo.webp"), "fake-webp-bytes");
+
+    const list = await mediaApi.handler(req("GET", "/media"));
+    expect((await list.json()).media).toHaveLength(1);
+
+    const deleted = await mediaApi.handler(req("DELETE", "/media/photo.webp"));
+    expect(deleted.status).toBe(200);
+    expect((await (await mediaApi.handler(req("GET", "/media"))).json()).media).toHaveLength(0);
+
+    // Deleting an already-gone id is still a 200 (the adapter's own idempotent delete).
+    expect((await mediaApi.handler(req("DELETE", "/media/photo.webp"))).status).toBe(200);
+  });
+
+  it("405s an unsupported method on the media root and on an item", async () => {
+    expect((await mediaApi.handler(req("PATCH", "/media"))).status).toBe(405);
+    expect((await mediaApi.handler(req("PATCH", "/media/foo.webp"))).status).toBe(405);
+  });
+});
+
+describe("settings resource", () => {
+  // Runtime settings persist next to the adapter's content root (a `.typren`
+  // sibling dir, see settings.ts), so a dedicated nested content dir keeps
+  // that sibling INSIDE this test's own tmpdir instead of leaking into
+  // `os.tmpdir()/.typren`, shared (and never cleaned up) across every test.
+  const settingsConfig = (): CmsConfig => {
+    const contentDir = path.join(dir, "settings-content");
+    fs.mkdirSync(contentDir, { recursive: true });
+    return {
+      ...makeConfig(),
+      adapter: createMarkdownAdapter({ contentDir }),
+      settingsAdapter: createFsSettingsAdapter({ file: path.join(dir, "typren.config.json") }),
+    };
+  };
+
+  it("reads runtime + bootstrap + version, defaulting to empty runtime settings", async () => {
+    const res = await createTyprenApi(settingsConfig(), { basePath: BASE }).handler(req("GET", "/settings"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ brand: { name: "" }, bootstrap: { adminRoute: "editor" } });
+  });
+
+  it("saves a settings draft then publishes it", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const saved = await settingsApi.handler(
+      jsonReq("PUT", "/settings/draft", { settings: { brand: { name: "Acme" }, seo: {} } })
+    );
+    expect(saved.status).toBe(200);
+    const { version } = await saved.json();
+
+    const published = await settingsApi.handler(jsonReq("POST", "/settings/publish", { baseVersion: version }));
+    expect(published.status).toBe(200);
+
+    const after = await (await settingsApi.handler(req("GET", "/settings"))).json();
+    expect(after.brand.name).toBe("Acme");
+  });
+
+  it("gates bootstrap writes behind the admin action", async () => {
+    allow = false;
+    const res = await createTyprenApi(settingsConfig(), { basePath: BASE }).handler(
+      jsonReq("PUT", "/settings/bootstrap", { patch: { onboarded: true } })
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("404s an unmatched settings sub-route", async () => {
+    const res = await createTyprenApi(settingsConfig(), { basePath: BASE }).handler(req("GET", "/settings/nonsense"));
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("collections resource", () => {
   let authorsDir: string;
   let collectionsApi: ReturnType<typeof createTyprenApi>;
@@ -308,6 +549,21 @@ describe("collections resource", () => {
     expect((await collectionsApi.handler(req("GET", "/collections/nope"))).status).toBe(404);
     // "pages" is a real resolved section id here (kind: "pages"), not a collection.
     expect((await collectionsApi.handler(req("GET", "/collections/pages"))).status).toBe(404);
+  });
+
+  it("405s an unsupported method on the collection root and its draft sub-resource", async () => {
+    expect((await collectionsApi.handler(req("PATCH", "/collections/authors"))).status).toBe(405);
+    const { slug } = await (
+      await collectionsApi.handler(jsonReq("POST", "/collections/authors", { title: "Ada" }))
+    ).json();
+    expect((await collectionsApi.handler(req("PATCH", `/collections/authors/${slug}/draft`))).status).toBe(405);
+  });
+
+  it("404s an unmatched record sub-route", async () => {
+    const { slug } = await (
+      await collectionsApi.handler(jsonReq("POST", "/collections/authors", { title: "Ada" }))
+    ).json();
+    expect((await collectionsApi.handler(req("GET", `/collections/authors/${slug}/nonsense`))).status).toBe(404);
   });
 
   it("refuses a cross-origin write", async () => {

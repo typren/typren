@@ -28,7 +28,7 @@
     },
     "packages/cli": {
       "name": "typren",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "bin": {
         "typren": "./dist/cli.js",
       },
@@ -43,13 +43,15 @@
     },
     "packages/core": {
       "name": "@typren/core",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "dependencies": {
         "gray-matter": "^4.0.3",
+        "js-yaml": "^4.1.0",
         "sharp": "^0.35.3",
       },
       "devDependencies": {
         "@testing-library/react": "^16.3.2",
+        "@types/js-yaml": "^4.0.9",
         "@types/node": "^20",
         "@types/react": "^19",
         "@types/react-dom": "^19",
