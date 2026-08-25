@@ -426,7 +426,7 @@ individually testable and each vendor swappable.
 | Port | First provider | Later |
 |---|---|---|
 | `RepoProvider` (content storage) | GitHub App | Typren Git (hosted Forgejo), GitLab |
-| `IdentityProvider` (sign-in) | Google OAuth, GitHub OAuth | magic link, enterprise OIDC |
+| `IdentityProvider` (sign-in) | Better Auth, self-hosted (Google/GitHub OAuth, magic link, passkeys, 2FA ride through it) | enterprise OIDC, hosted IdPs |
 | `ModelProvider` (agent LLM) | OpenRouter (BYOK) | direct Anthropic/OpenAI keys, platform credits |
 | `CommerceProvider` | Shopify Storefront | Medusa, commercetools |
 | `SchedulingProvider` | cal.com | Calendly |
@@ -586,6 +586,37 @@ it mechanical:
    files (exports maps, `routes.ts`, `auth-adapter.ts`, `theme.css`, the
    bridge) requiring owner review; branch protection; the CLA already gates
    rights.
+
+## Deployment target: Cloudflare
+
+The control plane targets Cloudflare's infrastructure (decided 2026-08-25);
+the adapter doctrine is what makes the commitment cheap. Dev and self-host
+run the local providers (sqlite/json/fs); the hosted tier swaps drivers, not
+architecture:
+
+- **Dashboard** — Next.js on Workers via the OpenNext adapter. Request paths
+  must stay edge-compatible: no `node:fs` at request time, which the provider
+  split already enforces (the fs RepoProvider is a dev/self-host backend).
+- **Identity** — Better Auth on D1. **Directory** — a D1 `DirectoryStore`.
+- **GitHub App plane** — pure fetch + WebCrypto RS256; the App private key
+  lives in Workers Secrets (the KMS requirement above still stands for it).
+- **Media** — R2 storage + Cloudflare Images transforms. `sharp` does not run
+  on Workers, so the hosted tier uses a CF-Images `MediaAdapter`; this also
+  delivers the separate-media-origin mitigation for free.
+- **Agent** — outbound fetch/SSE is Workers-native; Workers AI is a candidate
+  second `ModelProvider`.
+- **Policy cache and webhooks** — KV/Durable Objects with push-webhook
+  invalidation, exactly the shape the revocation section describes.
+- **Customer sites** — free tier deploys to the customer's own CI/host as
+  designed; managed-tier *standard* builds can ride Cloudflare's build
+  system, buying sandboxing we don't have to operate.
+
+Two components stay off Workers today, and they are exactly the two already
+isolated behind ports: **Typren Git** (a persistent git server needs a real
+disk; Workers/Containers lack persistent volumes) and **managed arbitrary
+builds** (CF Containers are young; network-isolation guarantees unverified).
+Both run on a small VM behind `RepoProvider`/the build seam until Cloudflare
+grows the primitives.
 
 ## Sequencing
 
