@@ -146,7 +146,7 @@ export declare function createTyprenClient(options: TyprenClientOptions): Typren
 export { TyprenApiError };
 
 // ---- dist/api/index.d.ts ----
-export { createTyprenApi, type TyprenApiOptions } from "./routes.js";
+export { createTyprenApi, type TyprenApiOptions, type CmsConfigFactory } from "./routes.js";
 export { createTyprenClient, TyprenApiError, type TyprenClient, type TyprenClientOptions } from "./client.js";
 
 // ---- dist/api/routes.d.ts ----
@@ -212,6 +212,11 @@ export interface TyprenApiOptions {
      *  because CSRF needs a browser to attach credentials. */
     allowedOrigins?: string[];
 }
+/** Resolves a `CmsConfig` fresh per request (session -> user -> account ->
+ *  membership -> site, per docs/hosted-platform.md), for a host serving more
+ *  than one tenant from one process. Never take `siteId`/`accountId` from
+ *  the request yourself here -- resolve them server-side same as identity. */
+export type CmsConfigFactory = (request: Request) => CmsConfig | Promise<CmsConfig>;
 /**
  * Builds the handler. Mount it in Next as:
  *
@@ -223,8 +228,18 @@ export interface TyprenApiOptions {
  *   basePath: "/api/typren",
  * });
  * ```
+ *
+ * `config` may also be a `CmsConfigFactory`, resolved (and rebuilt: actions,
+ * store, settings, auth, the collection registry -- everything `build()`
+ * derives) fresh on EVERY request, for a hosted host serving more than one
+ * tenant from one process. That result is never cached across requests: two
+ * concurrent requests for different tenants must never be able to observe
+ * each other's resolved config, so per-request state stays local to that
+ * request's `handler()` call rather than shared/reassigned on this closure.
+ * A plain `CmsConfig` keeps building once here, byte-identical to before
+ * this factory form existed.
  */
-export declare function createTyprenApi(config: CmsConfig, options?: TyprenApiOptions): {
+export declare function createTyprenApi(config: CmsConfig | CmsConfigFactory, options?: TyprenApiOptions): {
     handler: (request: Request) => Promise<Response>;
     GET: (request: Request) => Promise<Response>;
     POST: (request: Request) => Promise<Response>;
@@ -251,6 +266,15 @@ export type AuthContext = {
     action: AuthAction;
     /** Target slug when the action has one (undefined for "read" of the index / createPage). */
     slug?: string;
+    /** Hosted-platform tenant scope, resolved server-side (session -> user ->
+     *  account -> membership -> site) and NEVER taken from client input.
+     *  Optional: a single-site local/self-host config omits both and every
+     *  existing adapter keeps working unchanged. A hosted `authorize()` uses
+     *  these to make cross-tenant access structurally impossible to forget
+     *  rather than merely documented (docs/hosted-platform.md, "Tenant
+     *  isolation"). */
+    siteId?: string;
+    accountId?: string;
 };
 /** Normalized identity. Adapters map their lib's user onto this. */
 export type AuthUser = {
@@ -274,6 +298,24 @@ export interface AuthAdapter {
 /** Back-compat shim: wraps the legacy zero-arg `CmsConfig.authorize()` closure
  *  as an adapter so old configs keep working unchanged. */
 export declare function legacyAuthAdapter(fn: () => boolean | Promise<boolean>): AuthAdapter;
+/** The "what may they do?" half of `withPolicy`'s split (see below): given
+ *  the user identity has already resolved, decide the action. No identity
+ *  resolution of its own — `filePolicy` (file-policy.ts) is the first
+ *  implementation. */
+export interface Policy {
+    authorize(user: AuthUser | null, ctx: AuthContext): boolean | Promise<boolean>;
+}
+/**
+ * Compose an identity adapter ("who is this?") with a `Policy` ("what may
+ * they do?") into one `AuthAdapter`. `identity.getUser()` resolves the user;
+ * `policy.authorize()` decides. The identity adapter's OWN `authorize()` (if
+ * any) is never called — the policy is authoritative, so adding a group
+ * policy can't silently be opted out of by picking a different identity
+ * adapter. Fails closed: no `getUser`, no user, or any error resolving
+ * either side denies. See docs/hosted-platform.md, "Compose identity and
+ * policy — do not fuse them".
+ */
+export declare function withPolicy(identity: AuthAdapter, policy: Policy): AuthAdapter;
 /** Single resolution point used by BOTH the action guard and the layout gate,
  *  so they can never diverge. Throws at construction if a config has neither. */
 export declare function resolveAuth(config: {
@@ -371,6 +413,63 @@ export declare function buildCollectionActions(config: CmsConfig): Record<string
  *  contentDir resolution can't drift between the read and write paths. */
 export declare function listCollectionRecords(config: CmsConfig, section: CollectionSection, locale?: string): CollectionRecordInfo[];
 
+// ---- dist/field-schema.d.ts ----
+import type { SliceSchema } from "./types.js";
+/** `CmsConfig["fieldSchema"]`'s shape, named for its own module: the set of
+ *  per-slice field hints, keyed by slice name. Already plain data (strings,
+ *  arrays, nested objects, no functions) -- this type exists so a hosted
+ *  dashboard reading it from a repo-committed JSON file has something to
+ *  import instead of reaching into `CmsConfig`. */
+export type SerializedFieldSchema = Record<string, SliceSchema>;
+/** Runtime type guard for a full fieldSchema document (every slice, every
+ *  field). Exported so a caller can validate without also wanting the throw
+ *  behavior `parseFieldSchema` has for the string-in-string-out case. */
+export declare function isFieldSchema(value: unknown): value is SerializedFieldSchema;
+/** Serialize a TS-authored `CmsConfig.fieldSchema` to the JSON a hosted
+ *  dashboard commits alongside content and reads back on load. The TS shape
+ *  is already JSON-serializable, so this is JSON.stringify with stable
+ *  formatting for a readable diff; the real work is `parseFieldSchema`'s
+ *  validation on the way back in. */
+export declare function serializeFieldSchema(schema: SerializedFieldSchema): string;
+/** Parse + validate a fieldSchema JSON document. Throws with a descriptive
+ *  message on malformed JSON or anything not shaped like
+ *  `Record<sliceName, Record<fieldName, FieldDef>>`, so a hand-edited or
+ *  stale file fails loudly instead of silently feeding a control garbage. */
+export declare function parseFieldSchema(json: string): SerializedFieldSchema;
+
+// ---- dist/file-policy.d.ts ----
+import type { AuthAction, Policy } from "./auth-adapter.js";
+/** `.typren/access.yml` shape (docs/hosted-platform.md, "The policy file").
+ *  `groups` maps a group name to the actions it may perform; `members` maps
+ *  an identity (email, matched case-insensitively) or a `"*@domain"`
+ *  wildcard default to a group name. */
+export interface AccessPolicyFile {
+    groups: Record<string, AuthAction[]>;
+    members: Record<string, string>;
+}
+/**
+ * File-backed `Policy`: reads the YAML file at `file` and checks the
+ * resolved user's group against the requested action. DEFAULT CLOSED — no
+ * member entry (exact email, falling back to a `*@domain` wildcard) or no
+ * action listed for the matched group means deny, full stop; there is no
+ * fallback allow.
+ *
+ * Read fresh on every call: these files are small and change by git commit
+ * (slow), so this trades a stat+read per request for zero cache-invalidation
+ * logic. `withPolicy` (auth-adapter.ts) already wraps this in the fail-closed
+ * try/catch, so a missing file or malformed YAML denies rather than throwing
+ * through to the caller.
+ *
+ * `file`'s location is the caller's responsibility to keep OUTSIDE whatever
+ * the dashboard's ContentAdapter can write (`content/**` and the media dir)
+ * — that's what closes the escalation trap (an editor promoting themselves
+ * to admin), not anything in here. See docs/hosted-platform.md, "The
+ * escalation trap".
+ */
+export declare function filePolicy(opts: {
+    file: string;
+}): Policy;
+
 // ---- dist/fs-media-adapter.d.ts ----
 import type { MediaAdapter } from "./types.js";
 export type FsMediaAdapterOptions = {
@@ -386,6 +485,99 @@ export type FsMediaAdapterOptions = {
  * `list()` probes image dimensions via sharp. See `types.ts`'s `MediaAdapter`.
  */
 export declare function createFsMediaAdapter({ dir, publicPath }: FsMediaAdapterOptions): MediaAdapter;
+
+// ---- dist/github-adapter.d.ts ----
+import type { PageContent } from "./types.js";
+/**
+ * True when `relPath` (repo-relative, forward-slash) safely resolves inside
+ * one of `allowedRoots` (also repo-relative). Rejects `..`, absolute paths,
+ * any dotfile/dot-dir path segment (which subsumes `.github/`), and
+ * well-known manifest filenames. Per this repo's convention an adapter owns
+ * its own trust boundary rather than inheriting the fs adapter's guard, so
+ * this is checked independently of (and in addition to) the slug allowlist
+ * every public method also applies.
+ */
+export declare function isAllowedRepoPath(relPath: string, allowedRoots: string[]): boolean;
+export type GithubAdapterOptions = {
+    owner: string;
+    repo: string;
+    /** Installation access token. Minting/refreshing it (App JWT -> installation
+     *  token exchange) is entirely the caller's job -- this adapter takes only
+     *  the short-lived (~1h) token as plain config and never does App/JWT logic
+     *  itself (docs/hosted-platform.md: "GitHub App, never an OAuth App"). A
+     *  new token means a new adapter instance; this one never re-derives or
+     *  caches credentials. */
+    token: string;
+    /** Branch every read/write targets. Default "main". This adapter always
+     *  commits directly to it -- PR-based writes (the doc's cloud-tier
+     *  default under "Content PRs as the cloud default") are a caller-level
+     *  policy this adapter doesn't implement. Point `branch` at a working
+     *  branch and open the PR outside this adapter for that. */
+    branch?: string;
+    /** Repo-relative directory page files live under. Default "content". */
+    contentDir?: string;
+    /** Repo-relative media directory. No method here writes to it today (this
+     *  is a ContentAdapter, not a MediaAdapter) -- it's accepted so the same
+     *  write-path allowlist boundary (`isAllowedRepoPath`) can be validated
+     *  against both roots ahead of a future GitHub-backed MediaAdapter reusing
+     *  it. Default "public/img". */
+    mediaDir?: string;
+    /** Frontmatter key holding the slice array. Default "slices". */
+    frontmatterKey?: string;
+    /** Locale allowlist. Defaults to `[defaultLocale]`. */
+    locales?: string[];
+    /** Default locale, served flat + unprefixed. Defaults to "en". */
+    defaultLocale?: string;
+    /** Draft subdirectory name. Default "_drafts" -- NOT markdown-adapter's
+     *  ".drafts": this adapter's own write-path allowlist rejects dotfile/
+     *  dot-dir path segments (see `isAllowedRepoPath`), so a dot-prefixed
+     *  default would make every draft write reject itself. "_" is this repo's
+     *  existing convention for a reserved/internal name (see
+     *  fs-media-adapter.ts's `_manifest-` prefix). */
+    draftSubdir?: string;
+    /** Injectable for tests; defaults to the global `fetch`. */
+    fetchImpl?: typeof fetch;
+};
+/**
+ * GitHub Contents API adapter. Mirrors `markdown-adapter.ts`'s factory shape
+ * and locale layout (default locale flat at `contentDir`, others under
+ * `contentDir/<locale>/`, drafts under `.../<draftSubdir>`) and
+ * `fs-media-adapter.ts`'s async convention -- unlike the filesystem adapter,
+ * every method here does real network I/O, so none of them can be
+ * synchronous. That is a real (structural) divergence from the `ContentAdapter`
+ * interface in types.ts, which predates any network-backed implementation
+ * and types every method as synchronous. Wiring this adapter into
+ * `createStore`/`createMeditorApi` therefore needs that interface widened to
+ * `T | Promise<T>` first -- deliberately out of scope here: it ripples into
+ * store.ts, collection.ts, settings.ts, and api/routes.ts, which is a much
+ * larger change than "add a GitHub adapter" and collides with the parallel
+ * per-request-config-resolution work on routes.ts. This adapter is the ready,
+ * tested piece that migration plugs in.
+ *
+ * The upside lands regardless of that wiring: every write here does an
+ * immediate read-sha-then-write, and the PUT is atomically compare-and-swapped
+ * server-side by GitHub against the sha it's given -- a real CAS, not the fs
+ * adapter's unconditional overwrite. That's the shape store.ts's own
+ * `saveDraft` ponytail note asks for ("an atomic adapter ... moves the
+ * compare into the adapter via an optional expectedVersion hook").
+ */
+export declare function createGithubAdapter({ owner, repo, token, branch, contentDir, mediaDir, frontmatterKey, defaultLocale, locales, draftSubdir, fetchImpl, }: GithubAdapterOptions): {
+    locales: string[];
+    defaultLocale: string;
+    root: string;
+    parse: (raw: string) => PageContent;
+    serialize: (page: PageContent) => string;
+    listSlugs(locale?: string): Promise<string[]>;
+    listLocales(slug: string): Promise<string[]>;
+    exists: (slug: string, locale?: string) => Promise<boolean>;
+    readRaw: (slug: string, locale?: string) => Promise<string>;
+    writeRaw: (slug: string, raw: string, locale?: string) => Promise<void>;
+    deletePublished: (slug: string, locale?: string) => Promise<void>;
+    readDraftRaw: (slug: string, locale?: string) => Promise<string | null>;
+    writeDraftRaw: (slug: string, raw: string, locale?: string) => Promise<void>;
+    deleteDraft: (slug: string, locale?: string) => Promise<void>;
+    hasDraft: (slug: string, locale?: string) => Promise<boolean>;
+};
 
 // ---- dist/i18n.d.ts ----
 /** Flat, dot-namespaced editor-UI strings. */
@@ -435,11 +627,14 @@ export { resolveI18n, localizedPath, localizedHref, routeLocale, defaultIsUnpref
 export { mergeLocalized, localeSubdir } from "./localize.js";
 export { createMarkdownAdapter, type MarkdownAdapterOptions } from "./markdown-adapter.js";
 export { createFsMediaAdapter, type FsMediaAdapterOptions } from "./fs-media-adapter.js";
+export { createGithubAdapter, isAllowedRepoPath, type GithubAdapterOptions } from "./github-adapter.js";
 export { processUpload, handleMediaUpload, MAX_UPLOAD_BYTES } from "./media.js";
 export { createStore, type ContentStore } from "./store.js";
 export { makeActions, type CmsActions, type PageActions, type SaveResult } from "./actions.js";
-export { resolveAuth, legacyAuthAdapter, type AuthAdapter, type AuthAction, type AuthContext, type AuthUser, } from "./auth-adapter.js";
+export { resolveAuth, legacyAuthAdapter, withPolicy, type AuthAdapter, type AuthAction, type AuthContext, type AuthUser, type Policy, } from "./auth-adapter.js";
+export { filePolicy, type AccessPolicyFile } from "./file-policy.js";
 export { versionOf, ConflictError } from "./version.js";
+export { serializeFieldSchema, parseFieldSchema, isFieldSchema, type SerializedFieldSchema, } from "./field-schema.js";
 export { resolveSections, DEFAULT_SECTIONS, SECTION_API_VERSION, type Section, type SectionKind, type SectionCtx, type ResolvedSection, type PagesSection, type MediaSection, type SettingsSection, type CollectionSection, type CustomSection, type FieldFormMedia, } from "./sections.js";
 export { createSettingsStore, createFsSettingsAdapter, type SiteSettings, type SiteSettingsRuntime, type SiteSettingsBootstrap, type SettingsAdapter, type SettingsStore, } from "./settings.js";
 export { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection.js";
@@ -1239,6 +1434,14 @@ export interface CmsConfig {
     /** `false` disables first-run onboarding (embeds, tests, hosts that seed
      *  settings out-of-band). Omit = auto-detect via bootstrap `onboarded` flag. */
     onboarding?: false;
+    /** Hosted-platform tenant scope for this config instance. Threaded into
+     *  every `AuthContext` the package builds (actions.ts, settings.ts,
+     *  media.ts, api/routes.ts) so a hosted `authorize()` can enforce isolation
+     *  structurally. Resolve server-side per request (see `createTyprenApi`'s
+     *  config-factory form) — never take these from the client. Omit for a
+     *  single-site config; behavior is byte-identical. */
+    siteId?: string;
+    accountId?: string;
 }
 export type { I18nConfig, Messages, RoutingMode } from "./i18n.js";
 
@@ -1274,8 +1477,16 @@ export declare const defaultMessages: Messages;
  * Attach the preview bridge listeners + inject its stylesheet into
  * `document.head` (once). Returns a cleanup function that removes the
  * listeners (the injected `<style>` is left in place: idempotent, harmless).
+ *
+ * `allowedOrigin` is the one origin this frame will post to and accept
+ * messages from. Omit it and the bridge defaults to `window.location.origin`
+ * (byte-identical to the old same-origin-only behavior, for local/self-host
+ * setups embedding their own dashboard). A hosted dashboard framing a
+ * customer's site is cross-origin by definition, so it must pass its own
+ * origin explicitly here (learned from the site record) — this is never
+ * `"*"`; the channel always compares against one explicit value.
  */
-export declare function initPreviewBridge(): () => void;
+export declare function initPreviewBridge(allowedOrigin?: string): () => void;
 
 // ---- dist/version.d.ts ----
 /** Content version = SHA-256 of the raw file text, truncated. Deterministic and
