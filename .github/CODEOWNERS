@@ -1,0 +1,27 @@
+# Human gate on the paths machines can't fully judge: the cross-repo
+# contract surface (docs/hosted-platform.md#cross-repo-compatibility item 6).
+# CI (ci.yml) catches an accidental break in the *shape* of these files; it
+# cannot catch a deliberate-but-wrong change to what the contract itself
+# should be. Owner review is the other half.
+#
+# Last-match-wins, so more specific rules are listed after the general ones
+# they refine (none needed here — every rule below is already a leaf).
+
+# Exports maps: what a consumer (editor, cloud, template, any outside
+# dependent) is even allowed to import.
+packages/*/package.json  @mataleogml
+
+# The REST route contract and the auth vocabulary a hosted `authorize()`
+# (docs/hosted-platform.md Part I) will depend on.
+packages/core/src/api/routes.ts     @mataleogml
+packages/core/src/auth-adapter.ts   @mataleogml
+
+# The preview-bridge protocol (__typren postMessage shape) and the token
+# contract marketplace blocks are only allowed to consume (Part II, "Slices
+# editor, marketplace, and the token contract").
+packages/core/src/ui/preview-bridge.vanilla.ts  @mataleogml
+packages/core/src/theme.css                     @mataleogml
+
+# CI itself, and who may change whose approval CI requires.
+.github/workflows/  @mataleogml
+.github/CODEOWNERS  @mataleogml

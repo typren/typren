@@ -99,3 +99,32 @@ jobs:
           done
         env:
           GH_TOKEN: ${{ github.token }}
+
+      # Cross-repo compatibility canary (docs/hosted-platform.md
+      # #cross-repo-compatibility item 4): once `cloud` exists, this fires
+      # repository_dispatch at it so its CI installs the fresh @typren/core
+      # and runs @typren/contract-tests against it — a breaking core change
+      # fails there, at build time, instead of surfacing as a live incident.
+      # `cloud` doesn't exist on GitHub yet, so this step is guarded off by a
+      # repository variable that is never set (`vars.CLOUD_REPO_ENABLED`)
+      # rather than deleted: the shape is right, there's just nothing to
+      # dispatch to. A literal `if: false` would do the same job but trips
+      # actionlint's constant-condition check; a not-yet-true variable reads
+      # the same to a release and passes lint. Enable it once the repo exists
+      # and its own workflow listens for `core-released`, by setting that repo
+      # variable to "true" — no YAML edit needed. Template gets the same
+      # treatment separately, once it exists too.
+      #
+      # GITHUB_TOKEN is scoped to this repo only, so a cross-repo dispatch needs
+      # a PAT (or GitHub App token) with contents:read on typren/cloud — add it as
+      # CLOUD_DISPATCH_TOKEN when that repo exists. Not adding that secret now:
+      # a credential for a step that can't run yet is something to leak for no
+      # offsetting benefit.
+      - name: Notify typren/cloud of the new release (not yet wired)
+        if: vars.CLOUD_REPO_ENABLED == 'true'
+        run: |
+          gh api repos/typren/cloud/dispatches \
+            -f event_type=core-released \
+            -F client_payload='{"ref":"${{ github.sha }}"}'
+        env:
+          GH_TOKEN: ${{ secrets.CLOUD_DISPATCH_TOKEN }}

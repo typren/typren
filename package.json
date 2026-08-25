@@ -18,6 +18,7 @@
     "coverage:view": "open coverage/index.html",
     "build": "bun run --filter '*' build",
     "check:scaffold": "bun run --filter typren check:scaffold",
+    "api-surface:generate": "node scripts/gen-api-surface.mjs",
     "verify": "bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold",
     "prepare": "husky"
   },

@@ -12,7 +12,16 @@ import { globalIgnores } from "eslint/config";
 export default tseslint.config(
   // `.claude/**` holds agent worktrees: full checkouts whose in-progress state
   // must not fail a repo-wide `eslint .` run from the primary checkout.
-  globalIgnores(["**/dist/**", "**/coverage/**", "**/node_modules/**", "**/.tmp-scaffold-check/**", ".claude/**"]),
+  globalIgnores([
+    "**/dist/**",
+    "**/coverage/**",
+    "**/node_modules/**",
+    "**/.tmp-scaffold-check/**",
+    ".claude/**",
+    // Generated snapshot of compiled .d.ts output (scripts/gen-api-surface.mjs),
+    // not source — same reasoning as ignoring dist/ above.
+    "etc/api-surface/**",
+  ]),
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
