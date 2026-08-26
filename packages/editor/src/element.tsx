@@ -103,6 +103,14 @@ export class TyprenShellElement extends HTMLElement {
     this.#render();
   }
 
+  get layout() {
+    return this.#props.layout;
+  }
+  set layout(v: TyprenEditorProps["layout"]) {
+    this.#props.layout = v;
+    this.#render();
+  }
+
   get messages() {
     return this.#props.messages;
   }
@@ -149,6 +157,7 @@ export class TyprenShellElement extends HTMLElement {
         page={this.#props.page}
         version={this.#props.version}
         locale={this.#props.locale}
+        layout={this.#props.layout}
         messages={this.#props.messages}
         onNavigate={onNavigate}
         onReload={onReload}

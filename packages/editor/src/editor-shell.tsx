@@ -36,6 +36,7 @@ export function EditorShell({
   media,
   icons,
   locale,
+  layout = "takeover",
   topBarSlot,
   onNavigate,
   onReload,
@@ -58,6 +59,9 @@ export function EditorShell({
   icons?: FieldFormIcons;
   /** Content locale for reads/writes (single-locale hosts omit this). */
   locale?: string;
+  /** See `TyprenEditorProps.layout`. Default "takeover" keeps existing
+   *  consumers byte-identical. */
+  layout?: "takeover" | "embedded";
   /** Host-injected chrome, rendered at the right of the header (see
    *  `TyprenEditorHost.topBarSlot`). */
   topBarSlot?: ReactNode;
@@ -243,7 +247,14 @@ export function EditorShell({
   const previewSrc = `${previewPath}/${slug}?v=${previewV}${locale ? `&locale=${locale}` : ""}`;
 
   return (
-    <div className={cn("fixed inset-0 z-[100] flex bg-[var(--typren-bg)] text-[var(--typren-fg)]", dark && "dark")}>
+    <div
+      className={cn(
+        layout === "embedded"
+          ? "flex h-full min-h-0 bg-[var(--typren-bg)] text-[var(--typren-fg)]"
+          : "fixed inset-0 z-[100] flex bg-[var(--typren-bg)] text-[var(--typren-fg)]",
+        dark && "dark"
+      )}
+    >
       <PagesNav pages={pages} currentSlug={slug} onCreate={actions.createPage} onDelete={actions.deletePage} onNavigate={onNavigate}>
         <BlockList
           slices={page.slices}

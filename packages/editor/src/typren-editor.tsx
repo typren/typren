@@ -34,6 +34,17 @@ export interface TyprenEditorProps {
   version?: string | null;
   /** Content locale for reads/writes (single-locale hosts omit this). */
   locale?: string;
+  /** How the editor's root positions itself. "takeover" (default) is a
+   *  `fixed inset-0 z-[100]` full-viewport overlay — correct when the editor
+   *  IS the app (the local single-site tier). "embedded" renders in normal
+   *  flow instead, filling its parent (`h-full`, `min-h-0`, no fixed
+   *  positioning or z-index): the host owns page scroll and chrome, and its
+   *  mount point must resolve to a definite height (e.g. a flex column with
+   *  `h-full` down to it). Native `<dialog>` pickers (image/icon) render in
+   *  the browser's top layer regardless of this setting, so they stay above
+   *  the editor root either way — don't reintroduce a fixed/z-indexed
+   *  popover without the same guarantee. */
+  layout?: "takeover" | "embedded";
   onNavigate: (slug: string | null) => void;
   /** See `EditorShell`'s `onReload`: refresh "this page" after a
    *  discard/publish/conflict-reload, however the host's router does that. */
@@ -50,6 +61,7 @@ export function TyprenEditor({
   page,
   version = null,
   locale,
+  layout = "takeover",
   onNavigate,
   onReload,
   messages,
@@ -71,11 +83,18 @@ export function TyprenEditor({
           icons={host.icons}
           topBarSlot={host.topBarSlot}
           locale={locale}
+          layout={layout}
           onNavigate={onNavigate}
           onReload={onReload}
         />
       ) : (
-        <div className="fixed inset-0 z-[100] flex bg-[var(--typren-bg)] text-[var(--typren-fg)]">
+        <div
+          className={
+            layout === "embedded"
+              ? "flex h-full min-h-0 bg-[var(--typren-bg)] text-[var(--typren-fg)]"
+              : "fixed inset-0 z-[100] flex bg-[var(--typren-bg)] text-[var(--typren-fg)]"
+          }
+        >
           <PagesNav
             pages={pages}
             onCreate={host.actions.createPage}
