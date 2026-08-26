@@ -1,10 +1,12 @@
 "use client";
 
-import type { Messages, PageContent, PageInfo } from "@typren/core";
+import type { CollectionRecordInfo, Messages, PageContent, PageInfo, SiteSettings } from "@typren/core";
+import { resolveSections } from "@typren/core";
 import { CmsIntlProvider } from "./intl";
 import { EditorShell } from "./editor-shell";
 import { PagesNav } from "./pages-nav";
 import { PageList } from "./page-list";
+import { SectionShell } from "./section-shell";
 import type { TyprenEditorHost } from "./types";
 
 export type { TyprenEditorHost };
@@ -17,9 +19,13 @@ export type { TyprenEditorHost };
  * host decides what a slug means for its URLs; no routing lives inside the
  * library.
  *
- * Settings/media-library/collections/onboarding sections aren't built yet;
- * this component only ever renders the Pages editing loop: the page picker
- * when no page is open, or the full block/field/preview shell once one is.
+ * `host.sections` (omitted by default) switches this component from the v1
+ * Pages-only picker/shell to `SectionShell`, the SDUI section-switcher admin
+ * (Media/Collections/Settings/…) — additive, so a host that never sets it
+ * keeps today's behavior byte-identical. "Onboarding" is deliberately not a
+ * section here: core's `sections.ts` never gave it a `SectionKind` (it's a
+ * first-run wizard gated on `bootstrap.onboarded`, not a rail entry), so it
+ * stays out of scope for this component.
  */
 export interface TyprenEditorProps {
   host: TyprenEditorHost;
@@ -52,6 +58,23 @@ export interface TyprenEditorProps {
   /** Host overrides for the editor UI's strings, deep-merged onto the
    *  package's English defaults. */
   messages?: Partial<Messages>;
+  /** Section id to render — only meaningful when `host.sections` is set
+   *  (defaults to the first resolved section otherwise). Mirrors `slug`'s
+   *  "the host owns routing" contract. */
+  sectionId?: string;
+  /** A section id to switch to, e.g. clicking a `SectionNav` row. Only called
+   *  when `host.sections` is set. */
+  onNavigateSection?: (id: string) => void;
+  /** Server-fetched rows per collection section, keyed by section id (core's
+   *  `listCollectionRecords()`). Only meaningful when `host.sections`
+   *  includes a "collection" entry. */
+  collectionRecords?: Record<string, CollectionRecordInfo[]>;
+  /** Host-fetched settings snapshot, for the Settings section. See
+   *  `SettingsPanel`'s doc comment for why this is a data prop, not part of
+   *  `host`. Only meaningful when `host.sections` includes a "settings" entry. */
+  settingsSnapshot?: SiteSettings;
+  /** Optimistic-lock version `settingsSnapshot` was loaded at. */
+  settingsVersion?: string | null;
 }
 
 export function TyprenEditor({
@@ -65,10 +88,35 @@ export function TyprenEditor({
   onNavigate,
   onReload,
   messages,
+  sectionId,
+  onNavigateSection,
+  collectionRecords,
+  settingsSnapshot,
+  settingsVersion,
 }: Readonly<TyprenEditorProps>) {
+  const sections = host.sections?.length ? resolveSections({ sections: host.sections }) : null;
+
   return (
     <CmsIntlProvider messages={messages}>
-      {slug && page ? (
+      {sections ? (
+        <SectionShell
+          host={host}
+          sections={sections}
+          activeId={sectionId}
+          onSelectSection={onNavigateSection ?? (() => {})}
+          layout={layout}
+          pages={pages}
+          slug={slug}
+          page={page}
+          version={version}
+          onNavigatePage={onNavigate}
+          onReload={onReload}
+          locale={locale}
+          collectionRecords={collectionRecords}
+          settingsSnapshot={settingsSnapshot}
+          settingsVersion={settingsVersion}
+        />
+      ) : slug && page ? (
         <EditorShell
           slug={slug}
           pages={pages}
