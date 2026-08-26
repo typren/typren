@@ -69,6 +69,7 @@ export function TyprenEditor({
           actions={host.actions}
           media={host.media}
           icons={host.icons}
+          topBarSlot={host.topBarSlot}
           locale={locale}
           onNavigate={onNavigate}
           onReload={onReload}

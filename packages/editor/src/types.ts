@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { PageActions, SliceSchema } from "@typren/core";
 import type { FieldFormMedia } from "./image-picker-field";
 import type { FieldFormIcons } from "./icon-picker-field";
@@ -32,4 +33,10 @@ export interface TyprenEditorHost {
   /** Wires FieldForm's "icon" control to an icon picker. Omit to degrade to
    *  a plain text input (no icon library wired). */
   icons?: FieldFormIcons;
+  /** Host-injected chrome (account switcher, marketplace link, agent-panel
+   *  trigger, …), rendered at the right of the shell's header. The only
+   *  extension seam this package has — no plugin framework, the host renders
+   *  whatever it wants and @typren/editor just gives it a mount point. Only
+   *  shown while a page is open (the picker screen has no header yet). */
+  topBarSlot?: ReactNode;
 }

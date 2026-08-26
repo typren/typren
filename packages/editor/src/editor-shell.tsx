@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Moon, Sun, TriangleAlert } from "lucide-react";
 import type { PageActions, PageContent, PageInfo, Slice, SliceSchema } from "@typren/core";
 import { BlockList } from "./block-list";
@@ -36,6 +36,7 @@ export function EditorShell({
   media,
   icons,
   locale,
+  topBarSlot,
   onNavigate,
   onReload,
 }: Readonly<{
@@ -57,6 +58,9 @@ export function EditorShell({
   icons?: FieldFormIcons;
   /** Content locale for reads/writes (single-locale hosts omit this). */
   locale?: string;
+  /** Host-injected chrome, rendered at the right of the header (see
+   *  `TyprenEditorHost.topBarSlot`). */
+  topBarSlot?: ReactNode;
   /** A page slug to open, or `null` for the page picker, e.g. after create/delete. */
   onNavigate: (slug: string | null) => void;
   /** Refresh whatever the host considers "this page" after a discard/publish/
@@ -76,13 +80,16 @@ export function EditorShell({
   const [conflict, setConflict] = useState(false);
   const [previewV, setPreviewV] = useState(0);
   const [dark, setDark] = useState(
-    () => typeof window !== "undefined" && localStorage.getItem("typren-theme") === "dark"
+    // Guard on `localStorage` itself, not `window`: SSR lacks both, but some
+    // test/embed environments (e.g. Bun's jsdom runner without
+    // `--localstorage-file`) have `window` without a working `localStorage`.
+    () => typeof localStorage !== "undefined" && localStorage.getItem("typren-theme") === "dark"
   );
   const firstRender = useRef(true);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined") localStorage.setItem("typren-theme", dark ? "dark" : "light");
+    if (typeof localStorage !== "undefined") localStorage.setItem("typren-theme", dark ? "dark" : "light");
   }, [dark]);
 
   // Debounced autosave + preview refresh ~0.8s after edits settle.
@@ -271,6 +278,7 @@ export function EditorShell({
             <Button size="sm" disabled={busy || conflict} onClick={publish}>
               {t("shell.publish")}
             </Button>
+            {topBarSlot}
           </div>
         </header>
 
