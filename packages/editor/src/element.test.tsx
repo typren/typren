@@ -70,6 +70,27 @@ describe("<typren-shell>", () => {
     expect(el.textContent).toContain("Acme Inc");
   });
 
+  it("passes layout through to the rendered root, defaulting to the takeover overlay", () => {
+    const el = new TyprenShellElement();
+    act(() => {
+      el.host = host;
+      el.pages = [];
+      el.onNavigate = () => {};
+      el.onReload = () => {};
+      document.body.append(el);
+    });
+    const takeoverRoot = el.firstElementChild as HTMLElement;
+    expect(takeoverRoot.className).toContain("fixed");
+    expect(takeoverRoot.className).toContain("z-[100]");
+
+    act(() => {
+      el.layout = "embedded";
+    });
+    const embeddedRoot = el.firstElementChild as HTMLElement;
+    expect(embeddedRoot.className).not.toMatch(/\bfixed\b/);
+    expect(embeddedRoot.className).toContain("h-full");
+  });
+
   it("<meditor-shell> warns once and renders through the same pipeline", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const el = document.createElement("meditor-shell") as unknown as TyprenShellElement;
