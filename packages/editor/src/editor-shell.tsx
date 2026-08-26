@@ -40,6 +40,7 @@ export function EditorShell({
   topBarSlot,
   onNavigate,
   onReload,
+  hideNav = false,
 }: Readonly<{
   slug: string;
   pages: PageInfo[];
@@ -71,6 +72,14 @@ export function EditorShell({
    *  conflict-reload (a full reload, a router refresh, a refetch): the host's
    *  call, not this package's. */
   onReload: () => void;
+  /** Suppresses the built-in `PagesNav` rail, the full-screen overlay
+   *  positioning, and this component's own theme-toggle button, and switches
+   *  to a plain flex child that fills its parent. For embedding inside
+   *  `SectionShell`, whose own left rail (`SectionNav`) already carries the
+   *  Pages section's page list AND the shell's one shared theme toggle — see
+   *  `sections.ts`'s "renders from data" doctrine. Standalone use (the
+   *  default) is unchanged. */
+  hideNav?: boolean;
 }>) {
   const t = useT();
   const [page, setPage] = useState<PageContent>(initialPage);
@@ -246,6 +255,101 @@ export function EditorShell({
 
   const previewSrc = `${previewPath}/${slug}?v=${previewV}${locale ? `&locale=${locale}` : ""}`;
 
+  const blockList = (
+    <BlockList
+      slices={page.slices}
+      selectedIndex={selected}
+      sliceNames={sliceNames}
+      onSelect={setSelected}
+      onReorder={reorder}
+      onAdd={add}
+      onDuplicate={duplicate}
+      onDelete={remove}
+    />
+  );
+
+  const content = (
+    <div className="flex min-w-0 flex-1 flex-col">
+      <header className="flex items-center gap-3 border-b border-[var(--typren-border)] px-4 py-2">
+        <span className="font-mono text-sm font-semibold">/{slug}</span>
+        <span className="text-xs text-[var(--typren-muted-fg)]">
+          {dirty ? t("shell.unsaved") : status || t("shell.upToDate")}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {!hideNav && (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={t("shell.toggleTheme")}
+              onClick={() => setDark((v) => !v)}
+            >
+              {dark ? <Sun /> : <Moon />}
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" disabled={busy} onClick={discard}>
+            {t("shell.discardDraft")}
+          </Button>
+          <Button size="sm" disabled={busy || conflict} onClick={publish}>
+            {t("shell.publish")}
+          </Button>
+          {topBarSlot}
+        </div>
+      </header>
+
+      {conflict && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-3 border-b border-[var(--typren-border)] bg-[var(--typren-muted)] px-4 py-2 text-sm text-[var(--typren-fg)]"
+        >
+          <TriangleAlert className="size-4 shrink-0 text-[var(--typren-destructive)]" aria-hidden />
+          <span className="min-w-0 flex-1">{t("shell.conflict")}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="outline" size="sm" disabled={busy} onClick={onReload}>
+              {t("shell.reload")}
+            </Button>
+            <Button variant="destructive" size="sm" disabled={busy} onClick={overwrite}>
+              {t("shell.overwrite")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1">
+        <DevicePreview src={previewSrc} reloadKey={previewV} iframeRef={iframeRef} />
+
+        <aside className="w-80 shrink-0 overflow-y-auto border-l border-[var(--typren-border)]">
+          <div className="border-b border-[var(--typren-border)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--typren-muted-fg)]">
+            {t("shell.properties")}
+          </div>
+          <div className="p-3">
+            {page.slices[selected] ? (
+              <FieldForm
+                key={selected}
+                slice={page.slices[selected]}
+                schema={fieldSchema?.[page.slices[selected].slice]}
+                onChange={updateSelected}
+                media={media}
+                icons={icons}
+              />
+            ) : (
+              <p className="text-sm text-[var(--typren-muted-fg)]">{t("shell.selectBlock")}</p>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+
+  if (hideNav)
+    return (
+      <>
+        <nav className="flex h-full w-60 shrink-0 flex-col border-r border-[var(--typren-border)] bg-[var(--typren-bg)]">
+          {blockList}
+        </nav>
+        {content}
+      </>
+    );
+
   return (
     <div
       className={cn(
@@ -256,85 +360,9 @@ export function EditorShell({
       )}
     >
       <PagesNav pages={pages} currentSlug={slug} onCreate={actions.createPage} onDelete={actions.deletePage} onNavigate={onNavigate}>
-        <BlockList
-          slices={page.slices}
-          selectedIndex={selected}
-          sliceNames={sliceNames}
-          onSelect={setSelected}
-          onReorder={reorder}
-          onAdd={add}
-          onDuplicate={duplicate}
-          onDelete={remove}
-        />
+        {blockList}
       </PagesNav>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-[var(--typren-border)] px-4 py-2">
-          <span className="font-mono text-sm font-semibold">/{slug}</span>
-          <span className="text-xs text-[var(--typren-muted-fg)]">
-            {dirty ? t("shell.unsaved") : status || t("shell.upToDate")}
-          </span>
-          <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={t("shell.toggleTheme")}
-              onClick={() => setDark((v) => !v)}
-            >
-              {dark ? <Sun /> : <Moon />}
-            </Button>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={discard}>
-              {t("shell.discardDraft")}
-            </Button>
-            <Button size="sm" disabled={busy || conflict} onClick={publish}>
-              {t("shell.publish")}
-            </Button>
-            {topBarSlot}
-          </div>
-        </header>
-
-        {conflict && (
-          <div
-            role="alert"
-            className="flex flex-wrap items-center gap-3 border-b border-[var(--typren-border)] bg-[var(--typren-muted)] px-4 py-2 text-sm text-[var(--typren-fg)]"
-          >
-            <TriangleAlert className="size-4 shrink-0 text-[var(--typren-destructive)]" aria-hidden />
-            <span className="min-w-0 flex-1">{t("shell.conflict")}</span>
-            <div className="flex shrink-0 items-center gap-2">
-              <Button variant="outline" size="sm" disabled={busy} onClick={onReload}>
-                {t("shell.reload")}
-              </Button>
-              <Button variant="destructive" size="sm" disabled={busy} onClick={overwrite}>
-                {t("shell.overwrite")}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        <div className="flex min-h-0 flex-1">
-          <DevicePreview src={previewSrc} reloadKey={previewV} iframeRef={iframeRef} />
-
-          <aside className="w-80 shrink-0 overflow-y-auto border-l border-[var(--typren-border)]">
-            <div className="border-b border-[var(--typren-border)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--typren-muted-fg)]">
-              {t("shell.properties")}
-            </div>
-            <div className="p-3">
-              {page.slices[selected] ? (
-                <FieldForm
-                  key={selected}
-                  slice={page.slices[selected]}
-                  schema={fieldSchema?.[page.slices[selected].slice]}
-                  onChange={updateSelected}
-                  media={media}
-                  icons={icons}
-                />
-              ) : (
-                <p className="text-sm text-[var(--typren-muted-fg)]">{t("shell.selectBlock")}</p>
-              )}
-            </div>
-          </aside>
-        </div>
-      </div>
+      {content}
     </div>
   );
 }
