@@ -53,4 +53,22 @@ export const defaultMessages: Messages = {
   "media.title": "Media library",
   "media.uploading": "Uploading…",
   "media.uploadFailed": "Upload failed: {error}",
+  "media.confirmDelete": "Delete “{name}”? This cannot be undone.",
+
+  // Settings section (SDUI shell — distinct from the legacy `site.*` keys above)
+  "settings.title": "Settings",
+  "settings.blurb": "Brand, SEO and theme — saved as a draft, live once published.",
+  "settings.advanced": "Advanced",
+  "settings.advancedBlurb":
+    "Locale allowlist, routing mode and the admin route reparameterize what the next boot trusts — saving here writes immediately, but needs a redeploy to take effect.",
+  "settings.saveAdvanced": "Save advanced settings",
+  "settings.adminRouteChanged": "Admin route change pending — redeploy for it to take effect.",
+
+  // Collections section
+  "collection.new": "New {label}",
+  "collection.create": "Create",
+  "collection.cancel": "Cancel",
+  "collection.back": "Back",
+  "collection.save": "Save",
+  "collection.confirmDiscard": "Discard unsaved changes?",
 };
