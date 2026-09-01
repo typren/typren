@@ -10,7 +10,17 @@ import { globalIgnores } from "eslint/config";
 // `no-img-element`). Only the referenced rules are wired; no full Next app
 // ruleset.
 export default tseslint.config(
-  globalIgnores(["**/dist/**", "**/coverage/**", "**/node_modules/**", "**/.tmp-scaffold-check/**"]),
+  globalIgnores([
+    "**/dist/**",
+    "**/coverage/**",
+    "**/node_modules/**",
+    "**/.tmp-scaffold-check/**",
+    // A CloudFront Function, not typren source: cloudfront-js-2.0's runtime
+    // convention (a top-level `handler` the platform invokes by name, never
+    // imported/exported) doesn't satisfy typren's own lint rules and isn't
+    // meant to — see redirects.function.test.ts for how it's actually verified.
+    "packages/adapter-cloudfront/src/redirects.function.js",
+  ]),
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

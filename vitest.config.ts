@@ -43,15 +43,28 @@ export default defineConfig({
         // editor line when its tests land, and re-seed the thresholds then.
         "packages/editor/**",
         "apps/studio/**",
+        // Thin `aws` CLI glue (parse `--output json`, done) — exercising it
+        // for real needs a live AWS account. The actual logic it's glue for
+        // (diff/chunk/ETag-chain, the guard/upsert flow) is fully unit-tested
+        // against the same KvsClient/CloudFrontClient interface with fakes;
+        // see sync.test.ts and bootstrap.test.ts.
+        "packages/adapter-cloudfront/src/aws-cli-clients.ts",
+        // A CloudFront Function: redirects.function.test.ts DOES exercise it
+        // (loads the real source and runs its handler), but via `new
+        // Function(...)`, not an import — v8 can't attribute coverage back
+        // to eval'd code, so it reports 0% despite being tested. Same
+        // "genuinely untestable [by this instrumentation]" case as the
+        // templates/** line below.
+        "packages/adapter-cloudfront/src/redirects.function.js",
       ],
       thresholds: {
         // Ratchets up as coverage improves, fails a regression below the last
         // seeded value. See package.json's "test:coverage" and the pre-push hook.
         autoUpdate: true,
-        lines: 77.81,
-        statements: 75.74,
-        functions: 73.77,
-        branches: 66.33,
+        lines: 80.12,
+        statements: 78.12,
+        functions: 76.65,
+        branches: 68.3,
       },
     },
   },
