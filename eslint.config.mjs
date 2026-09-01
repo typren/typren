@@ -15,6 +15,9 @@ export default tseslint.config(
     "**/coverage/**",
     "**/node_modules/**",
     "**/.tmp-scaffold-check/**",
+    // Agent worktrees checked out under the main clone: their stale copies
+    // must never be linted as if they were this checkout's source.
+    "**/.claude/worktrees/**",
     // A CloudFront Function, not typren source: cloudfront-js-2.0's runtime
     // convention (a top-level `handler` the platform invokes by name, never
     // imported/exported) doesn't satisfy typren's own lint rules and isn't
