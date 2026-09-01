@@ -26,9 +26,24 @@
       "name": "@typren/studio",
       "version": "0.1.0",
     },
+    "packages/adapter-cloudfront": {
+      "name": "@typren/adapter-cloudfront",
+      "version": "0.1.0",
+      "bin": {
+        "typren-cloudfront": "./dist/cli.js",
+      },
+      "dependencies": {
+        "@typren/core": "^0.1.2",
+        "gray-matter": "^4.0.3",
+      },
+      "devDependencies": {
+        "@types/node": "^20",
+        "typescript": "^5",
+      },
+    },
     "packages/cli": {
       "name": "typren",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "bin": {
         "typren": "./dist/cli.js",
       },
@@ -43,7 +58,7 @@
     },
     "packages/core": {
       "name": "@typren/core",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "dependencies": {
         "gray-matter": "^4.0.3",
         "sharp": "^0.35.3",
@@ -452,6 +467,8 @@
     "@typescript-eslint/utils": ["@typescript-eslint/utils@8.67.0", "", { "dependencies": { "@eslint-community/eslint-utils": "^4.9.1", "@typescript-eslint/scope-manager": "8.67.0", "@typescript-eslint/types": "8.67.0", "@typescript-eslint/typescript-estree": "8.67.0" }, "peerDependencies": { "eslint": "^8.57.0 || ^9.0.0 || ^10.0.0", "typescript": ">=4.8.4 <6.1.0" } }, "sha512-U9D1FdwEWBwok3hxxSdhclMb0twvt9QnjIQ0VfQ1AiX2epnpSgv2ubVDsayOFyY8K6FX+AQ7E0FKWVG3iKsj1A=="],
 
     "@typescript-eslint/visitor-keys": ["@typescript-eslint/visitor-keys@8.67.0", "", { "dependencies": { "@typescript-eslint/types": "8.67.0", "eslint-visitor-keys": "^5.0.0" } }, "sha512-fkv8dHRDqfGtTHuJeebdrQ7cX6Ad4WAS00rgHh9UGvMycF1mjBfsxry1XsLIFhWZ6Judlh6UdzK+TYlbpCXgnA=="],
+
+    "@typren/adapter-cloudfront": ["@typren/adapter-cloudfront@workspace:packages/adapter-cloudfront"],
 
     "@typren/core": ["@typren/core@workspace:packages/core"],
 

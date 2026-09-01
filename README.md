@@ -31,6 +31,7 @@ your site still builds.
 | [`@typren/core`](packages/core) | the engine: content store, adapters, HTTP API, SEO |
 | [`typren`](packages/cli) | the CLI: scaffolding, content review |
 | [`@typren/editor`](packages/editor) | the editor UI (React), in progress and not yet published |
+| [`@typren/adapter-cloudfront`](packages/adapter-cloudfront) | CloudFront host adapter: the canonical viewer-request function + a `sync-redirects` CLI for `redirects()` |
 
 ## Architecture
 
