@@ -278,6 +278,81 @@ describe("notion-adapter content: \"blocks\"", () => {
   });
 });
 
+describe('notion-adapter content: "slices"', () => {
+  const nameOnly = { name: { name: "Name", type: "title" as const } };
+  // prose, then a directive, then more prose, then a directive with no props
+  // and a name nothing registers — this adapter has no opinion on that,
+  // see the second test below.
+  const pageBlocks: NotionBlock[] = [
+    { id: "b1", type: "paragraph", paragraph: { rich_text: [{ plain_text: "intro" }] } },
+    { id: "b2", type: "callout", callout: { rich_text: [{ plain_text: '::hero\n{"heading":"Hi"}' }] } },
+    { id: "b3", type: "paragraph", paragraph: { rich_text: [{ plain_text: "middle" }] } },
+    { id: "b4", type: "callout", callout: { rich_text: [{ plain_text: "::totally-unknown-widget" }] } },
+  ];
+
+  it("reads a page's block content as an ordered PageContent.slices, body always empty", () => {
+    const client = fakeClient(
+      [{ id: "row-1", archived: false, properties: { Name: { title: [{ plain_text: "Doc" }] } } }],
+      { "row-1": pageBlocks }
+    );
+    const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "slices" });
+
+    expect(adapter.parse(adapter.readRaw("row-1"))).toEqual({
+      meta: { name: "Doc" },
+      slices: [
+        { slice: "prose", markdown: "intro" },
+        { slice: "hero", heading: "Hi" },
+        { slice: "prose", markdown: "middle" },
+        { slice: "totally-unknown-widget" },
+      ],
+      body: "",
+    });
+  });
+
+  it("passes an unregistered component name through untouched, never throwing — registry-fallback is the render layer's job (see SliceZone in templates/init.ts), not this adapter's", () => {
+    const client = fakeClient([{ id: "row-1", archived: false, properties: {} }], {
+      "row-1": [{ id: "b1", type: "callout", callout: { rich_text: [{ plain_text: "::mystery-widget" }] } }],
+    });
+    const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "slices" });
+
+    expect(() => adapter.readRaw("row-1")).not.toThrow();
+    expect(adapter.parse(adapter.readRaw("row-1")).slices).toEqual([{ slice: "mystery-widget" }]);
+  });
+
+  it("throws at construction when the client has no listBlockChildren", () => {
+    expect(() =>
+      createNotionAdapter({ client: fakeClient(), databaseId: "db1", properties: nameOnly, content: "slices" })
+    ).toThrow(/listBlockChildren/);
+  });
+
+  it("warns once (not on every write) instead of silently dropping slice edits; property writes still go through", () => {
+    const client = fakeClient([{ id: "row-1", archived: false, properties: {} }], { "row-1": [] });
+    const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "slices" });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const slices = [{ slice: "prose", markdown: "hi" }];
+
+    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc" }, slices, body: "" }));
+    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc 2" }, slices, body: "" }));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/content:"slices".*not written back/);
+    // The property write itself still went through.
+    expect(adapter.parse(adapter.readRaw("row-1")).meta).toEqual({ name: "Doc 2" });
+    warn.mockRestore();
+  });
+
+  it("does not warn writing an empty slices array — nothing would be lost", () => {
+    const client = fakeClient([{ id: "row-1", archived: false, properties: {} }], { "row-1": [] });
+    const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "slices" });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc" }, slices: [], body: "" }));
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
 describe("notion-adapter rich_text property + bodyProperty", () => {
   const noteProperties = {
     name: { name: "Name", type: "title" as const },

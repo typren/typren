@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import type { ContentAdapter, PageContent } from "./types";
-import { blocksToMarkdown, type NotionBlock } from "./notion-blocks";
+import type { ContentAdapter, PageContent, Slice } from "./types";
+import { blocksToMarkdown, blocksToSegments, pageRecordFrom, type NotionBlock } from "./notion-blocks";
 export type { NotionBlock } from "./notion-blocks";
 
 /** Notion property types this adapter can round-trip: text, numbers,
@@ -157,19 +157,32 @@ export type NotionAdapterOptions = {
    *  ever created in Notion directly. */
   slugProperty?: string;
   /** metaKey of a rich_text property to round-trip as `PageContent.body`.
-   *  Ignored when `content: "blocks"` is set. Omit both for a property-only
-   *  collection (body is always ""), the normal case for a row-shaped record. */
+   *  Ignored when `content: "blocks"` or `"slices"` is set. Omit both for a
+   *  property-only collection (body is always ""), the normal case for a
+   *  row-shaped record. */
   bodyProperty?: string;
   /** `"blocks"`: `body` is the page's own block content (paragraphs,
    *  headings, lists, ...) converted to markdown — see notion-blocks.ts —
-   *  instead of a `bodyProperty` column. Needs a `client` whose
-   *  `listBlockChildren` is implemented (throws loud otherwise). READ-ONLY
-   *  for now: `writeRaw`/`writeDraftRaw` still only push `properties`
-   *  (see the `content` note on `createNotionAdapter`'s own doc comment) —
-   *  a body edit against a blocks-backed record is not written back to
-   *  Notion yet. Default `"none"` keeps the `bodyProperty`/property-only
-   *  behavior unchanged. */
-  content?: "blocks" | "none";
+   *  instead of a `bodyProperty` column.
+   *
+   *  `"slices"`: the page reads as a full typren page record — `body` is
+   *  always `""` and `slices` comes from running the same block tree through
+   *  `blocksToSegments` + `pageRecordFrom` (prose runs become a `"prose"`
+   *  slice carrying markdown, `::componentName` directives become named
+   *  slices in document order). The host's slice registry resolves each
+   *  `slice` name at render time; a name with no registered component is the
+   *  registry's problem, not this adapter's — it degrades the same way any
+   *  other unregistered slice does there (see `SliceZone`'s scaffold),
+   *  never a throw here.
+   *
+   *  Both need a `client` whose `listBlockChildren` is implemented (throws
+   *  loud otherwise). READ-ONLY for now: `writeRaw`/`writeDraftRaw` still
+   *  only push `properties` (see the `content` note on
+   *  `createNotionAdapter`'s own doc comment) — a body/slice edit against a
+   *  blocks- or slices-backed record is not written back to Notion yet.
+   *  Default `"none"` keeps the `bodyProperty`/property-only behavior
+   *  unchanged. */
+  content?: "blocks" | "slices" | "none";
   locales?: string[];
   defaultLocale?: string;
 };
@@ -177,8 +190,11 @@ export type NotionAdapterOptions = {
 /**
  * Notion-backed `ContentAdapter`. One database row = one record; `meta` is
  * the schema-shaped prop bag (see `NotionPropertyMap`), `body` is optional
- * (see `bodyProperty`), `slices` is always `[]` (Notion has no slice concept,
- * matching how a markdown *collection* record already has no slices either).
+ * (see `bodyProperty`). `slices` is `[]` unless `content: "slices"` is set,
+ * in which case a page's own block content is read as an ordered list of
+ * typren slices (see the `content` doc on `NotionAdapterOptions`) — matching
+ * how a markdown *page* record already carries slices, just sourced from
+ * Notion blocks instead of frontmatter.
  *
  * typren: Notion has no draft/publish distinction (unlike the filesystem
  * adapter's separate `.drafts` dir) — every draft op writes straight through
@@ -191,14 +207,16 @@ export type NotionAdapterOptions = {
  * real draft/review step, e.g. writing to a "Draft" Notion property or a
  * shadow database instead of aliasing to published.
  *
- * typren: `content: "blocks"` (see `NotionAdapterOptions`) reads a page's own
- * block content as markdown but does NOT write it back — `writeRaw` only
- * ever pushes `properties`. A body edit against such a record is silently
- * (from Notion's point of view — loudly from this code's, via the one-time
- * `console.warn` below) NOT persisted. Upgrade path: markdown -> blocks is a
- * lossy, rate-limit-heavy replace (delete existing children, append new
- * ones); land it once the read side (this adapter + notion-blocks.ts) has
- * seen real use and the common-block-set converter is trusted.
+ * typren: `content: "blocks"` and `content: "slices"` (see
+ * `NotionAdapterOptions`) both read a page's own block content but do NOT
+ * write it back — `writeRaw` only ever pushes `properties`. A body/slice
+ * edit against such a record is silently (from Notion's point of view —
+ * loudly from this code's, via the one-time `console.warn` below) NOT
+ * persisted. typren TODO: slice write-back needs a segments -> blocks
+ * inverse of `blocksToSegments` (a lossy, rate-limit-heavy replace: delete
+ * existing children, append new ones) plus a decision on how an edited prose
+ * slice's markdown maps back to Notion's rich-text block shapes; land it
+ * once the read side (this adapter + notion-blocks.ts) has seen real use.
  */
 export function createNotionAdapter({
   client,
@@ -210,9 +228,10 @@ export function createNotionAdapter({
   defaultLocale = "en",
   locales = [defaultLocale],
 }: NotionAdapterOptions): ContentAdapter {
-  if (content === "blocks" && !client.listBlockChildren)
-    throw new Error(`typren: content: "blocks" needs a NotionClient with listBlockChildren implemented`);
+  if ((content === "blocks" || content === "slices") && !client.listBlockChildren)
+    throw new Error(`typren: content: "${content}" needs a NotionClient with listBlockChildren implemented`);
   let warnedUnsavedBody = false;
+  let warnedUnsavedSlices = false;
   const safeLocale = (loc?: string): string => {
     const l = loc ?? defaultLocale;
     if (!locales.includes(l)) throw new Error(`typren: unknown locale "${l}"`);
@@ -245,15 +264,28 @@ export function createNotionAdapter({
   };
 
   const bodyFromPage = (page: NotionPage): string => {
+    if (content === "slices") return "";
     if (content === "blocks") return blocksToMarkdown(client.listBlockChildren!(page.id));
     if (!bodyProperty) return "";
     const def = properties[bodyProperty] ?? { name: bodyProperty, type: "rich_text" as const };
     return String(readProp(page.properties[def.name], def.name, def.type) ?? "");
   };
 
-  const toRaw = (page: NotionPage): string => JSON.stringify({ meta: metaFromPage(page), body: bodyFromPage(page) });
+  /** `content: "slices"` only — the page's block tree as an ordered list of
+   *  typren slices (see the `content` doc on `NotionAdapterOptions`). Reuses
+   *  the same generic segment mapping `content: "blocks"` uses for markdown,
+   *  just keeping the component segments instead of flattening them away. */
+  const slicesFromPage = (page: NotionPage): Slice[] =>
+    pageRecordFrom(blocksToSegments(client.listBlockChildren!(page.id))).slices;
 
-  const propsFromMeta = (meta: Record<string, unknown>, body: string): Record<string, NotionRawProperty> => {
+  const toRaw = (page: NotionPage): string =>
+    JSON.stringify({
+      meta: metaFromPage(page),
+      body: bodyFromPage(page),
+      ...(content === "slices" ? { slices: slicesFromPage(page) } : {}),
+    });
+
+  const propsFromMeta = (meta: Record<string, unknown>, body: string, slices: Slice[]): Record<string, NotionRawProperty> => {
     const out: Record<string, NotionRawProperty> = {};
     for (const [key, def] of Object.entries(properties)) if (key in meta) out[def.name] = writeProp(meta[key], def.type);
     if (content === "blocks") {
@@ -266,6 +298,16 @@ export function createNotionAdapter({
         );
         warnedUnsavedBody = true;
       }
+    } else if (content === "slices") {
+      // typren TODO: slice write-back — see the `content` write-side note on
+      // this function's doc comment. Same one-warning-per-instance shape as
+      // the "blocks" branch above.
+      if (slices.length && !warnedUnsavedSlices) {
+        console.warn(
+          `typren: notion adapter for database "${databaseId}" has content:"slices" — slice edits are not written back to Notion (properties still save); see notion-adapter.ts`
+        );
+        warnedUnsavedSlices = true;
+      }
     } else if (bodyProperty) {
       const def = properties[bodyProperty] ?? { name: bodyProperty, type: "rich_text" as const };
       out[def.name] = writeProp(body, def.type);
@@ -275,8 +317,8 @@ export function createNotionAdapter({
 
   const doWriteRaw = (slug: string, raw: string, locale?: string): void => {
     safeLocale(locale);
-    const { meta, body } = JSON.parse(raw) as { meta: Record<string, unknown>; body: string };
-    const props = propsFromMeta(meta, body);
+    const { meta, body, slices } = JSON.parse(raw) as { meta: Record<string, unknown>; body: string; slices?: Slice[] };
+    const props = propsFromMeta(meta, body, slices ?? []);
     const existing = findBySlug(slug);
     if (existing) {
       client.updatePage(existing.id, props);
@@ -341,11 +383,11 @@ export function createNotionAdapter({
     },
 
     parse(raw: string): PageContent {
-      const { meta, body } = JSON.parse(raw) as { meta: Record<string, unknown>; body: string };
-      return { meta, slices: [], body };
+      const { meta, body, slices } = JSON.parse(raw) as { meta: Record<string, unknown>; body: string; slices?: Slice[] };
+      return { meta, slices: slices ?? [], body };
     },
     serialize(page: PageContent): string {
-      return JSON.stringify({ meta: page.meta, body: page.body });
+      return JSON.stringify({ meta: page.meta, body: page.body, slices: page.slices });
     },
   };
 }
