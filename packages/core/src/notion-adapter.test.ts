@@ -1,10 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createNotionAdapter, type NotionClient, type NotionPage } from "./notion-adapter";
+import type { NotionBlock } from "./notion-blocks";
 
 /** Hand-rolled in-memory `NotionClient`: no network, no mocking library —
  *  same spirit as markdown-adapter.test.ts using a real temp dir instead of
- *  mocking `node:fs`. */
-function fakeClient(seed: NotionPage[] = []): NotionClient & { pages: NotionPage[] } {
+ *  mocking `node:fs`. `blocksByPageId` is only used by the content:"blocks"
+ *  tests; omitting it (the default) leaves `listBlockChildren` unset, same
+ *  as a real client with no block support. */
+function fakeClient(
+  seed: NotionPage[] = [],
+  blocksByPageId: Record<string, NotionBlock[]> = {}
+): NotionClient & { pages: NotionPage[] } {
   const pages = [...seed];
   let nextId = 1;
   return {
@@ -26,6 +32,7 @@ function fakeClient(seed: NotionPage[] = []): NotionClient & { pages: NotionPage
       const page = pages.find((p) => p.id === id);
       if (page) page.archived = true;
     },
+    ...(Object.keys(blocksByPageId).length ? { listBlockChildren: (id: string) => blocksByPageId[id] ?? [] } : {}),
   };
 }
 
@@ -200,5 +207,73 @@ describe("notion-adapter property type mapping", () => {
       seenAt: null,
       related: [],
     });
+  });
+});
+
+describe("notion-adapter contact-shaped property types", () => {
+  const contactProperties = {
+    email: { name: "Email", type: "email" as const },
+    phone: { name: "Phone", type: "phone_number" as const },
+    site: { name: "Site", type: "url" as const },
+  };
+
+  it("round-trips email/phone_number/url and defaults each to null when absent", () => {
+    const client = fakeClient([{ id: "row-1", archived: false, properties: {} }]);
+    const adapter = createNotionAdapter({ client, databaseId: "db1", properties: contactProperties });
+
+    expect(adapter.parse(adapter.readRaw("row-1")).meta).toEqual({ email: null, phone: null, site: null });
+
+    adapter.writeRaw(
+      "row-1",
+      adapter.serialize({
+        meta: { email: "a@x.test", phone: "+1 555", site: "https://x.test" },
+        slices: [],
+        body: "",
+      })
+    );
+    expect(adapter.parse(adapter.readRaw("row-1")).meta).toEqual({
+      email: "a@x.test",
+      phone: "+1 555",
+      site: "https://x.test",
+    });
+  });
+});
+
+describe("notion-adapter content: \"blocks\"", () => {
+  const nameOnly = { name: { name: "Name", type: "title" as const } };
+
+  it("reads body as the page's block children converted to markdown", () => {
+    const client = fakeClient(
+      [{ id: "row-1", archived: false, properties: { Name: { title: [{ plain_text: "Doc" }] } } }],
+      { "row-1": [{ id: "b1", type: "paragraph", paragraph: { rich_text: [{ plain_text: "hello" }] } }] }
+    );
+    const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "blocks" });
+
+    expect(adapter.parse(adapter.readRaw("row-1"))).toEqual({
+      meta: { name: "Doc" },
+      slices: [],
+      body: "hello",
+    });
+  });
+
+  it("throws at construction when the client has no listBlockChildren", () => {
+    expect(() =>
+      createNotionAdapter({ client: fakeClient(), databaseId: "db1", properties: nameOnly, content: "blocks" })
+    ).toThrow(/listBlockChildren/);
+  });
+
+  it("warns once (not on every write) instead of silently dropping a body edit", () => {
+    const client = fakeClient([{ id: "row-1", archived: false, properties: {} }], { "row-1": [] });
+    const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "blocks" });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc" }, slices: [], body: "edited body" }));
+    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc 2" }, slices: [], body: "edited again" }));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/content:"blocks".*not written back/);
+    // The property write itself still went through.
+    expect(adapter.parse(adapter.readRaw("row-1")).meta).toEqual({ name: "Doc 2" });
+    warn.mockRestore();
   });
 });

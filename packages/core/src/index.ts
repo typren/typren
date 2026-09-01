@@ -37,6 +37,16 @@ export {
   type NotionPropertyMap,
   type NotionPropertyType,
 } from "./notion-adapter";
+export {
+  blocksToMarkdown,
+  blocksToSegments,
+  pageRecordFrom,
+  richTextToMarkdown,
+  type NotionBlock,
+  type NotionSegment,
+  type ProseSegment,
+  type ComponentSegment,
+} from "./notion-blocks";
 export { createFsMediaAdapter, type FsMediaAdapterOptions } from "./fs-media-adapter";
 export { processUpload, handleMediaUpload, MAX_UPLOAD_BYTES } from "./media";
 export { createStore, type ContentStore } from "./store";

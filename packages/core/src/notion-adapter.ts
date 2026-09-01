@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
 import type { ContentAdapter, PageContent } from "./types";
+import { blocksToMarkdown, type NotionBlock } from "./notion-blocks";
+export type { NotionBlock } from "./notion-blocks";
 
 /** Notion property types this adapter can round-trip: text, numbers,
  *  single/multi enums, booleans, dates, and a relation to another database —
@@ -54,6 +56,12 @@ export interface NotionClient {
   updatePage(pageId: string, properties: Record<string, NotionRawProperty>): NotionPage;
   /** Notion has no hard delete via the API, only archive (= its trash). */
   archivePage(pageId: string): void;
+  /** A page's block children, recursively resolved (each returned block's own
+   *  `children` is already populated when `has_children` is true) — see
+   *  notion-blocks.ts for what they turn into. Only called when a
+   *  `NotionAdapterOptions.content` of `"blocks"` is configured; omit it on a
+   *  client that never backs such a collection. */
+  listBlockChildren?(pageId: string): NotionBlock[];
 }
 
 /** Narrow an unknown JSON value to a plain object, or `{}` when it isn't one
@@ -149,9 +157,19 @@ export type NotionAdapterOptions = {
    *  ever created in Notion directly. */
   slugProperty?: string;
   /** metaKey of a rich_text property to round-trip as `PageContent.body`.
-   *  Omit when the collection is property-only (body is always ""), which
-   *  is the normal case for the row-shaped entities this adapter targets. */
+   *  Ignored when `content: "blocks"` is set. Omit both for a property-only
+   *  collection (body is always ""), the normal case for a row-shaped record. */
   bodyProperty?: string;
+  /** `"blocks"`: `body` is the page's own block content (paragraphs,
+   *  headings, lists, ...) converted to markdown — see notion-blocks.ts —
+   *  instead of a `bodyProperty` column. Needs a `client` whose
+   *  `listBlockChildren` is implemented (throws loud otherwise). READ-ONLY
+   *  for now: `writeRaw`/`writeDraftRaw` still only push `properties`
+   *  (see the `content` note on `createNotionAdapter`'s own doc comment) —
+   *  a body edit against a blocks-backed record is not written back to
+   *  Notion yet. Default `"none"` keeps the `bodyProperty`/property-only
+   *  behavior unchanged. */
+  content?: "blocks" | "none";
   locales?: string[];
   defaultLocale?: string;
 };
@@ -172,6 +190,15 @@ export type NotionAdapterOptions = {
  * T-20260810-riau-06), not silently dropped: revisit if the admin needs a
  * real draft/review step, e.g. writing to a "Draft" Notion property or a
  * shadow database instead of aliasing to published.
+ *
+ * typren: `content: "blocks"` (see `NotionAdapterOptions`) reads a page's own
+ * block content as markdown but does NOT write it back — `writeRaw` only
+ * ever pushes `properties`. A body edit against such a record is silently
+ * (from Notion's point of view — loudly from this code's, via the one-time
+ * `console.warn` below) NOT persisted. Upgrade path: markdown -> blocks is a
+ * lossy, rate-limit-heavy replace (delete existing children, append new
+ * ones); land it once the read side (this adapter + notion-blocks.ts) has
+ * seen real use and the common-block-set converter is trusted.
  */
 export function createNotionAdapter({
   client,
@@ -179,9 +206,13 @@ export function createNotionAdapter({
   properties,
   slugProperty,
   bodyProperty,
+  content = "none",
   defaultLocale = "en",
   locales = [defaultLocale],
 }: NotionAdapterOptions): ContentAdapter {
+  if (content === "blocks" && !client.listBlockChildren)
+    throw new Error(`typren: content: "blocks" needs a NotionClient with listBlockChildren implemented`);
+  let warnedUnsavedBody = false;
   const safeLocale = (loc?: string): string => {
     const l = loc ?? defaultLocale;
     if (!locales.includes(l)) throw new Error(`typren: unknown locale "${l}"`);
@@ -214,6 +245,7 @@ export function createNotionAdapter({
   };
 
   const bodyFromPage = (page: NotionPage): string => {
+    if (content === "blocks") return blocksToMarkdown(client.listBlockChildren!(page.id));
     if (!bodyProperty) return "";
     const def = properties[bodyProperty] ?? { name: bodyProperty, type: "rich_text" as const };
     return String(readProp(page.properties[def.name], def.name, def.type) ?? "");
@@ -224,7 +256,17 @@ export function createNotionAdapter({
   const propsFromMeta = (meta: Record<string, unknown>, body: string): Record<string, NotionRawProperty> => {
     const out: Record<string, NotionRawProperty> = {};
     for (const [key, def] of Object.entries(properties)) if (key in meta) out[def.name] = writeProp(meta[key], def.type);
-    if (bodyProperty) {
+    if (content === "blocks") {
+      // typren: NOT written back — see the `content` write-side note on this
+      // function's doc comment. One warning per adapter instance, not per
+      // call, so a UI that autosaves on every keystroke doesn't spam stderr.
+      if (body && !warnedUnsavedBody) {
+        console.warn(
+          `typren: notion adapter for database "${databaseId}" has content:"blocks" — body edits are not written back to Notion (properties still save); see notion-adapter.ts`
+        );
+        warnedUnsavedBody = true;
+      }
+    } else if (bodyProperty) {
       const def = properties[bodyProperty] ?? { name: bodyProperty, type: "rich_text" as const };
       out[def.name] = writeProp(body, def.type);
     }
@@ -358,6 +400,29 @@ function toNotionPage(json: Record<string, unknown>): NotionPage {
   };
 }
 
+// ponytail: recurses one HTTP round trip per nesting level with no depth cap.
+// Fine for the paragraph/list/toggle nesting a real page actually has; a
+// pathological wall of nested toggles would be slow, not wrong. Add a depth
+// limit if that ever shows up in practice.
+function fetchBlockChildren(token: string, blockId: string): NotionBlock[] {
+  const raw: Record<string, unknown>[] = [];
+  let cursor: string | undefined;
+  do {
+    const json = notionRequestSync(
+      token,
+      "GET",
+      `/blocks/${blockId}/children${cursor ? `?start_cursor=${encodeURIComponent(cursor)}` : ""}`
+    );
+    raw.push(...((json.results as Record<string, unknown>[] | undefined) ?? []));
+    cursor = json.has_more ? (json.next_cursor as string) : undefined;
+  } while (cursor);
+  return raw.map((r) => {
+    const block = r as unknown as NotionBlock;
+    if (block.has_children) block.children = fetchBlockChildren(token, block.id);
+    return block;
+  });
+}
+
 /** Real `NotionClient` against `https://api.notion.com`. `token` is an
  *  internal-integration secret — pass it from `process.env` only (never
  *  commit one); the caller owns getting it there. */
@@ -397,6 +462,9 @@ export function createFetchNotionClient(token: string): NotionClient {
     },
     archivePage(pageId) {
       notionRequestSync(token, "PATCH", `/pages/${pageId}`, { archived: true });
+    },
+    listBlockChildren(pageId) {
+      return fetchBlockChildren(token, pageId);
     },
   };
 }
