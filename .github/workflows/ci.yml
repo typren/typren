@@ -62,7 +62,12 @@ jobs:
       # CI) still needs `changeset add --empty` to clear this, which is the
       # correct way to say "seen, no release" rather than the check having a
       # separate docs/tests/CI carve-out it has to get right.
+      #
+      # The one legitimate carve-out is the Version Packages PR itself:
+      # `changeset version` consumes the changeset files while bumping
+      # package versions, so the release PR always trips this check.
       - name: Changeset required for package changes
+        if: ${{ !startsWith(github.head_ref, 'changeset-release/') }}
         run: bunx changeset status --since=origin/develop
 
       # See docs/hosted-platform.md#cross-repo-compatibility item 1 and
