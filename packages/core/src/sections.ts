@@ -49,10 +49,16 @@ export interface SettingsSection extends SectionBase {
 
 export interface CollectionSection extends SectionBase {
   kind: "collection";
-  /** Repo-relative dir, e.g. "content/authors". Gets its OWN ContentAdapter
-   *  instance. MUST NOT resolve inside the Pages contentDir (guarded at
-   *  buildCollectionActions time, throws loud). */
-  dir: string;
+  /** Repo-relative dir, e.g. "content/authors". Gets its OWN markdown-backed
+   *  ContentAdapter instance. MUST NOT resolve inside the Pages contentDir
+   *  (guarded at makeCollectionAdapter time, throws loud). Provide exactly
+   *  one of `dir`/`adapter` (also guarded there). */
+  dir?: string;
+  /** Pre-built adapter for a non-filesystem backend (Notion, a KV store, ...).
+   *  Used as-is, bypassing markdown-adapter construction and the Pages dir-
+   *  overlap guard entirely — an adapter owns its own storage, so there is no
+   *  dir to overlap. Provide exactly one of `dir`/`adapter`. */
+  adapter?: ContentAdapter;
   /** Reuses FieldDef/SliceSchema verbatim: a record IS a slice-shaped prop bag. */
   schema: SliceSchema;
   /** Which schema key is the list-view primary column. Default: "title", then
