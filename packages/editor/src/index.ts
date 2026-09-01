@@ -27,7 +27,7 @@ export { SectionShell } from "./section-shell";
 export { SectionNav } from "./section-nav";
 export { MediaLibrarySection } from "./media-library";
 export { SettingsPanel } from "./settings-panel";
-export { CollectionPanel } from "./collection-panel";
+export { CollectionPanel, type CollectionMode } from "./collection-panel";
 export { CollectionList, resolveListColumns } from "./collection-list";
 
 // Live-preview iframe bridge: mount `<PreviewBridge/>` in the host's preview

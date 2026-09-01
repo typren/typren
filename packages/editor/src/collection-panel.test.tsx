@@ -89,4 +89,45 @@ describe("CollectionPanel", () => {
     expect(actions.saveDraft).toHaveBeenCalledWith("ada", { meta: { name: "Ada L." }, slices: [], body: "" }, undefined, undefined);
     expect(actions.publish).toHaveBeenCalledWith("ada", undefined, undefined);
   });
+
+  it("controlled mode: `mode`+`selectedSlug` props render the right record straight away", () => {
+    render(
+      <CollectionPanel section={section} records={records} onReload={() => {}} mode="edit" selectedSlug="ada" />
+    );
+    expect(screen.getByDisplayValue("Ada Lovelace")).toBeTruthy();
+  });
+
+  it("controlled mode: `mode` prop governs the view even with `selectedSlug` set — 'list' renders the list, not the edit form", () => {
+    render(
+      <CollectionPanel section={section} records={records} onReload={() => {}} mode="list" selectedSlug="ada" />
+    );
+    expect(screen.getByText("Ada Lovelace")).toBeTruthy(); // list row, not the edit form
+    expect(screen.queryByDisplayValue("Ada Lovelace")).toBeNull();
+  });
+
+  it("onNavigate fires 'edit' on a row click, 'create' on New, 'list' on cancel — without needing `mode`/`selectedSlug` props", async () => {
+    const onNavigate = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <CollectionPanel
+        section={section}
+        actions={makeActions()}
+        records={records}
+        onReload={() => {}}
+        onNavigate={onNavigate}
+      />
+    );
+
+    await user.click(screen.getByText("Ada Lovelace"));
+    expect(onNavigate).toHaveBeenLastCalledWith("edit", "ada");
+
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("list", undefined);
+
+    await user.click(screen.getByRole("button", { name: "New Authors" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("create", undefined);
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("list", undefined);
+  });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CollectionRecordInfo, CollectionSection, PageActions, Slice } from "@typren/core";
 import type { FieldFormMedia } from "./image-picker-field";
 import type { FieldFormIcons } from "./icon-picker-field";
@@ -11,7 +11,7 @@ import { Button } from "./primitives/button";
 import { Input } from "./primitives/input";
 import { Label } from "./primitives/label";
 
-type Mode = "list" | "create" | "edit";
+export type CollectionMode = "list" | "create" | "edit";
 
 /**
  * The Collection section's body: list (`CollectionList`) + a create/edit form
@@ -27,6 +27,13 @@ type Mode = "list" | "create" | "edit";
  * `actions` is optional: without it (host declared the section but wired no
  * write actions — see `TyprenEditorHost.collections`) the list still renders
  * from `records`, but create/edit/delete are disabled rather than throwing.
+ *
+ * `mode`/`selectedSlug` are optionally controlled, same doctrine as
+ * `PageList`/`PagesNav`'s `onNavigate`: pass both plus `onNavigate` and the
+ * host's own state (e.g. a `?record=<slug>&mode=<edit|create>` URL) drives
+ * which record is open, so it survives a reload or a bookmark. Omit all
+ * three and the panel keeps today's internal `useState` (uncontrolled,
+ * no host wiring required).
  */
 export function CollectionPanel({
   section,
@@ -36,6 +43,9 @@ export function CollectionPanel({
   icons,
   locale,
   onReload,
+  mode: modeProp,
+  selectedSlug: selectedSlugProp,
+  onNavigate,
 }: Readonly<{
   section: CollectionSection;
   actions?: PageActions;
@@ -44,10 +54,17 @@ export function CollectionPanel({
   icons?: FieldFormIcons;
   locale?: string;
   onReload: () => void;
+  mode?: CollectionMode;
+  selectedSlug?: string;
+  /** Reports list/create/edit transitions (New, a row click, cancel/back) so
+   *  a host can reflect them in its own URL. See the doc comment above. */
+  onNavigate?: (mode: CollectionMode, slug?: string) => void;
 }>) {
   const t = useT();
-  const [mode, setMode] = useState<Mode>("list");
-  const [selectedSlug, setSelectedSlug] = useState<string>();
+  const [internalMode, setInternalMode] = useState<CollectionMode>("list");
+  const [internalSlug, setInternalSlug] = useState<string>();
+  const mode = modeProp ?? internalMode;
+  const selectedSlug = selectedSlugProp ?? internalSlug;
   const [meta, setMeta] = useState<Record<string, unknown>>({});
   const [body, setBody] = useState("");
   const [newTitle, setNewTitle] = useState("");
@@ -55,8 +72,32 @@ export function CollectionPanel({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
 
+  // Always updates the internal fallback too, so a host that never passes
+  // `mode`/`selectedSlug` keeps working unchanged.
+  const navigate = (nextMode: CollectionMode, slug?: string) => {
+    setInternalMode(nextMode);
+    setInternalSlug(slug);
+    onNavigate?.(nextMode, slug);
+  };
+
+  // Loads the selected record's fields into the edit form. Keyed on
+  // `mode`/`selectedSlug` only (not `records`): a controlled host landing
+  // directly on `?record=<slug>&mode=edit` needs this to run on mount, but a
+  // reload triggered mid-edit (`onReload` after save) must not stomp
+  // in-progress field changes just because `records` got a new reference.
+  useEffect(() => {
+    if (mode !== "edit" || !selectedSlug) return;
+    const record = records.find((r) => r.slug === selectedSlug);
+    if (!record) return;
+    setMeta(record.meta);
+    setBody(record.body);
+    setDirty(false);
+    setStatus("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, selectedSlug]);
+
   const startCreate = () => {
-    setMode("create");
+    navigate("create");
     setNewTitle("");
     setStatus("");
   };
@@ -84,20 +125,13 @@ export function CollectionPanel({
   };
 
   const openEdit = (slug: string) => {
-    const record = records.find((r) => r.slug === slug);
-    if (!record) return;
-    setMode("edit");
-    setSelectedSlug(slug);
-    setMeta(record.meta);
-    setBody(record.body);
-    setDirty(false);
-    setStatus("");
+    if (!records.some((r) => r.slug === slug)) return;
+    navigate("edit", slug);
   };
 
   const back = () => {
     if (dirty && !confirm(t("collection.confirmDiscard"))) return;
-    setMode("list");
-    setSelectedSlug(undefined);
+    navigate("list");
     setStatus("");
   };
 
@@ -137,7 +171,7 @@ export function CollectionPanel({
           <span className="text-sm font-semibold">{t("collection.new", { label: section.label })}</span>
           <span className="text-xs text-[var(--typren-muted-fg)]">{status}</span>
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setMode("list")}>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => navigate("list")}>
               {t("collection.cancel")}
             </Button>
           </div>
