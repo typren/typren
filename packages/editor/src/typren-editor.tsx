@@ -2,6 +2,7 @@
 
 import type { CollectionRecordInfo, Messages, PageContent, PageInfo, SiteSettings } from "@typren/core";
 import { resolveSections } from "@typren/core";
+import type { CollectionMode } from "./collection-panel";
 import { CmsIntlProvider } from "./intl";
 import { EditorShell } from "./editor-shell";
 import { PagesNav } from "./pages-nav";
@@ -69,6 +70,13 @@ export interface TyprenEditorProps {
    *  `listCollectionRecords()`). Only meaningful when `host.sections`
    *  includes a "collection" entry. */
   collectionRecords?: Record<string, CollectionRecordInfo[]>;
+  /** `CollectionPanel`'s `mode`/`selectedSlug`/`onNavigate`, forwarded as-is
+   *  — mirrors `slug`/`onNavigate` above but for the active Collection
+   *  section's own record, e.g. a `?record=<slug>&mode=edit` URL. Omit all
+   *  three to keep `CollectionPanel`'s own uncontrolled state. */
+  collectionMode?: CollectionMode;
+  collectionSlug?: string;
+  onNavigateCollection?: (mode: CollectionMode, slug?: string) => void;
   /** Host-fetched settings snapshot, for the Settings section. See
    *  `SettingsPanel`'s doc comment for why this is a data prop, not part of
    *  `host`. Only meaningful when `host.sections` includes a "settings" entry. */
@@ -91,6 +99,9 @@ export function TyprenEditor({
   sectionId,
   onNavigateSection,
   collectionRecords,
+  collectionMode,
+  collectionSlug,
+  onNavigateCollection,
   settingsSnapshot,
   settingsVersion,
 }: Readonly<TyprenEditorProps>) {
@@ -113,6 +124,9 @@ export function TyprenEditor({
           onReload={onReload}
           locale={locale}
           collectionRecords={collectionRecords}
+          collectionMode={collectionMode}
+          collectionSlug={collectionSlug}
+          onNavigateCollection={onNavigateCollection}
           settingsSnapshot={settingsSnapshot}
           settingsVersion={settingsVersion}
         />

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import type { CollectionRecordInfo, CollectionSection, PageContent, PageInfo, ResolvedSection, SiteSettings } from "@typren/core";
-import { CollectionPanel } from "./collection-panel";
+import { CollectionPanel, type CollectionMode } from "./collection-panel";
 import { EditorShell } from "./editor-shell";
 import { MediaLibrarySection } from "./media-library";
 import { PageList } from "./page-list";
@@ -43,6 +43,9 @@ export function SectionShell({
   onReload,
   locale,
   collectionRecords,
+  collectionMode,
+  collectionSlug,
+  onNavigateCollection,
   settingsSnapshot,
   settingsVersion,
 }: Readonly<{
@@ -65,6 +68,13 @@ export function SectionShell({
    *  `listCollectionRecords()` output, same "no client read action" shape as
    *  `TyprenEditorHost.collections`. */
   collectionRecords?: Record<string, CollectionRecordInfo[]>;
+  /** `CollectionPanel`'s `mode`/`selectedSlug`/`onNavigate`, forwarded as-is —
+   *  same "the host owns routing" doctrine as `slug`/`onNavigatePage` above,
+   *  applied to Collection sections (e.g. a `?record=<slug>&mode=edit` URL).
+   *  Omit all three to keep `CollectionPanel`'s own uncontrolled state. */
+  collectionMode?: CollectionMode;
+  collectionSlug?: string;
+  onNavigateCollection?: (mode: CollectionMode, slug?: string) => void;
   /** Host-fetched settings snapshot + optimistic-lock version, forwarded to
    *  `SettingsPanel` as-is (see its doc comment for why these are data props,
    *  not part of `host`). */
@@ -134,6 +144,9 @@ export function SectionShell({
           icons={host.icons}
           locale={locale}
           onReload={onReload}
+          mode={collectionMode}
+          selectedSlug={collectionSlug}
+          onNavigate={onNavigateCollection}
         />
       );
       break;

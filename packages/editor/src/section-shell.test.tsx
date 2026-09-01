@@ -99,6 +99,32 @@ describe("SectionShell", () => {
     expect(screen.getByText("Ada Lovelace")).toBeTruthy();
   });
 
+  it("passes collectionMode/collectionSlug/onNavigateCollection through to CollectionPanel", async () => {
+    const sections: Section[] = [{ kind: "collection", id: "authors", label: "Authors", dir: "content/authors", schema: { name: { type: "text" } } }];
+    const onNavigateCollection = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SectionShell
+        host={makeHost(sections)}
+        sections={resolveSections({ sections })}
+        activeId="authors"
+        onSelectSection={() => {}}
+        pages={pages}
+        onNavigatePage={() => {}}
+        onReload={() => {}}
+        collectionRecords={{ authors: [{ slug: "ada", meta: { name: "Ada Lovelace" }, body: "", hasDraft: false }] }}
+        collectionMode="edit"
+        collectionSlug="ada"
+        onNavigateCollection={onNavigateCollection}
+      />
+    );
+    // controlled straight into the edit form, not the list
+    expect(screen.getByDisplayValue("Ada Lovelace")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(onNavigateCollection).toHaveBeenCalledWith("list", undefined);
+  });
+
   it("a custom section renders a plain notice — no plugin runtime here", () => {
     const sections: Section[] = [{ kind: "custom", label: "Analytics", element: "my-analytics" }];
     render(
