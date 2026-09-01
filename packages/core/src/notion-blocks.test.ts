@@ -27,6 +27,8 @@ describe("blocksToMarkdown", () => {
   it("renders paragraph/heading/list/quote/divider/code", () => {
     const blocks: NotionBlock[] = [
       block("heading_1", { rich_text: text("Title") }),
+      block("heading_2", { rich_text: text("Subtitle") }),
+      block("heading_3", { rich_text: text("Detail") }),
       block("paragraph", { rich_text: text("Hello world") }),
       block("bulleted_list_item", { rich_text: text("one") }),
       block("bulleted_list_item", { rich_text: text("two") }),
@@ -37,6 +39,8 @@ describe("blocksToMarkdown", () => {
     expect(blocksToMarkdown(blocks)).toBe(
       [
         "# Title",
+        "## Subtitle",
+        "### Detail",
         "Hello world",
         "- one",
         "- two",

@@ -277,3 +277,53 @@ describe("notion-adapter content: \"blocks\"", () => {
     warn.mockRestore();
   });
 });
+
+describe("notion-adapter rich_text property + bodyProperty", () => {
+  const noteProperties = {
+    name: { name: "Name", type: "title" as const },
+    summary: { name: "Summary", type: "rich_text" as const },
+  };
+
+  it("round-trips a rich_text property", () => {
+    const client = fakeClient([{ id: "row-1", archived: false, properties: {} }]);
+    const adapter = createNotionAdapter({ client, databaseId: "db1", properties: noteProperties });
+
+    adapter.writeRaw(
+      "row-1",
+      adapter.serialize({ meta: { name: "n", summary: "a short summary" }, slices: [], body: "" })
+    );
+    expect(adapter.parse(adapter.readRaw("row-1")).meta.summary).toBe("a short summary");
+  });
+
+  it("round-trips PageContent.body through a configured bodyProperty", () => {
+    const client = fakeClient([{ id: "row-1", archived: false, properties: {} }]);
+    const adapter = createNotionAdapter({
+      client,
+      databaseId: "db1",
+      properties: noteProperties,
+      bodyProperty: "summary",
+    });
+
+    expect(adapter.parse(adapter.readRaw("row-1")).body).toBe("");
+    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "n" }, slices: [], body: "the body text" }));
+    expect(adapter.parse(adapter.readRaw("row-1")).body).toBe("the body text");
+    // The property mapper's own type still wins over the bodyProperty default.
+    expect(adapter.parse(adapter.readRaw("row-1")).meta.summary).toBe("the body text");
+  });
+});
+
+describe("notion-adapter listSlugs ordering", () => {
+  it("sorts more than one record's slugs", () => {
+    const client = fakeClient([
+      { id: "row-1", archived: false, properties: { Name: { title: [{ plain_text: "Zed" }] } } },
+      { id: "row-2", archived: false, properties: { Name: { title: [{ plain_text: "Ada" }] } } },
+    ]);
+    const adapter = createNotionAdapter({
+      client,
+      databaseId: "db1",
+      properties: { name: { name: "Name", type: "title" as const } },
+      slugProperty: "name",
+    });
+    expect(adapter.listSlugs()).toEqual(["Ada", "Zed"]);
+  });
+});
