@@ -1,0 +1,18 @@
+# Path-based labels for actions/labeler, see .github/workflows/labeler.yml.
+"area: core":
+  - changed-files:
+      - any-glob-to-any-file: "packages/core/**"
+
+"area: cli":
+  - changed-files:
+      - any-glob-to-any-file: "packages/cli/**"
+
+"area: editor":
+  - changed-files:
+      - any-glob-to-any-file: "packages/editor/**"
+
+"type: docs":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "**/*.md"

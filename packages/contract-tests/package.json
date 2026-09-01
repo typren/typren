@@ -1,0 +1,32 @@
+{
+  "name": "@typren/contract-tests",
+  "version": "0.1.0",
+  "description": "Conformance suite factories for Typren's cross-repo contracts (createTyprenApi's REST routes, the preview-bridge protocol). Core runs them against itself; editor, cloud and every provider run them in their own CI against the core version they install. See docs/hosted-platform.md#cross-repo-compatibility.",
+  "license": "SEE LICENSE IN LICENSE",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26",
+    "typescript": "^5",
+    "vitest": "^4.1.10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/typren/typren.git",
+    "directory": "packages/contract-tests"
+  },
+  "bugs": {
+    "url": "https://github.com/typren/typren/issues"
+  },
+  "homepage": "https://typren.com"
+}

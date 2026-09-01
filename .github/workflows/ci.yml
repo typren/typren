@@ -1,0 +1,82 @@
+# The third GitHub workflow in this repo, and the only one added by
+# typren/typren#23. The other two are cla.yml and release.yml.
+#
+# CONTEXT: this repo deliberately has only two workflows (cla.yml,
+# release.yml) because gates run in the local pre-push hook. That philosophy
+# assumed maintainer-only pushes; outside contributors' machines don't run
+# our hooks, so a PR CI workflow is now the trust boundary for external
+# contributions. This is a deliberate extension of that philosophy, not an
+# accident: nothing here duplicates the hook for maintainers (their push
+# already ran it, see the `ci/local` commit status), it exists purely to give
+# a fork-based contributor the same gate before a human ever reviews the diff.
+#
+# Plain `pull_request`, not `pull_request_target`: this workflow builds and
+# executes a contributor's own code (bun install, build, test), which is
+# exactly what `pull_request_target`'s base-repo context and write-capable
+# token must never be handed. Read-only `contents: read` below, no secrets in
+# scope, nothing a hostile fork PR can do with this run beyond burning CI
+# minutes. cla.yml is the one workflow in this repo that legitimately needs
+# pull_request_target, and it never checks out PR code either way.
+name: CI
+
+on:
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Unshallow: both the changeset check and coverage:new's new-code
+          # gate (below) need to diff against origin/develop, not just the
+          # PR's own commits.
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      # Same gate `bun run verify` runs in the local pre-push hook (build,
+      # typecheck, lint, test with coverage, the new-code coverage floor,
+      # check:scaffold). COVERAGE_BASE_REF overrides that gate's default
+      # (origin/main): PRs land on develop, and main can be well behind it
+      # (release is a separate promotion), so diffing new-code coverage
+      # against main would flag every line since the last release, not just
+      # this PR's.
+      - run: bun run verify
+        env:
+          COVERAGE_BASE_REF: origin/develop
+
+      # Changesets already ships the "did this PR touch a package without
+      # declaring a bump" check natively (`status --since`, exit 1 when a
+      # workspace package changed but no changeset covers it) — no need for a
+      # bespoke script. A change that shouldn't bump anything (docs, tests,
+      # CI) still needs `changeset add --empty` to clear this, which is the
+      # correct way to say "seen, no release" rather than the check having a
+      # separate docs/tests/CI carve-out it has to get right.
+      #
+      # The one legitimate carve-out is the Version Packages PR itself:
+      # `changeset version` consumes the changeset files while bumping
+      # package versions, so the release PR always trips this check.
+      - name: Changeset required for package changes
+        if: ${{ !startsWith(github.head_ref, 'changeset-release/') }}
+        run: bunx changeset status --since=origin/develop
+
+      # See docs/hosted-platform.md#cross-repo-compatibility item 1 and
+      # scripts/gen-api-surface.mjs's own header for why this is a plain
+      # script over dist/*.d.ts rather than api-extractor.
+      - name: Public API surface matches the checked-in snapshot
+        run: |
+          node scripts/gen-api-surface.mjs
+          if ! git diff --exit-code -- etc/api-surface; then
+            echo "::error::The public .d.ts surface of @typren/core and/or typren changed. Run 'bun run api-surface:generate', commit the updated etc/api-surface/*.d.ts, and add a changeset describing the change."
+            exit 1
+          fi

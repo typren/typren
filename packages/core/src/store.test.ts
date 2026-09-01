@@ -160,3 +160,22 @@ describe("typren optimistic locking", () => {
     expect(store.getPublished("home").slices[0].heading).toBe("Original");
   });
 });
+
+// The dash-trim used to be `/^-+|-+$/g`, which CodeQL flags as polynomial
+// backtracking on adversarial input. After the `[^a-z0-9]+` collapse a slug
+// can never hold consecutive dashes, so single-dash anchors are equivalent —
+// these pin the equivalence and that hostile input stays linear.
+describe("slugify dash trimming", () => {
+  it("trims a leading and trailing dash left by the collapse", async () => {
+    const { slugify } = await import("./store");
+    expect(slugify("!!!Hello World!!!")).toBe("hello-world");
+    expect(slugify("---")).toBe("");
+    expect(slugify("  ")).toBe("");
+  });
+
+  it("stays linear on adversarial input", async () => {
+    const { slugify } = await import("./store");
+    const hostile = "!".repeat(100_000) + "a" + "!".repeat(100_000);
+    expect(slugify(hostile)).toBe("a");
+  });
+});

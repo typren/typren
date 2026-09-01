@@ -1,0 +1,20 @@
+# Keeps bun.lock current. package-ecosystem "bun" (GA since Feb 2025) reads
+# the text-based bun.lock directly — the legacy binary bun.lockb is not
+# supported, but this repo already uses the text format (see CONTRIBUTING.md).
+#
+# Version updates (this file) and security updates are separate Dependabot
+# features. Security updates fire immediately on a new advisory regardless of
+# this schedule and are intentionally left out of the group below, so they
+# never get held back behind an unrelated minor/patch bump.
+version: 2
+updates:
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"

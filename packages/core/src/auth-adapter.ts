@@ -26,6 +26,15 @@ export type AuthContext = {
   action: AuthAction;
   /** Target slug when the action has one (undefined for "read" of the index / createPage). */
   slug?: string;
+  /** Hosted-platform tenant scope, resolved server-side (session -> user ->
+   *  account -> membership -> site) and NEVER taken from client input.
+   *  Optional: a single-site local/self-host config omits both and every
+   *  existing adapter keeps working unchanged. A hosted `authorize()` uses
+   *  these to make cross-tenant access structurally impossible to forget
+   *  rather than merely documented (docs/hosted-platform.md, "Tenant
+   *  isolation"). */
+  siteId?: string;
+  accountId?: string;
 };
 
 /** Normalized identity. Adapters map their lib's user onto this. */
@@ -53,6 +62,38 @@ export interface AuthAdapter {
  *  as an adapter so old configs keep working unchanged. */
 export function legacyAuthAdapter(fn: () => boolean | Promise<boolean>): AuthAdapter {
   return { authorize: async () => Boolean(await fn()) };
+}
+
+/** The "what may they do?" half of `withPolicy`'s split (see below): given
+ *  the user identity has already resolved, decide the action. No identity
+ *  resolution of its own — `filePolicy` (file-policy.ts) is the first
+ *  implementation. */
+export interface Policy {
+  authorize(user: AuthUser | null, ctx: AuthContext): boolean | Promise<boolean>;
+}
+
+/**
+ * Compose an identity adapter ("who is this?") with a `Policy` ("what may
+ * they do?") into one `AuthAdapter`. `identity.getUser()` resolves the user;
+ * `policy.authorize()` decides. The identity adapter's OWN `authorize()` (if
+ * any) is never called — the policy is authoritative, so adding a group
+ * policy can't silently be opted out of by picking a different identity
+ * adapter. Fails closed: no `getUser`, no user, or any error resolving
+ * either side denies. See docs/hosted-platform.md, "Compose identity and
+ * policy — do not fuse them".
+ */
+export function withPolicy(identity: AuthAdapter, policy: Policy): AuthAdapter {
+  return {
+    getUser: identity.getUser,
+    async authorize(ctx) {
+      try {
+        const user = identity.getUser ? await identity.getUser(ctx) : null;
+        return Boolean(await policy.authorize(user, ctx));
+      } catch {
+        return false;
+      }
+    },
+  };
 }
 
 /** Single resolution point used by BOTH the action guard and the layout gate,

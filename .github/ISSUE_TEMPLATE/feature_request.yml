@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an improvement or new feature
+labels: ["type: feature", "needs triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem you're trying to solve
+      description: What problem or limitation did you run into that a new feature would solve?
+      placeholder: "Currently, I can't... which means I have to... It would be better if..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed solution
+      description: How do you think this should work?
+      placeholder: I think Typren should...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Any other ways to solve this, or workarounds you're using now?
+      placeholder: "Another approach could be...\nRight now I'm working around it by..."
+    validations:
+      required: false
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Any other context, screenshots, or links
+      placeholder: Links to related issues, examples, or discussions
+    validations:
+      required: false

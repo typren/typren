@@ -1,5 +1,17 @@
 # @typren/core
 
+## 0.1.4
+
+### Patch Changes
+
+- 8cfe390: Bump dependencies: sharp 0.35.4, and dev-only updates (@types/node 26, next 16.3.4, @testing-library/react 16.3.3, @types/react-dom 19.2.5). No runtime behaviour change.
+
+## 0.1.3
+
+### Patch Changes
+
+- cc9b5aa: Replace the polynomial dash-trim regex (`/^-+|-+$/g`) with an equivalent linear one in the three slugify sites (store, sections, media). Behavior is unchanged — after the alnum collapse consecutive dashes cannot occur — but hostile input can no longer trigger quadratic backtracking. Closes the three CodeQL alerts.
+
 ## 0.1.2
 
 ### Patch Changes
