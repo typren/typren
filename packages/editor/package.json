@@ -1,6 +1,6 @@
 {
   "name": "@typren/editor",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Typren's editor UI: the pluggable React admin shell for pages, blocks and fields.",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,
