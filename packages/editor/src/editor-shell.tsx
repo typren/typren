@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Moon, Sun, TriangleAlert } from "lucide-react";
 import type { PageActions, PageContent, PageInfo, Slice, SliceSchema } from "@typren/core";
 import { BlockList } from "./block-list";
@@ -36,8 +36,11 @@ export function EditorShell({
   media,
   icons,
   locale,
+  layout = "takeover",
+  topBarSlot,
   onNavigate,
   onReload,
+  hideNav = false,
 }: Readonly<{
   slug: string;
   pages: PageInfo[];
@@ -57,12 +60,26 @@ export function EditorShell({
   icons?: FieldFormIcons;
   /** Content locale for reads/writes (single-locale hosts omit this). */
   locale?: string;
+  /** See `TyprenEditorProps.layout`. Default "takeover" keeps existing
+   *  consumers byte-identical. */
+  layout?: "takeover" | "embedded";
+  /** Host-injected chrome, rendered at the right of the header (see
+   *  `TyprenEditorHost.topBarSlot`). */
+  topBarSlot?: ReactNode;
   /** A page slug to open, or `null` for the page picker, e.g. after create/delete. */
   onNavigate: (slug: string | null) => void;
   /** Refresh whatever the host considers "this page" after a discard/publish/
    *  conflict-reload (a full reload, a router refresh, a refetch): the host's
    *  call, not this package's. */
   onReload: () => void;
+  /** Suppresses the built-in `PagesNav` rail, the full-screen overlay
+   *  positioning, and this component's own theme-toggle button, and switches
+   *  to a plain flex child that fills its parent. For embedding inside
+   *  `SectionShell`, whose own left rail (`SectionNav`) already carries the
+   *  Pages section's page list AND the shell's one shared theme toggle — see
+   *  `sections.ts`'s "renders from data" doctrine. Standalone use (the
+   *  default) is unchanged. */
+  hideNav?: boolean;
 }>) {
   const t = useT();
   const [page, setPage] = useState<PageContent>(initialPage);
@@ -76,13 +93,16 @@ export function EditorShell({
   const [conflict, setConflict] = useState(false);
   const [previewV, setPreviewV] = useState(0);
   const [dark, setDark] = useState(
-    () => typeof window !== "undefined" && localStorage.getItem("typren-theme") === "dark"
+    // Guard on `localStorage` itself, not `window`: SSR lacks both, but some
+    // test/embed environments (e.g. Bun's jsdom runner without
+    // `--localstorage-file`) have `window` without a working `localStorage`.
+    () => typeof localStorage !== "undefined" && localStorage.getItem("typren-theme") === "dark"
   );
   const firstRender = useRef(true);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined") localStorage.setItem("typren-theme", dark ? "dark" : "light");
+    if (typeof localStorage !== "undefined") localStorage.setItem("typren-theme", dark ? "dark" : "light");
   }, [dark]);
 
   // Debounced autosave + preview refresh ~0.8s after edits settle.
@@ -235,28 +255,28 @@ export function EditorShell({
 
   const previewSrc = `${previewPath}/${slug}?v=${previewV}${locale ? `&locale=${locale}` : ""}`;
 
-  return (
-    <div className={cn("fixed inset-0 z-[100] flex bg-[var(--typren-bg)] text-[var(--typren-fg)]", dark && "dark")}>
-      <PagesNav pages={pages} currentSlug={slug} onCreate={actions.createPage} onDelete={actions.deletePage} onNavigate={onNavigate}>
-        <BlockList
-          slices={page.slices}
-          selectedIndex={selected}
-          sliceNames={sliceNames}
-          onSelect={setSelected}
-          onReorder={reorder}
-          onAdd={add}
-          onDuplicate={duplicate}
-          onDelete={remove}
-        />
-      </PagesNav>
+  const blockList = (
+    <BlockList
+      slices={page.slices}
+      selectedIndex={selected}
+      sliceNames={sliceNames}
+      onSelect={setSelected}
+      onReorder={reorder}
+      onAdd={add}
+      onDuplicate={duplicate}
+      onDelete={remove}
+    />
+  );
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-[var(--typren-border)] px-4 py-2">
-          <span className="font-mono text-sm font-semibold">/{slug}</span>
-          <span className="text-xs text-[var(--typren-muted-fg)]">
-            {dirty ? t("shell.unsaved") : status || t("shell.upToDate")}
-          </span>
-          <div className="ml-auto flex items-center gap-2">
+  const content = (
+    <div className="flex min-w-0 flex-1 flex-col">
+      <header className="flex items-center gap-3 border-b border-[var(--typren-border)] px-4 py-2">
+        <span className="font-mono text-sm font-semibold">/{slug}</span>
+        <span className="text-xs text-[var(--typren-muted-fg)]">
+          {dirty ? t("shell.unsaved") : status || t("shell.upToDate")}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {!hideNav && (
             <Button
               variant="ghost"
               size="icon"
@@ -265,57 +285,84 @@ export function EditorShell({
             >
               {dark ? <Sun /> : <Moon />}
             </Button>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={discard}>
-              {t("shell.discardDraft")}
-            </Button>
-            <Button size="sm" disabled={busy || conflict} onClick={publish}>
-              {t("shell.publish")}
-            </Button>
-          </div>
-        </header>
-
-        {conflict && (
-          <div
-            role="alert"
-            className="flex flex-wrap items-center gap-3 border-b border-[var(--typren-border)] bg-[var(--typren-muted)] px-4 py-2 text-sm text-[var(--typren-fg)]"
-          >
-            <TriangleAlert className="size-4 shrink-0 text-[var(--typren-destructive)]" aria-hidden />
-            <span className="min-w-0 flex-1">{t("shell.conflict")}</span>
-            <div className="flex shrink-0 items-center gap-2">
-              <Button variant="outline" size="sm" disabled={busy} onClick={onReload}>
-                {t("shell.reload")}
-              </Button>
-              <Button variant="destructive" size="sm" disabled={busy} onClick={overwrite}>
-                {t("shell.overwrite")}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        <div className="flex min-h-0 flex-1">
-          <DevicePreview src={previewSrc} reloadKey={previewV} iframeRef={iframeRef} />
-
-          <aside className="w-80 shrink-0 overflow-y-auto border-l border-[var(--typren-border)]">
-            <div className="border-b border-[var(--typren-border)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--typren-muted-fg)]">
-              {t("shell.properties")}
-            </div>
-            <div className="p-3">
-              {page.slices[selected] ? (
-                <FieldForm
-                  key={selected}
-                  slice={page.slices[selected]}
-                  schema={fieldSchema?.[page.slices[selected].slice]}
-                  onChange={updateSelected}
-                  media={media}
-                  icons={icons}
-                />
-              ) : (
-                <p className="text-sm text-[var(--typren-muted-fg)]">{t("shell.selectBlock")}</p>
-              )}
-            </div>
-          </aside>
+          )}
+          <Button variant="ghost" size="sm" disabled={busy} onClick={discard}>
+            {t("shell.discardDraft")}
+          </Button>
+          <Button size="sm" disabled={busy || conflict} onClick={publish}>
+            {t("shell.publish")}
+          </Button>
+          {topBarSlot}
         </div>
+      </header>
+
+      {conflict && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-3 border-b border-[var(--typren-border)] bg-[var(--typren-muted)] px-4 py-2 text-sm text-[var(--typren-fg)]"
+        >
+          <TriangleAlert className="size-4 shrink-0 text-[var(--typren-destructive)]" aria-hidden />
+          <span className="min-w-0 flex-1">{t("shell.conflict")}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="outline" size="sm" disabled={busy} onClick={onReload}>
+              {t("shell.reload")}
+            </Button>
+            <Button variant="destructive" size="sm" disabled={busy} onClick={overwrite}>
+              {t("shell.overwrite")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1">
+        <DevicePreview src={previewSrc} reloadKey={previewV} iframeRef={iframeRef} />
+
+        <aside className="w-80 shrink-0 overflow-y-auto border-l border-[var(--typren-border)]">
+          <div className="border-b border-[var(--typren-border)] px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--typren-muted-fg)]">
+            {t("shell.properties")}
+          </div>
+          <div className="p-3">
+            {page.slices[selected] ? (
+              <FieldForm
+                key={selected}
+                slice={page.slices[selected]}
+                schema={fieldSchema?.[page.slices[selected].slice]}
+                onChange={updateSelected}
+                media={media}
+                icons={icons}
+              />
+            ) : (
+              <p className="text-sm text-[var(--typren-muted-fg)]">{t("shell.selectBlock")}</p>
+            )}
+          </div>
+        </aside>
       </div>
+    </div>
+  );
+
+  if (hideNav)
+    return (
+      <>
+        <nav className="flex h-full w-60 shrink-0 flex-col border-r border-[var(--typren-border)] bg-[var(--typren-bg)]">
+          {blockList}
+        </nav>
+        {content}
+      </>
+    );
+
+  return (
+    <div
+      className={cn(
+        layout === "embedded"
+          ? "flex h-full min-h-0 bg-[var(--typren-bg)] text-[var(--typren-fg)]"
+          : "fixed inset-0 z-[100] flex bg-[var(--typren-bg)] text-[var(--typren-fg)]",
+        dark && "dark"
+      )}
+    >
+      <PagesNav pages={pages} currentSlug={slug} onCreate={actions.createPage} onDelete={actions.deletePage} onNavigate={onNavigate}>
+        {blockList}
+      </PagesNav>
+      {content}
     </div>
   );
 }

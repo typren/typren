@@ -21,6 +21,11 @@ export default tseslint.config(
     // Generated snapshot of compiled .d.ts output (scripts/gen-api-surface.mjs),
     // not source — same reasoning as ignoring dist/ above.
     "etc/api-surface/**",
+    // A CloudFront Function, not typren source: cloudfront-js-2.0's runtime
+    // convention (a top-level `handler` the platform invokes by name, never
+    // imported/exported) doesn't satisfy typren's own lint rules and isn't
+    // meant to — see redirects.function.test.ts for how it's actually verified.
+    "packages/adapter-cloudfront/src/redirects.function.js",
   ]),
   js.configs.recommended,
   ...tseslint.configs.recommended,

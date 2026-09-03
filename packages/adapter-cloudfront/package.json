@@ -1,0 +1,53 @@
+{
+  "name": "@typren/adapter-cloudfront",
+  "version": "0.1.0",
+  "description": "CloudFront host adapter for typren: the canonical viewer-request function (directory-index rewrite + bare→slash canonicalization + KVS-backed redirect lookup, fail-open) and a `typren-cloudfront sync-redirects` CLI that diff-syncs @typren/core's redirects() into a CloudFront KeyValueStore. Not IaC: it never creates a bucket or distribution.",
+  "keywords": [
+    "cms",
+    "typren",
+    "cloudfront",
+    "redirects",
+    "aws"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "private": false,
+  "type": "module",
+  "sideEffects": false,
+  "bin": {
+    "typren-cloudfront": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@typren/core": "^0.1.2",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/typren/typren.git",
+    "directory": "packages/adapter-cloudfront"
+  },
+  "bugs": {
+    "url": "https://github.com/typren/typren/issues"
+  },
+  "homepage": "https://typren.com"
+}

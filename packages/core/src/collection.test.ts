@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createMarkdownAdapter } from "./markdown-adapter";
-import { makeCollectionActions, buildCollectionActions, listCollectionRecords } from "./collection";
+import { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection";
 import type { CmsConfig } from "./types";
 import type { CollectionSection, Section } from "./sections";
 
@@ -60,6 +60,32 @@ describe("dir-overlap guard", () => {
     const config = makeConfig();
     const section = { ...authorsSection, dir: path.join(dir, "authors") };
     expect(() => makeCollectionActions(config, section)).not.toThrow();
+  });
+});
+
+describe("dir/adapter section option", () => {
+  it("throws when a collection section sets neither dir nor adapter", () => {
+    const config = makeConfig();
+    const withoutDir: CollectionSection = { ...authorsSection, dir: undefined };
+    expect(() => makeCollectionAdapter(config, withoutDir)).toThrow(/must set exactly one of dir\/adapter/);
+  });
+
+  it("throws when a collection section sets both dir and adapter", () => {
+    const config = makeConfig();
+    const section = {
+      ...authorsSection,
+      dir: path.join(dir, "authors"),
+      adapter: createMarkdownAdapter({ contentDir: path.join(dir, "authors-alt") }),
+    };
+    expect(() => makeCollectionAdapter(config, section)).toThrow(/must set exactly one of dir\/adapter/);
+  });
+
+  it("returns a pre-built adapter as-is, bypassing the dir-overlap guard", () => {
+    const config = makeConfig();
+    // Would normally throw the overlap guard if it were resolved as a `dir`.
+    const preBuilt = createMarkdownAdapter({ contentDir: pagesContentDir });
+    const section = { ...authorsSection, dir: undefined, adapter: preBuilt };
+    expect(makeCollectionAdapter(config, section)).toBe(preBuilt);
   });
 });
 

@@ -28,6 +28,25 @@ export {
 } from "./i18n";
 export { mergeLocalized, localeSubdir } from "./localize";
 export { createMarkdownAdapter, type MarkdownAdapterOptions } from "./markdown-adapter";
+export {
+  createNotionAdapter,
+  createFetchNotionClient,
+  type NotionAdapterOptions,
+  type NotionClient,
+  type NotionPage,
+  type NotionPropertyMap,
+  type NotionPropertyType,
+} from "./notion-adapter";
+export {
+  blocksToMarkdown,
+  blocksToSegments,
+  pageRecordFrom,
+  richTextToMarkdown,
+  type NotionBlock,
+  type NotionSegment,
+  type ProseSegment,
+  type ComponentSegment,
+} from "./notion-blocks";
 export { createFsMediaAdapter, type FsMediaAdapterOptions } from "./fs-media-adapter";
 export { createGithubAdapter, isAllowedRepoPath, type GithubAdapterOptions } from "./github-adapter";
 export { processUpload, handleMediaUpload, MAX_UPLOAD_BYTES } from "./media";
@@ -78,3 +97,4 @@ export {
   type SettingsStore,
 } from "./settings";
 export { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection";
+export { buildRedirects, type RedirectEntry, type BuildRedirectsOptions, type PageRedirectMeta } from "./redirects";

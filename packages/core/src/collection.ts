@@ -15,6 +15,14 @@ function isInside(child: string, parent: string): boolean {
  *  `PageActions` can't do): resolves a collection section's own
  *  `ContentAdapter`, guarded against overlapping the Pages adapter's root. */
 export function makeCollectionAdapter(config: CmsConfig, section: CollectionSection): ContentAdapter {
+  if (section.adapter && section.dir)
+    throw new Error(`typren: collection section "${section.label}" must set exactly one of dir/adapter`);
+  // A pre-built adapter owns its own storage (Notion, a KV store, ...): used
+  // as-is, no markdown-adapter construction and no dir-overlap guard (there is
+  // no dir to overlap).
+  if (section.adapter) return section.adapter;
+  if (!section.dir)
+    throw new Error(`typren: collection section "${section.label}" must set exactly one of dir/adapter`);
   const contentDir = path.resolve(process.cwd(), section.dir);
   const pagesRoot = config.adapter.root;
   if (isInside(contentDir, pagesRoot) || isInside(pagesRoot, contentDir))

@@ -99,7 +99,12 @@ export function PagesNav({
       <ul
         className={cn(
           "space-y-0.5 overflow-y-auto px-2",
-          children ? "max-h-[34vh] shrink-0" : "flex-1"
+          // Container-relative, not viewport-relative: `nav` is `h-full`, so
+          // this resolves the same as the old `34vh` in takeover mode (where
+          // the root fills the viewport) but stays correct in embedded mode
+          // too, where `nav`'s height comes from a host-sized container
+          // instead of the viewport.
+          children ? "max-h-[34%] shrink-0" : "flex-1"
         )}
       >
         {pages.map((p) => {

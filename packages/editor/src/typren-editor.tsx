@@ -1,10 +1,13 @@
 "use client";
 
-import type { Messages, PageContent, PageInfo } from "@typren/core";
+import type { CollectionRecordInfo, Messages, PageContent, PageInfo, SiteSettings } from "@typren/core";
+import { resolveSections } from "@typren/core";
+import type { CollectionMode } from "./collection-panel";
 import { CmsIntlProvider } from "./intl";
 import { EditorShell } from "./editor-shell";
 import { PagesNav } from "./pages-nav";
 import { PageList } from "./page-list";
+import { SectionShell } from "./section-shell";
 import type { TyprenEditorHost } from "./types";
 
 export type { TyprenEditorHost };
@@ -17,9 +20,13 @@ export type { TyprenEditorHost };
  * host decides what a slug means for its URLs; no routing lives inside the
  * library.
  *
- * Settings/media-library/collections/onboarding sections aren't built yet;
- * this component only ever renders the Pages editing loop: the page picker
- * when no page is open, or the full block/field/preview shell once one is.
+ * `host.sections` (omitted by default) switches this component from the v1
+ * Pages-only picker/shell to `SectionShell`, the SDUI section-switcher admin
+ * (Media/Collections/Settings/…) — additive, so a host that never sets it
+ * keeps today's behavior byte-identical. "Onboarding" is deliberately not a
+ * section here: core's `sections.ts` never gave it a `SectionKind` (it's a
+ * first-run wizard gated on `bootstrap.onboarded`, not a rail entry), so it
+ * stays out of scope for this component.
  */
 export interface TyprenEditorProps {
   host: TyprenEditorHost;
@@ -34,6 +41,17 @@ export interface TyprenEditorProps {
   version?: string | null;
   /** Content locale for reads/writes (single-locale hosts omit this). */
   locale?: string;
+  /** How the editor's root positions itself. "takeover" (default) is a
+   *  `fixed inset-0 z-[100]` full-viewport overlay — correct when the editor
+   *  IS the app (the local single-site tier). "embedded" renders in normal
+   *  flow instead, filling its parent (`h-full`, `min-h-0`, no fixed
+   *  positioning or z-index): the host owns page scroll and chrome, and its
+   *  mount point must resolve to a definite height (e.g. a flex column with
+   *  `h-full` down to it). Native `<dialog>` pickers (image/icon) render in
+   *  the browser's top layer regardless of this setting, so they stay above
+   *  the editor root either way — don't reintroduce a fixed/z-indexed
+   *  popover without the same guarantee. */
+  layout?: "takeover" | "embedded";
   onNavigate: (slug: string | null) => void;
   /** See `EditorShell`'s `onReload`: refresh "this page" after a
    *  discard/publish/conflict-reload, however the host's router does that. */
@@ -41,6 +59,30 @@ export interface TyprenEditorProps {
   /** Host overrides for the editor UI's strings, deep-merged onto the
    *  package's English defaults. */
   messages?: Partial<Messages>;
+  /** Section id to render — only meaningful when `host.sections` is set
+   *  (defaults to the first resolved section otherwise). Mirrors `slug`'s
+   *  "the host owns routing" contract. */
+  sectionId?: string;
+  /** A section id to switch to, e.g. clicking a `SectionNav` row. Only called
+   *  when `host.sections` is set. */
+  onNavigateSection?: (id: string) => void;
+  /** Server-fetched rows per collection section, keyed by section id (core's
+   *  `listCollectionRecords()`). Only meaningful when `host.sections`
+   *  includes a "collection" entry. */
+  collectionRecords?: Record<string, CollectionRecordInfo[]>;
+  /** `CollectionPanel`'s `mode`/`selectedSlug`/`onNavigate`, forwarded as-is
+   *  — mirrors `slug`/`onNavigate` above but for the active Collection
+   *  section's own record, e.g. a `?record=<slug>&mode=edit` URL. Omit all
+   *  three to keep `CollectionPanel`'s own uncontrolled state. */
+  collectionMode?: CollectionMode;
+  collectionSlug?: string;
+  onNavigateCollection?: (mode: CollectionMode, slug?: string) => void;
+  /** Host-fetched settings snapshot, for the Settings section. See
+   *  `SettingsPanel`'s doc comment for why this is a data prop, not part of
+   *  `host`. Only meaningful when `host.sections` includes a "settings" entry. */
+  settingsSnapshot?: SiteSettings;
+  /** Optimistic-lock version `settingsSnapshot` was loaded at. */
+  settingsVersion?: string | null;
 }
 
 export function TyprenEditor({
@@ -50,13 +92,45 @@ export function TyprenEditor({
   page,
   version = null,
   locale,
+  layout = "takeover",
   onNavigate,
   onReload,
   messages,
+  sectionId,
+  onNavigateSection,
+  collectionRecords,
+  collectionMode,
+  collectionSlug,
+  onNavigateCollection,
+  settingsSnapshot,
+  settingsVersion,
 }: Readonly<TyprenEditorProps>) {
+  const sections = host.sections?.length ? resolveSections({ sections: host.sections }) : null;
+
   return (
     <CmsIntlProvider messages={messages}>
-      {slug && page ? (
+      {sections ? (
+        <SectionShell
+          host={host}
+          sections={sections}
+          activeId={sectionId}
+          onSelectSection={onNavigateSection ?? (() => {})}
+          layout={layout}
+          pages={pages}
+          slug={slug}
+          page={page}
+          version={version}
+          onNavigatePage={onNavigate}
+          onReload={onReload}
+          locale={locale}
+          collectionRecords={collectionRecords}
+          collectionMode={collectionMode}
+          collectionSlug={collectionSlug}
+          onNavigateCollection={onNavigateCollection}
+          settingsSnapshot={settingsSnapshot}
+          settingsVersion={settingsVersion}
+        />
+      ) : slug && page ? (
         <EditorShell
           slug={slug}
           pages={pages}
@@ -69,12 +143,20 @@ export function TyprenEditor({
           actions={host.actions}
           media={host.media}
           icons={host.icons}
+          topBarSlot={host.topBarSlot}
           locale={locale}
+          layout={layout}
           onNavigate={onNavigate}
           onReload={onReload}
         />
       ) : (
-        <div className="fixed inset-0 z-[100] flex bg-[var(--typren-bg)] text-[var(--typren-fg)]">
+        <div
+          className={
+            layout === "embedded"
+              ? "flex h-full min-h-0 bg-[var(--typren-bg)] text-[var(--typren-fg)]"
+              : "fixed inset-0 z-[100] flex bg-[var(--typren-bg)] text-[var(--typren-fg)]"
+          }
+        >
           <PagesNav
             pages={pages}
             onCreate={host.actions.createPage}
