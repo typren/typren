@@ -18,6 +18,7 @@ on:
 permissions:
   contents: write # push the version-bump commit to the PR branch
   pull-requests: write # open/update the Version Packages PR
+  statuses: write # stamp the required `cla` context on the bot branch, see the last step
 
 jobs:
   version:
@@ -41,3 +42,21 @@ jobs:
           version-script: bunx changeset version
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The changesets action pushes changeset-release/develop with
+      # GITHUB_TOKEN, and events caused by GITHUB_TOKEN never trigger other
+      # workflows — cla.yml cannot run against the refreshed head, so the
+      # required `cla` context would sit at "Expected — waiting for status"
+      # forever (this forced an admin merge of the 0.2.0 Version Packages
+      # PR). A bot-authored release PR has no CLA to sign — cla.yml already
+      # allowlists bots — so this job reports the context itself on whatever
+      # head the action just pushed. No-op when the branch does not exist
+      # (i.e. there were no changesets to version).
+      - name: Stamp the cla status on the release branch
+        run: |
+          sha=$(gh api "repos/${{ github.repository }}/git/ref/heads/changeset-release%2Fdevelop" --jq .object.sha 2>/dev/null) || exit 0
+          gh api -X POST "repos/${{ github.repository }}/statuses/$sha" \
+            -f state=success -f context=cla \
+            -f description="bot release PR: no CLA to sign"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
