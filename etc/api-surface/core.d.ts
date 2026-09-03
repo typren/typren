@@ -626,6 +626,8 @@ export type { Slice, PageContent, LocalizedPage, PageInfo, CollectionRecordInfo,
 export { resolveI18n, localizedPath, localizedHref, routeLocale, defaultIsUnprefixed, type I18nConfig, type Messages, type RoutingMode, type LocaleRoute, } from "./i18n.js";
 export { mergeLocalized, localeSubdir } from "./localize.js";
 export { createMarkdownAdapter, type MarkdownAdapterOptions } from "./markdown-adapter.js";
+export { createNotionAdapter, createFetchNotionClient, type NotionAdapterOptions, type NotionClient, type NotionPage, type NotionPropertyMap, type NotionPropertyType, } from "./notion-adapter.js";
+export { blocksToMarkdown, blocksToSegments, pageRecordFrom, richTextToMarkdown, type NotionBlock, type NotionSegment, type ProseSegment, type ComponentSegment, } from "./notion-blocks.js";
 export { createFsMediaAdapter, type FsMediaAdapterOptions } from "./fs-media-adapter.js";
 export { createGithubAdapter, isAllowedRepoPath, type GithubAdapterOptions } from "./github-adapter.js";
 export { processUpload, handleMediaUpload, MAX_UPLOAD_BYTES } from "./media.js";
@@ -638,6 +640,7 @@ export { serializeFieldSchema, parseFieldSchema, isFieldSchema, type SerializedF
 export { resolveSections, DEFAULT_SECTIONS, SECTION_API_VERSION, type Section, type SectionKind, type SectionCtx, type ResolvedSection, type PagesSection, type MediaSection, type SettingsSection, type CollectionSection, type CustomSection, type FieldFormMedia, } from "./sections.js";
 export { createSettingsStore, createFsSettingsAdapter, type SiteSettings, type SiteSettingsRuntime, type SiteSettingsBootstrap, type SettingsAdapter, type SettingsStore, } from "./settings.js";
 export { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection.js";
+export { buildRedirects, type RedirectEntry, type BuildRedirectsOptions, type PageRedirectMeta } from "./redirects.js";
 
 // ---- dist/localize.d.ts ----
 import type { PageContent } from "./types.js";
@@ -722,6 +725,226 @@ export declare function processUpload(input: {
  *  via the same `resolveAuth` the action guard uses. */
 export declare function handleMediaUpload(config: CmsConfig, request: Request): Promise<Response>;
 
+// ---- dist/notion-adapter.d.ts ----
+import type { ContentAdapter } from "./types.js";
+import { type NotionBlock } from "./notion-blocks.js";
+export type { NotionBlock } from "./notion-blocks.js";
+/** Notion property types this adapter can round-trip: text, numbers,
+ *  single/multi enums, booleans, dates, and a relation to another database —
+ *  not Notion's full property-type list (no formula, rollup, people, files:
+ *  none of those round-trip meaningfully through a plain read/write value,
+ *  being either computed or reference-shaped in ways a generic mapper can't
+ *  own). A site with a genuine need for one of those maps it via its own
+ *  property glue rather than growing this list. */
+export type NotionPropertyType = "title" | "rich_text" | "number" | "select" | "status" | "multi_select" | "checkbox" | "date" | "email" | "phone_number" | "url" | "relation";
+/** metaKey -> which Notion property backs it and how to (de)serialize it.
+ *  Every key here becomes a field on the record's `meta`; any other property
+ *  on the Notion row is ignored (not read, not written, not clobbered). */
+export type NotionPropertyMap = Record<string, {
+    name: string;
+    type: NotionPropertyType;
+}>;
+/** Raw per-property JSON Notion returns/expects for one property, e.g.
+ *  `{ number: 42 }`, `{ title: [{ plain_text: "..." }] }`. Untyped beyond
+ *  "a JSON object" — its shape depends on the property's Notion type. */
+export type NotionRawProperty = Record<string, unknown>;
+/** One Notion database row, trimmed to what this adapter needs. `properties`
+ *  is keyed by Notion property name. */
+export type NotionPage = {
+    id: string;
+    archived: boolean;
+    properties: Record<string, NotionRawProperty>;
+};
+/**
+ * The seam between the adapter and Notion's HTTP API — mocked directly in
+ * tests (see notion-adapter.test.ts), so no network/HTTP-mocking library is
+ * needed to unit-test the adapter's read/write/mapping logic. Every method is
+ * SYNCHRONOUS to satisfy `ContentAdapter` (see `createFetchNotionClient`'s
+ * doc comment for how the real implementation bridges Notion's async HTTP
+ * to that).
+ */
+export interface NotionClient {
+    /** Every non-archived row in the database (pagination is the client's problem). */
+    queryDatabase(databaseId: string): NotionPage[];
+    /** `null` when the page id doesn't exist OR is archived (this adapter
+     *  treats "archived" as "deleted", see `deletePublished`). */
+    retrievePage(pageId: string): NotionPage | null;
+    createPage(databaseId: string, properties: Record<string, NotionRawProperty>): NotionPage;
+    updatePage(pageId: string, properties: Record<string, NotionRawProperty>): NotionPage;
+    /** Notion has no hard delete via the API, only archive (= its trash). */
+    archivePage(pageId: string): void;
+    /** A page's block children, recursively resolved (each returned block's own
+     *  `children` is already populated when `has_children` is true) — see
+     *  notion-blocks.ts for what they turn into. Only called when a
+     *  `NotionAdapterOptions.content` of `"blocks"` is configured; omit it on a
+     *  client that never backs such a collection. */
+    listBlockChildren?(pageId: string): NotionBlock[];
+}
+export type NotionAdapterOptions = {
+    client: NotionClient;
+    databaseId: string;
+    properties: NotionPropertyMap;
+    /** metaKey of a plain-text-valued property (title/rich_text/select/status)
+     *  that uniquely and stably identifies a row, used as the record slug in
+     *  place of the Notion page id. Required to CREATE new records through this
+     *  adapter (`writeRaw` on an unknown slug): a page id doesn't exist until
+     *  Notion assigns one, so it can't be the slug a caller picks up front.
+     *  Omit for read/update/delete-only use against rows that already exist
+     *  (slug = Notion page id) — fine for collections whose records are only
+     *  ever created in Notion directly. */
+    slugProperty?: string;
+    /** metaKey of a rich_text property to round-trip as `PageContent.body`.
+     *  Ignored when `content: "blocks"` or `"slices"` is set. Omit both for a
+     *  property-only collection (body is always ""), the normal case for a
+     *  row-shaped record. */
+    bodyProperty?: string;
+    /** `"blocks"`: `body` is the page's own block content (paragraphs,
+     *  headings, lists, ...) converted to markdown — see notion-blocks.ts —
+     *  instead of a `bodyProperty` column.
+     *
+     *  `"slices"`: the page reads as a full typren page record — `body` is
+     *  always `""` and `slices` comes from running the same block tree through
+     *  `blocksToSegments` + `pageRecordFrom` (prose runs become a `"prose"`
+     *  slice carrying markdown, `::componentName` directives become named
+     *  slices in document order). The host's slice registry resolves each
+     *  `slice` name at render time; a name with no registered component is the
+     *  registry's problem, not this adapter's — it degrades the same way any
+     *  other unregistered slice does there (see `SliceZone`'s scaffold),
+     *  never a throw here.
+     *
+     *  Both need a `client` whose `listBlockChildren` is implemented (throws
+     *  loud otherwise). READ-ONLY for now: `writeRaw`/`writeDraftRaw` still
+     *  only push `properties` (see the `content` note on
+     *  `createNotionAdapter`'s own doc comment) — a body/slice edit against a
+     *  blocks- or slices-backed record is not written back to Notion yet.
+     *  Default `"none"` keeps the `bodyProperty`/property-only behavior
+     *  unchanged. */
+    content?: "blocks" | "slices" | "none";
+    locales?: string[];
+    defaultLocale?: string;
+};
+/**
+ * Notion-backed `ContentAdapter`. One database row = one record; `meta` is
+ * the schema-shaped prop bag (see `NotionPropertyMap`), `body` is optional
+ * (see `bodyProperty`). `slices` is `[]` unless `content: "slices"` is set,
+ * in which case a page's own block content is read as an ordered list of
+ * typren slices (see the `content` doc on `NotionAdapterOptions`) — matching
+ * how a markdown *page* record already carries slices, just sourced from
+ * Notion blocks instead of frontmatter.
+ *
+ * typren: Notion has no draft/publish distinction (unlike the filesystem
+ * adapter's separate `.drafts` dir) — every draft op writes straight through
+ * to the published row (`writeDraftRaw` calls the same path as `writeRaw`;
+ * `readDraftRaw`/`hasDraft` always report "no draft" so `ContentStore.publish`
+ * safely no-ops after the write-through already landed). This drops
+ * optimistic-locking and "unpublished changes" UX for Notion-backed
+ * collections. Parked as an open question for Gabriel (queue
+ * T-20260810-riau-06), not silently dropped: revisit if the admin needs a
+ * real draft/review step, e.g. writing to a "Draft" Notion property or a
+ * shadow database instead of aliasing to published.
+ *
+ * typren: `content: "blocks"` and `content: "slices"` (see
+ * `NotionAdapterOptions`) both read a page's own block content but do NOT
+ * write it back — `writeRaw` only ever pushes `properties`. A body/slice
+ * edit against such a record is silently (from Notion's point of view —
+ * loudly from this code's, via the one-time `console.warn` below) NOT
+ * persisted. typren TODO: slice write-back needs a segments -> blocks
+ * inverse of `blocksToSegments` (a lossy, rate-limit-heavy replace: delete
+ * existing children, append new ones) plus a decision on how an edited prose
+ * slice's markdown maps back to Notion's rich-text block shapes; land it
+ * once the read side (this adapter + notion-blocks.ts) has seen real use.
+ */
+export declare function createNotionAdapter({ client, databaseId, properties, slugProperty, bodyProperty, content, defaultLocale, locales, }: NotionAdapterOptions): ContentAdapter;
+/** Real `NotionClient` against `https://api.notion.com`. `token` is an
+ *  internal-integration secret — pass it from `process.env` only (never
+ *  commit one); the caller owns getting it there. */
+export declare function createFetchNotionClient(token: string): NotionClient;
+
+// ---- dist/notion-blocks.d.ts ----
+import type { PageContent } from "./types.js";
+/**
+ * Notion block tree -> typren content, generic and dependency-free: this
+ * file knows Notion block SHAPES (paragraph/heading/list/code/table/...),
+ * never a site's entities or components. Block payloads are Notion's raw
+ * per-type JSON (e.g. `{ rich_text: [...] }` under `paragraph`), so types
+ * here stay loose (`Record<string, unknown>`) the same way notion-adapter.ts's
+ * property mapper does.
+ *
+ * Two-stage pipeline:
+ *   blocks -> segments (`blocksToSegments`): an ordered list of either prose
+ *     (a run of plain content blocks) or a component call (see the directive
+ *     convention below). This is the shape closest to what the page actually
+ *     contains.
+ *   segments -> output: `blocksToMarkdown` renders the prose segments back
+ *     into one markdown string (component segments become a visible comment,
+ *     never silently vanish); `pageRecordFrom` instead maps EVERY segment,
+ *     prose and component alike, into one ordered typren `slices` array —
+ *     see its own doc comment for why that mapping is lossless.
+ *
+ * Component-call convention (generic — no entity/component names live here):
+ * a `callout` or `code` block whose first line is `::componentName` is a
+ * component call; every remaining line is JSON (not YAML — no yaml parser is
+ * already a dependency of this package, and hand-authoring one JSON object
+ * in a Notion code block is a small ask) parsed as that component's props.
+ * Malformed JSON, a missing name, or an empty prop body after the `::name`
+ * line all degrade to treating the block as ordinary prose rather than
+ * throwing — a typo in Notion should never break the whole page read.
+ */
+/** One Notion block, trimmed to what conversion needs. `children` is only
+ *  present when the caller (see NotionClient.listBlockChildren) already
+ *  resolved nested blocks — this module never fetches anything itself. */
+export type NotionBlock = {
+    id: string;
+    type: string;
+    has_children?: boolean;
+    children?: NotionBlock[];
+} & Record<string, unknown>;
+export type ProseSegment = {
+    kind: "prose";
+    blocks: NotionBlock[];
+};
+export type ComponentSegment = {
+    kind: "component";
+    name: string;
+    props: Record<string, unknown>;
+};
+export type NotionSegment = ProseSegment | ComponentSegment;
+/** A Notion rich_text array -> one inline markdown string (bold/italic/
+ *  strikethrough/code/link annotations applied). */
+export declare function richTextToMarkdown(runs: unknown): string;
+/** Group a page's top-level blocks into an ordered list of prose runs and
+ *  component calls (see this file's header for the directive convention).
+ *  Nested children of a NON-directive block stay attached to it and render
+ *  as part of whichever prose segment that block belongs to (see
+ *  `blocksToMarkdown`'s use of `renderBlocks`, which walks `children`). */
+export declare function blocksToSegments(blocks: NotionBlock[]): NotionSegment[];
+/** Notion block children (already recursively resolved, see
+ *  `NotionClient.listBlockChildren`) -> one markdown string: every PROSE
+ *  segment rendered and joined (paragraph, heading_1/2/3, bulleted/numbered
+ *  lists, to_do, quote, code, divider, image, table, toggle, bookmark/
+ *  link_preview/embed; anything else degrades to an HTML comment, see
+ *  `renderBlock`). A component segment (see the directive convention above)
+ *  is NOT prose — it becomes a visible marker comment instead of silently
+ *  disappearing from the body; callers that want it realized as a real
+ *  component belong in `pageRecordFrom` instead. */
+export declare function blocksToMarkdown(blocks: NotionBlock[]): string;
+/** Segments -> a typren `PageContent`, ordered slices only (no `body`): a
+ *  prose segment becomes one `{ slice: proseSlice, markdown }` entry, a
+ *  component segment becomes `{ slice: name, ...props }` — the exact shape
+ *  `CmsConfig.registry` already expects (see types.ts's `Slice`). This is
+ *  lossless on ORDER (typren's `slices` is itself an ordered array, so
+ *  interleaved prose/component runs survive exactly as authored) but NOT on
+ *  markdown-body position: typren's page model renders `slices` and `body`
+ *  as two separate channels, not one interleaved stream, so putting every
+ *  segment into `slices` (leaving `body` empty) is the one mapping that
+ *  doesn't need a channel that doesn't exist. A host must register a
+ *  `proseSlice`-named component (default `"prose"`) that renders `markdown`
+ *  — same as registering any other slice; this module doesn't render one. */
+export declare function pageRecordFrom(segments: NotionSegment[], opts?: {
+    proseSlice?: string;
+    meta?: Record<string, unknown>;
+}): PageContent;
+
 // ---- dist/proxy.d.ts ----
 /** Current `adminRoute` from `typren.config.json`, mtime-cached so a steady
  *  file only costs one `statSync` per request, not a `readFileSync` too.
@@ -741,6 +964,53 @@ export declare function previewPathFor(adminRoute: string): string;
 export declare function typrenProxyRewrite(url: URL | string, opts?: {
     configFile?: string;
 }): string | null;
+
+// ---- dist/redirects.d.ts ----
+import type { ContentStore } from "./store.js";
+/** Per-page redirect frontmatter. Lives inside a page's existing `meta`
+ *  (frontmatter minus `slices:`), no new file format — same convention as
+ *  seo/types.ts's PageSeoMeta. Each alias is an absolute, on-site path that
+ *  should permanently redirect to this page, e.g. `aliases: ["/old-path"]`. */
+export type PageRedirectMeta = {
+    aliases?: string[];
+};
+export type RedirectEntry = {
+    /** Absolute, trailing-slash-normalized incoming path. */
+    from: string;
+    /** Absolute, trailing-slash-normalized canonical path this alias resolves to. */
+    to: string;
+    /** Slug that declared the alias, for a host's own error/log messages. */
+    slug: string;
+};
+export type BuildRedirectsOptions = {
+    /** Slug that maps to the site root ("/") instead of "/<slug>", e.g. "home"
+     *  (mirrors seo/sitemap.ts's homeSlug). */
+    homeSlug?: string;
+    /** Hard ceiling on total alias entries across the site (default 1000): a
+     *  safety valve against a runaway or malicious frontmatter edit, not a
+     *  realistic target. */
+    maxEntries?: number;
+};
+/**
+ * One entry per page-declared alias (frontmatter `aliases: string[]`),
+ * validated and de-duplicated across the whole site. Framework-agnostic:
+ * hosts turn this into whatever their infra wants (Next `redirects()`,
+ * a Netlify/Cloudflare `_redirects` file, `vercel.json`, an nginx map, a
+ * CloudFront KeyValueStore — see `@typren/adapter-cloudfront`) instead of
+ * hand-maintaining a redirect config.
+ *
+ * ponytail: single-locale only (reads the default-locale published page, no
+ * `i18n` option). A translation declaring its own old URLs isn't a need
+ * that's shown up yet; add it the way buildSitemap loops `i18n.locales` if
+ * it does.
+ *
+ * Throws (fail loud at build/config time, never silently drops a bad entry)
+ * on: a malformed alias (not an absolute path), an alias that shadows a real
+ * page's own canonical path — including a page aliasing itself, which would
+ * be a redirect loop — a duplicate alias claimed by two pages, or more total
+ * aliases than `maxEntries`.
+ */
+export declare function buildRedirects(store: ContentStore, opts?: BuildRedirectsOptions): RedirectEntry[];
 
 // ---- dist/sections.d.ts ----
 import type { ComponentType } from "react";
@@ -781,10 +1051,16 @@ export interface SettingsSection extends SectionBase {
 }
 export interface CollectionSection extends SectionBase {
     kind: "collection";
-    /** Repo-relative dir, e.g. "content/authors". Gets its OWN ContentAdapter
-     *  instance. MUST NOT resolve inside the Pages contentDir (guarded at
-     *  buildCollectionActions time, throws loud). */
-    dir: string;
+    /** Repo-relative dir, e.g. "content/authors". Gets its OWN markdown-backed
+     *  ContentAdapter instance. MUST NOT resolve inside the Pages contentDir
+     *  (guarded at makeCollectionAdapter time, throws loud). Provide exactly
+     *  one of `dir`/`adapter` (also guarded there). */
+    dir?: string;
+    /** Pre-built adapter for a non-filesystem backend (Notion, a KV store, ...).
+     *  Used as-is, bypassing markdown-adapter construction and the Pages dir-
+     *  overlap guard entirely — an adapter owns its own storage, so there is no
+     *  dir to overlap. Provide exactly one of `dir`/`adapter`. */
+    adapter?: ContentAdapter;
     /** Reuses FieldDef/SliceSchema verbatim: a record IS a slice-shaped prop bag. */
     schema: SliceSchema;
     /** Which schema key is the list-view primary column. Default: "title", then
