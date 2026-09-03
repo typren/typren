@@ -63,8 +63,10 @@ jobs:
           path-to-signatures: signatures/v1/cla.json
           branch: cla-signatures
           # The repository owner holds the rights already, so there is nothing
-          # to grant. Bots cannot agree to anything.
-          allowlist: mataleogml,bot*
+          # to grant. Bots cannot agree to anything. `*[bot]` is the pattern
+          # that actually matches GitHub App bots (github-actions[bot],
+          # dependabot[bot]); a bare `bot*` prefix never did.
+          allowlist: mataleogml,bot*,*[bot]
           custom-notsigned-prcomment: >-
             Thanks for the pull request. Typren needs a signed Contributor
             License Agreement before it can be merged, because the project is
