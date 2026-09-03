@@ -1,5 +1,39 @@
 # @typren/core
 
+## 0.2.0
+
+### Minor Changes
+
+- 38548ca: Add `content: "slices"` to `createNotionAdapter`: a Notion page now reads as
+  a full typren page record whose `PageContent.slices` come from running the
+  page's block tree through `blocksToSegments`/`pageRecordFrom` (prose runs
+  become a `"prose"` markdown slice, `::componentName` directives become named
+  slices, in document order) — the `content: "blocks"` mode's plumbing, now
+  also wired into a real `slices` array instead of only a flattened markdown
+  `body`. The host's own slice registry resolves each name at render time; an
+  unregistered name is that registry's fallback to handle (unchanged), never
+  a throw from this adapter. Read-only for now: `writeRaw`/`writeDraftRaw`
+  still only push `properties`, with a loud one-time `typren:` console warning
+  (not a silent drop) when a write would have carried slice edits — mirroring
+  `content: "blocks"`'s existing body-write warning. Additive; no behavior
+  change for `content: "none"` or `"blocks"` collections.
+- 5d27c77: Added `buildRedirects(store, opts?)`, a framework-agnostic redirects API driven by page frontmatter: a page declares its own old URLs via `aliases: string[]` instead of every host hand-maintaining a redirect config. Validates absolute paths, rejects an alias that shadows another page's canonical path (including a page aliasing itself), de-duplicates across the whole site, and caps total entries (`maxEntries`, default 1000). Hosts turn the returned `RedirectEntry[]` into whatever their infra wants — Next `redirects()`, a Netlify/Cloudflare `_redirects` file, `vercel.json`, an nginx map, or a CloudFront KeyValueStore (see the new `@typren/adapter-cloudfront`).
+
+### Patch Changes
+
+- a6e618b: Add a Notion-backed `ContentAdapter` (`createNotionAdapter`,
+  `createFetchNotionClient`) and let a `CollectionSection` take a pre-built
+  `adapter` instead of `dir` for non-filesystem backends. The Notion adapter's
+  property mapping is generic (driven entirely by a caller-supplied
+  property-type map, no site/entity knowledge); `content: "blocks"` optionally
+  reads a page's own block content (paragraphs, headings, lists, tables,
+  toggles, ...) as markdown via a new pure block converter
+  (`blocksToMarkdown`/`blocksToSegments`/`pageRecordFrom` in `notion-blocks.ts`),
+  including a generic `::componentName` directive convention for calling a
+  site's own components from inside a Notion page. Block writes are
+  read-only for now (a loud `typren:` TODO marks the deferred write-back).
+  All additive, no behaviour change for existing markdown-backed collections.
+
 ## 0.1.4
 
 ### Patch Changes
