@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@types/node": "^26",
-    "typescript": "^5"
+    "typescript": "^7"
   },
   "repository": {
     "type": "git",

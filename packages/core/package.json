@@ -90,7 +90,7 @@
     "next": "^16",
     "react": "^19",
     "react-dom": "^19",
-    "typescript": "^5"
+    "typescript": "^7"
   },
   "peerDependencies": {
     "@clerk/nextjs": ">=5",

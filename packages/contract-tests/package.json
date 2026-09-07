@@ -17,7 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^26",
-    "typescript": "^5",
+    "typescript": "^7",
     "vitest": "^4.1.10"
   },
   "repository": {
