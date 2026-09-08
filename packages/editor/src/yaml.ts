@@ -1,4 +1,4 @@
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 
 /** Dump a value to YAML text for editing. Scalars come back trimmed. */
 export function toYaml(value: unknown): string {

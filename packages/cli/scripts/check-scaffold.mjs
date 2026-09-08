@@ -44,7 +44,6 @@ const TSCONFIG = {
     skipLibCheck: true,
     esModuleInterop: true,
     noEmit: true,
-    baseUrl: ".",
     // The published package resolves these through its own exports map; here
     // they point at source so a template is checked against the CURRENT API.
     paths: {
@@ -62,6 +61,16 @@ mkdirSync(path.join(sandbox, "node_modules", "@types"), { recursive: true });
 for (const [name, rel] of Object.entries(LINKS)) {
   symlinkSync(path.join(repo, "..", rel), path.join(sandbox, "node_modules", name), "dir");
 }
+// The scaffold's cms.config.ts side-effect-imports "server-only", which a real
+// app installs itself (per Next's docs); TS 6 errors (TS2882) on unresolved
+// side-effect imports, so the sandbox stubs the type here.
+mkdirSync(path.join(sandbox, "node_modules", "server-only"), { recursive: true });
+writeFileSync(
+  path.join(sandbox, "node_modules", "server-only", "package.json"),
+  JSON.stringify({ name: "server-only", version: "0.0.0", types: "./index.d.ts", main: "./index.js" })
+);
+writeFileSync(path.join(sandbox, "node_modules", "server-only", "index.d.ts"), "export {};\n");
+writeFileSync(path.join(sandbox, "node_modules", "server-only", "index.js"), "");
 try {
   // `init` picks src/ vs root by which app dir exists; src/ is the common layout.
   execFileSync(process.execPath, [path.join(repo, "dist", "cli.js"), "init"], { cwd: sandbox, stdio: "ignore" });

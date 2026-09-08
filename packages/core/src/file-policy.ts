@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import type { AuthAction, AuthContext, AuthUser, Policy } from "./auth-adapter";
 
 /** `.typren/access.yml` shape (docs/hosted-platform.md, "The policy file").

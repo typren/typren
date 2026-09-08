@@ -73,7 +73,9 @@ export function parseFieldSchema(json: string): SerializedFieldSchema {
   try {
     parsed = JSON.parse(json);
   } catch (e) {
-    throw new Error(`typren: invalid fieldSchema JSON: ${e instanceof Error ? e.message : String(e)}`);
+    throw new Error(`typren: invalid fieldSchema JSON: ${e instanceof Error ? e.message : String(e)}`, {
+      cause: e,
+    });
   }
   if (!isFieldSchema(parsed)) {
     throw new Error(
