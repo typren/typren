@@ -81,8 +81,17 @@ jobs:
       - name: Publish to npm
         run: bunx changeset publish
 
-      # changeset publish made the tags locally; without this they die with the
-      # runner. Pushing them is what makes a published version findable in git.
+      # `changeset publish` does NOT create git tags under @changesets/cli v3 —
+      # every release through 0.2.1 shipped tagless and had to be hand-tagged
+      # after the fact (earlier runs' "partial failure loses tags" theory was
+      # masking this). `changeset tag` creates the per-package tags for the
+      # versions currently in the tree; privatePackages.tag=false in
+      # .changeset/config.json keeps unpublished packages (the editor) out.
+      - name: Tag the published versions
+        run: bunx changeset tag
+
+      # The tags above exist only on the runner; without this they die with it.
+      # Pushing them is what makes a published version findable in git.
       - name: Push the release tags
         run: git push origin --tags
 

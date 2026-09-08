@@ -1,6 +1,6 @@
 {
   "name": "@typren/editor",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Typren's editor UI: the pluggable React admin shell for pages, blocks and fields.",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,
@@ -31,19 +31,18 @@
     "@typren/core": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "js-yaml": "^4.1.0",
-    "lucide-react": "^1.35.0",
-    "tailwind-merge": "^3.4.0"
+    "js-yaml": "^5.4.1",
+    "lucide-react": "^1.42.0",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.6",
-    "@types/js-yaml": "^4.0.9",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "react": "^19",
-    "react-dom": "^19",
-    "typescript": "^5"
+    "@testing-library/user-event": "^14.6.7",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "typescript": "^6.0.3"
   },
   "peerDependencies": {
     "react": ">=19",
