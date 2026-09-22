@@ -14,7 +14,14 @@ type EdgeResult =
  * runtime provides the `cloudfront` module, so strip the import and inject
  * a stand-in whose kvs.get mirrors the real one (rejects on a missing key).
  */
-function run(uri: string, redirects: Record<string, string> = {}, kvsGet?: (key: string) => Promise<string>): Promise<EdgeResult> {
+type EdgeQueryString = Record<string, { value: string; multiValue?: { value: string }[] }>;
+
+function run(
+  uri: string,
+  redirects: Record<string, string> = {},
+  kvsGet?: (key: string) => Promise<string>,
+  querystring: EdgeQueryString = {}
+): Promise<EdgeResult> {
   const get =
     kvsGet ??
     (async (key: string) => {
@@ -24,9 +31,9 @@ function run(uri: string, redirects: Record<string, string> = {}, kvsGet?: (key:
     });
   const body = source.replace(/^import .*\n/m, "");
   const handler = new Function("cf", `${body}\nreturn handler;`)({ kvs: () => ({ get }) }) as (e: {
-    request: { uri: string };
+    request: { uri: string; querystring: EdgeQueryString };
   }) => Promise<EdgeResult>;
-  return handler({ request: { uri } });
+  return handler({ request: { uri, querystring } });
 }
 
 describe("redirects.function.js", () => {
@@ -71,11 +78,44 @@ describe("redirects.function.js", () => {
     }
   );
 
-  // A broken store must lose ONLY the redirect lookups — the index rewrite
+  // A broken store must lose ONLY the redirect lookups. The index rewrite
   // and bare-slash canonicalization keep the site serving.
   it("still rewrites when the KVS is unavailable", async () => {
     const down = () => Promise.reject(new Error("store unavailable"));
     expect(await run("/about/", {}, down)).toMatchObject({ uri: "/about/index.html" });
     expect(await run("/about", {}, down)).toMatchObject({ statusCode: 301, headers: { location: { value: "/about/" } } });
+  });
+
+  // CloudFront does not collapse repeated slashes, and a browser resolves a
+  // "//host/path" Location as protocol-relative. Canonicalizing such a uri
+  // would be an open redirect, so it must fall through to the origin instead.
+  it.each(["//evil.example", "//evil.example/x", "///evil.example"])(
+    "never 301s %s into a protocol-relative Location",
+    async (uri) => {
+      expect(await run(uri)).toMatchObject({ uri });
+    }
+  );
+
+  it("preserves the query string on the bare-form 301", async () => {
+    const result = await run("/about", {}, undefined, {
+      utm_source: { value: "newsletter" },
+      flag: { value: "" },
+      tag: { value: "a", multiValue: [{ value: "a" }, { value: "b" }] },
+    });
+    expect(result).toMatchObject({
+      statusCode: 301,
+      headers: { location: { value: "/about/?utm_source=newsletter&flag&tag=a&tag=b" } },
+    });
+  });
+
+  it("preserves the query string on a KVS redirect, appending to a target that has its own", async () => {
+    expect(await run("/old", { "/old": "/new/" }, undefined, { a: { value: "1" } })).toMatchObject({
+      statusCode: 301,
+      headers: { location: { value: "/new/?a=1" } },
+    });
+    expect(await run("/old", { "/old": "/new/?keep=1" }, undefined, { a: { value: "1" } })).toMatchObject({
+      statusCode: 301,
+      headers: { location: { value: "/new/?keep=1&a=1" } },
+    });
   });
 });

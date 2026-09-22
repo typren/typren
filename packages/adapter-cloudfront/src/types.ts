@@ -20,7 +20,7 @@ export interface KvsClient {
 
 /**
  * The control-plane operations `bootstrap.ts` needs. Kept to exactly the
- * four calls bootstrap makes — see that file for why each whole-object-write
+ * four calls bootstrap makes, see that file for why each whole-object-write
  * AWS API (function config, `FunctionAssociations`) is collapsed behind a
  * single guarded method instead of exposing the raw AWS shapes here.
  */
@@ -34,7 +34,9 @@ export interface CloudFrontClient {
    *  Returns the published function's ARN, ready to associate. */
   upsertFunction(name: string, code: string, kvsArn: string, comment: string): Promise<{ arn: string }>;
   /** Associates `functionArn` as the distribution's viewer-request function,
-   *  REPLACING whatever was there (`FunctionAssociations` is a whole-list
-   *  write, not an append — see redirects.function.js's own doc comment). */
+   *  REPLACING whatever viewer-request function was there and keeping
+   *  associations for other event types (`FunctionAssociations` is a
+   *  whole-list write covering every event type, not an append; see
+   *  redirects.function.js's own doc comment). */
   setViewerRequestFunction(distributionId: string, functionArn: string): Promise<void>;
 }
