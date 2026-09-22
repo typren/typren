@@ -23,7 +23,6 @@ export function buildSitemap(
   config: SeoConfig,
   opts: BuildSitemapOptions = {}
 ): MetadataRoute.Sitemap {
-  const now = new Date();
   const { homeSlug, defaultChangeFrequency = "monthly", defaultPriority = 0.7, i18n } = opts;
   const multiLocale = !!i18n && i18n.locales.length > 1;
 
@@ -31,7 +30,11 @@ export function buildSitemap(
     const meta = store.getPublished(slug).meta as PageSeoMeta;
     if (meta.noindex) return [];
     const rest = {
-      lastModified: now,
+      // `lastmod` only when the page declares one: stamping build time on every
+      // page tells crawlers the whole site changed on every deploy, and they
+      // learn to discount the signal. Omitting it is valid per the sitemap
+      // protocol and honest — a date we don't know is not "now".
+      ...(meta.sitemap?.lastModified ? { lastModified: meta.sitemap.lastModified } : {}),
       changeFrequency: meta.sitemap?.changeFrequency ?? (slug === homeSlug ? "weekly" : defaultChangeFrequency),
       priority: meta.sitemap?.priority ?? (slug === homeSlug ? 1 : defaultPriority),
     } satisfies Partial<MetadataRoute.Sitemap[number]>;

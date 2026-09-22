@@ -15,6 +15,10 @@ export type PageSeoMeta = {
   sitemap?: {
     priority?: number;
     changeFrequency?: MetadataRoute.Sitemap[number]["changeFrequency"];
+    /** `lastmod` for this page, `YYYY-MM-DD` or full ISO datetime, passed
+     *  through verbatim. Omitted → the entry carries no `lastmod` at all;
+     *  buildSitemap never substitutes build time for a date it doesn't know. */
+    lastModified?: string;
   };
 };
 
