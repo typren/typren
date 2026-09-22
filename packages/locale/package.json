@@ -34,6 +34,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "bin": {
+    "typren-locale": "./dist/cli/index.js"
+  },
   "files": [
     "dist"
   ],
@@ -41,6 +44,9 @@
     "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
   },
   "peerDependencies": {
     "vue": ">=3"
