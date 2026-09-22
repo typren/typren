@@ -92,24 +92,52 @@ shape, not built yet.
 
 ## Provider port
 
-Ingest is a port, not a hardcoded reader: `LocaleSourceProvider` is the whole
-contract, with two deliberately separate methods. `loadSource()` returns
-parsed catalogs keyed by *internal* locale key, with that provider's
-locale-key normalization applied (the default is `en_US` → `en-US`,
-overridable per key) — this is what the build pipeline actually reads.
-`loadRawEntries()` returns exact, unparsed bytes keyed by the producer's
-*original* filename, untouched by normalization — a byte-identical drop-in
-path for re-emitting a producer's export as-is, not for building catalogs
-from. The package never blends the two: nothing in the catalog pipeline
-mirrors a vendor's export byte-for-byte, every catalog that gets hashed and
-published has gone through normalization to canonical locale keys first.
+Ingest is a port, not a hardcoded reader: `LocaleSourceProvider` is one
+method. `loadSource()` returns parsed catalogs keyed by the *canonical*
+locale (BCP-47, `-`-separated; the default normalization is `en_US` →
+`en-US`, overridable per key via `langMap`). The package owns its output
+shape the same way it owns hashing: nothing mirrors a vendor's export
+byte-for-byte, and on-disk locale files are always *derived from* catalogs
+(`writeLocaleFiles`, with a `filenameStyle` knob for consumers whose builds
+expect `en_US.json` naming).
 
-Only one provider ships today: `files`, a directory of one `<locale>.json`
-per locale — which is also the entire Git-native workflow described above. A
-generic export-API provider, plus config presets for wiring up common
-translation-management platforms (Lokalise among them), are planned follow-up
-work; each new source is a config shape added to the `SourceConfig` union and
-a case in provider resolution, additive to what's here.
+Two providers ship today:
+
+- `files` — a directory of one `<locale>.json` per locale, which is also the
+  entire Git-native workflow described above.
+- `export-api` — the generic TMS bundle-export shape: create an export job,
+  optionally poll it, fetch the bundle (zip of per-locale files, or one JSON
+  document keyed by locale). Everything about it is config: auth header, the
+  create request, poll dot-paths, where the bundle URL lives, how a zip entry
+  maps to a locale. Config *presets* ship as data for platforms whose APIs
+  fit the shape — `lokalise` and `crowdin` today — so wiring one up is
+  `{ type: "export-api", preset: "lokalise", projectId, token: "${ENV_VAR}" }`.
+  Tokens are always environment references; a literal-looking token is
+  rejected at load time.
+
+A platform whose protocol genuinely diverges from create/poll/fetch gets its
+own provider only when demand shows up; each new source is a config shape
+added to the `SourceConfig` union and a case in provider resolution, additive
+to what's here.
+
+## CLI
+
+The package ships a `typren-locale` bin with four verbs and a compat layer:
+
+- `pull --config <path> [--out <dir>] [--filename-style dash|underscore]` —
+  provider → normalized locale files on disk.
+- `bake --config <path> --out <dir>` — `buildCatalogs`: hashed catalogs,
+  manifest, precomputed deltas, publish gates.
+- `diff <dirA> <dirB>` — per-locale *content* comparison (exit 1 on any
+  difference). Filename and formatting differences are deliberately
+  invisible; this is the migration-verification tool.
+- `doctor --config <path>` — config validation, environment-reference
+  resolution (names only, never values), publish-gate dry run.
+- `compat lokalise2 file download [flags]` — a flag-compatible translator
+  onto `pull` with the `lokalise` preset. Output is this package's canonical
+  shape (underscore filenames by default), not a byte-identical mirror of the
+  vendor CLI. Suits `alias lokalise2='typren-locale compat lokalise2'` for
+  build scripts mid-migration.
 
 ## Hosting
 
