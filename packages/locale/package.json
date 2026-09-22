@@ -1,0 +1,62 @@
+{
+  "name": "@typren/locale",
+  "version": "0.1.0",
+  "description": "Localization delivery for typren and beyond: baked catalogs at build plus an OTA delta channel — content-addressed sha256 catalogs, signed manifest, no-remove merge, placeholder-compat and no-HTML publish gates, provider-agnostic ingest (LocaleSourceProvider port), fail-to-baked runtime client, and Vue injectors.",
+  "keywords": [
+    "i18n",
+    "localization",
+    "typren",
+    "ota",
+    "lokalise"
+  ],
+  "license": "Apache-2.0",
+  "private": false,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./build": {
+      "types": "./dist/build/index.d.ts",
+      "default": "./dist/build/index.js"
+    },
+    "./ota": {
+      "types": "./dist/ota/index.d.ts",
+      "default": "./dist/ota/index.js"
+    },
+    "./vue": {
+      "types": "./dist/vue/index.d.ts",
+      "default": "./dist/vue/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "vue": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "vue": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5",
+    "vue": "^3.5.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/typren/typren.git",
+    "directory": "packages/locale"
+  }
+}
