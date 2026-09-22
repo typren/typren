@@ -40,6 +40,11 @@ describe("validate", () => {
     ["unchecked required checkbox", { ...valid, consent: false }, { field: "consent", code: "required" }],
     ["malformed email", { ...valid, email: "not-an-email" }, { field: "email", code: "invalid_email" }],
     ["email without dot in domain", { ...valid, email: "a@b" }, { field: "email", code: "invalid_email" }],
+    ["email with two @", { ...valid, email: "a@b@c.co" }, { field: "email", code: "invalid_email" }],
+    ["email over the 254-octet ceiling", { ...valid, email: `a@${"b".repeat(250)}.co` }, { field: "email", code: "invalid_email" }],
+    // Regression: the shape check must stay linear; a backtracking regex hangs
+    // on exactly this input (an @ followed by a long dotless tail).
+    ["hostile long dotless email tail", { ...valid, email: `a@${"b".repeat(100000)}` }, { field: "email", code: "invalid_email" }],
     ["value outside select options", { ...valid, topic: "gossip" }, { field: "topic", code: "invalid_option" }],
     ["value over maxLength", { ...valid, name: "x".repeat(11) }, { field: "name", code: "too_long" }],
     ["value failing pattern", { ...valid, ref: "UPPER" }, { field: "ref", code: "pattern" }],

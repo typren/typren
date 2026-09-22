@@ -2,8 +2,19 @@ import type { FormSchema, ValidationError, ValidationResult } from "./types";
 
 // Deliberately loose: one non-space local part, one @, a dot somewhere in the
 // domain. Real deliverability can only be proven by sending mail; a stricter
-// regex only rejects real addresses.
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// check only rejects real addresses. String operations rather than a regex:
+// adjacent unbounded quantifiers backtrack polynomially on long non-matching
+// input, and this runs on untrusted submission bodies. Length cap per RFC
+// 5321's 254-octet ceiling.
+function isEmailShaped(value: string): boolean {
+  if (value.length > 254) return false;
+  if (/\s/.test(value)) return false;
+  const at = value.indexOf("@");
+  if (at <= 0 || at !== value.lastIndexOf("@")) return false;
+  const domain = value.slice(at + 1);
+  const dot = domain.lastIndexOf(".");
+  return dot > 0 && dot < domain.length - 1;
+}
 
 /**
  * Server-authoritative validation over an already-coerced field record (see
@@ -35,7 +46,7 @@ export function validate(schema: FormSchema, fields: Record<string, string | boo
       continue;
     }
 
-    if (field.type === "email" && !EMAIL.test(value)) {
+    if (field.type === "email" && !isEmailShaped(value)) {
       errors.push({ field: field.name, code: "invalid_email" });
       continue;
     }
