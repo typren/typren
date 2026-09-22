@@ -75,7 +75,6 @@ describe("buildCatalogs", () => {
   it("accepts a LocaleSourceProvider directly (no fs dir needed)", async () => {
     const provider = {
       type: "inline",
-      loadRawEntries: async () => ({}),
       loadSource: async () => ({ en: { A: "a" } satisfies Catalog }),
     };
 

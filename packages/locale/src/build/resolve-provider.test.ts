@@ -29,7 +29,7 @@ describe("resolveProvider", () => {
   });
 
   it("passes an already-built provider straight through", () => {
-    const passthrough = { type: "custom", loadRawEntries: async () => ({}), loadSource: async () => ({}) };
+    const passthrough = { type: "custom", loadSource: async () => ({}) };
     expect(resolveProvider(passthrough)).toBe(passthrough);
   });
 

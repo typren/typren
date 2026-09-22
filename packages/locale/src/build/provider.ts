@@ -1,30 +1,21 @@
 import type { Catalog } from "../types";
 
-/** Raw bundle/dir entries keyed by the producer's exact on-disk filename (e.g. "en_US.json") -> exact bytes. */
-export type RawEntries = Record<string, Uint8Array>;
-
 /**
  * A pluggable ingest source. This is the port: implement it once per
  * producer (fs directory, Lokalise, any TMS with a bundle-export API, ...)
  * and `buildCatalogs` doesn't care which one it's talking to.
  *
- * Two methods, two concerns. Never conflate them:
- *
- * - `loadRawEntries` is the byte-identical drop-in path: exact bytes, keyed
- *   by the producer's ORIGINAL filename verbatim (e.g. "en_US.json", underscore
- *   intact). No parsing, no locale-key normalization. This is what a
- *   `file download`-style compat command re-emits unchanged.
- * - `loadSource` is the catalog path: parsed JSON keyed by the INTERNAL
- *   locale key, with this provider's locale-key normalization applied (e.g.
- *   "en_US" -> "en-US"). This is what `buildCatalogs` reads.
- *
- * A provider must never let normalization leak into `loadRawEntries`' keys,
- * and must never skip it in `loadSource`'s keys. The split is the contract.
+ * `loadSource` returns parsed catalogs keyed by the canonical locale (BCP-47,
+ * "-"-separated), with this provider's locale-key normalization already
+ * applied (e.g. "en_US" -> "en-US"). The package owns the output shape:
+ * producer quirks are config (`langMap`, a filename style), never
+ * byte-mirrored. A provider that also needs producer-shaped files back
+ * (a compat export, a debug dump, ...) derives them FROM these catalogs with
+ * `writeLocaleFiles`, not the other way around.
  */
 export interface LocaleSourceProvider {
   /** Short identifier for error messages / config validation (e.g. "files", "lokalise"). */
   readonly type: string;
-  loadRawEntries(): Promise<RawEntries>;
   loadSource(): Promise<Record<string, Catalog>>;
 }
 
@@ -34,9 +25,9 @@ export interface FilesSourceConfig {
   /** Directory containing one `<locale>.json` per locale. */
   dir: string;
   /**
-   * Producer-name -> internal-locale-key overrides for `loadSource` only
-   * (e.g. `{ en_US: "en-custom" }`). Anything not listed falls back to the
-   * default "_" -> "-" mapping. Never affects `loadRawEntries`.
+   * Producer-name -> canonical-locale-key overrides for `loadSource` (e.g.
+   * `{ en_US: "en-custom" }`). Anything not listed falls back to the default
+   * "_" -> "-" mapping.
    */
   langMap?: Record<string, string>;
 }
@@ -49,7 +40,7 @@ export interface FilesSourceConfig {
  */
 export type SourceConfig = FilesSourceConfig;
 
-/** Default locale-key normalization: producer's raw name -> internal key. */
+/** Default locale-key normalization: producer's raw name -> canonical key. */
 export function normalizeLocaleKey(name: string, langMap?: Record<string, string>): string {
   return langMap?.[name] ?? name.replace(/_/g, "-");
 }

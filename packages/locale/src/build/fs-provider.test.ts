@@ -15,17 +15,11 @@ describe("createFsSourceProvider", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("loadRawEntries keys entries by the ORIGINAL filename verbatim, untouched bytes", async () => {
-    writeFileSync(join(dir, "en_US.json"), '{"Greeting":{"Hello":"Hi"}}'); // compact, not pretty-printed
-    const provider = createFsSourceProvider(dir);
-
-    const entries = await provider.loadRawEntries();
-
-    expect(Object.keys(entries)).toEqual(["en_US.json"]);
-    expect(Buffer.from(entries["en_US.json"]!).toString("utf8")).toBe('{"Greeting":{"Hello":"Hi"}}');
+  it("exposes its type as 'files'", () => {
+    expect(createFsSourceProvider(dir).type).toBe("files");
   });
 
-  it("loadSource applies the default '_' -> '-' normalization to the catalog key only", async () => {
+  it("loadSource applies the default '_' -> '-' normalization to the catalog key", async () => {
     writeFileSync(join(dir, "en_US.json"), JSON.stringify({ Greeting: { Hello: "Hi" } }));
     const provider = createFsSourceProvider(dir);
 
@@ -35,18 +29,16 @@ describe("createFsSourceProvider", () => {
     expect(catalogs["en-US"]).toEqual({ Greeting: { Hello: "Hi" } });
   });
 
-  it("loadSource honors an explicit langMap override, loadRawEntries stays verbatim regardless", async () => {
+  it("honors an explicit langMap override", async () => {
     writeFileSync(join(dir, "en_US.json"), JSON.stringify({ Greeting: { Hello: "Hi" } }));
     const provider = createFsSourceProvider(dir, { en_US: "en-custom" });
 
     const catalogs = await provider.loadSource();
-    const raw = await provider.loadRawEntries();
 
     expect(Object.keys(catalogs)).toEqual(["en-custom"]);
-    expect(Object.keys(raw)).toEqual(["en_US.json"]); // langMap never renames the raw drop-in filename
   });
 
-  it("loadSource leaves an already-dashed locale name unchanged", async () => {
+  it("leaves an already-dashed locale name unchanged", async () => {
     writeFileSync(join(dir, "fr.json"), JSON.stringify({ Greeting: "Salut" }));
     const provider = createFsSourceProvider(dir);
 
@@ -61,6 +53,5 @@ describe("createFsSourceProvider", () => {
     const provider = createFsSourceProvider(dir);
 
     expect(Object.keys(await provider.loadSource())).toEqual(["en"]);
-    expect(Object.keys(await provider.loadRawEntries())).toEqual(["en.json"]);
   });
 });
