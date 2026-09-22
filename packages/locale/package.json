@@ -1,6 +1,6 @@
 {
   "name": "@typren/locale",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Localization delivery for typren and beyond: baked catalogs at build plus an OTA delta channel. Content-addressed sha256 catalogs, a small mutable manifest, no-remove merge, placeholder-compat and no-HTML publish gates, provider-agnostic ingest (LocaleSourceProvider port), fail-to-baked runtime client, and Vue injectors.",
   "keywords": [
     "i18n",
