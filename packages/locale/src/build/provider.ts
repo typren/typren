@@ -1,4 +1,5 @@
 import type { Catalog } from "../types";
+import type { ExportApiSourceConfig } from "./export-api";
 
 /**
  * A pluggable ingest source. This is the port: implement it once per
@@ -33,12 +34,13 @@ export interface FilesSourceConfig {
 }
 
 /**
- * Discriminated union of every source's config shape. Only "files" ships in
- * this port (see fs-provider.ts); further providers ("lokalise", a generic
- * export-API source, ...) are follow-up work: add each one's config shape
- * here and a case in resolve-provider.ts to slot it in as a sibling.
+ * Discriminated union of every source's config shape: "files" (see
+ * fs-provider.ts) plus "export-api", the generic TMS bundle-export source
+ * (see export-api.ts, config'd per-TMS via presets.ts). A further provider is
+ * a config shape added here and a case in resolve-provider.ts to slot it in
+ * as a sibling.
  */
-export type SourceConfig = FilesSourceConfig;
+export type SourceConfig = FilesSourceConfig | ExportApiSourceConfig;
 
 /** Default locale-key normalization: producer's raw name -> canonical key. */
 export function normalizeLocaleKey(name: string, langMap?: Record<string, string>): string {

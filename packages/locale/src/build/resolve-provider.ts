@@ -1,4 +1,5 @@
 import { createFsSourceProvider } from "./fs-provider";
+import { createExportApiSourceProvider } from "./export-api";
 import type { LocaleSourceProvider, SourceConfig } from "./provider";
 
 function isProvider(value: unknown): value is LocaleSourceProvider {
@@ -19,6 +20,8 @@ export function resolveProvider(source: string | SourceConfig | LocaleSourceProv
   switch (config.type) {
     case "files":
       return createFsSourceProvider(config.dir, config.langMap);
+    case "export-api":
+      return createExportApiSourceProvider(config);
     default: {
       const unknownType: string = (config as { type: string }).type;
       throw new Error(`resolveProvider: unknown source type "${unknownType}"`);
