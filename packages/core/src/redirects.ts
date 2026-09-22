@@ -1,7 +1,7 @@
 import type { ContentStore } from "./store";
 
 /** Per-page redirect frontmatter. Lives inside a page's existing `meta`
- *  (frontmatter minus `slices:`), no new file format — same convention as
+ *  (frontmatter minus `slices:`), no new file format, same convention as
  *  seo/types.ts's PageSeoMeta. Each alias is an absolute, on-site path that
  *  should permanently redirect to this page, e.g. `aliases: ["/old-path"]`. */
 export type PageRedirectMeta = {
@@ -30,13 +30,13 @@ export type BuildRedirectsOptions = {
 const DEFAULT_MAX_ENTRIES = 1000;
 // Generic URL-length sanity bound, not any one host's own hard cap.
 // @typren/adapter-cloudfront's KVS 512B-key/1024B-value limits are stricter
-// and checked separately at emit time — that constraint belongs to the
+// and checked separately at emit time, that constraint belongs to the
 // vendor target, not this framework-agnostic core.
 const MAX_PATH_LENGTH = 2048;
 
 const normalize = (p: string): string => (p.length > 1 && p.endsWith("/") ? p.slice(0, -1) : p);
 
-/** Canonical public path for a slug — the same slug->URL mapping buildSitemap
+/** Canonical public path for a slug, the same slug->URL mapping buildSitemap
  *  uses, kept in sync so an alias can never quietly diverge from where the
  *  sitemap says the page actually lives. */
 const canonicalPath = (slug: string, homeSlug?: string): string => (slug === homeSlug ? "/" : `/${slug}`);
@@ -46,7 +46,7 @@ const canonicalPath = (slug: string, homeSlug?: string): string => (slug === hom
  * validated and de-duplicated across the whole site. Framework-agnostic:
  * hosts turn this into whatever their infra wants (Next `redirects()`,
  * a Netlify/Cloudflare `_redirects` file, `vercel.json`, an nginx map, a
- * CloudFront KeyValueStore — see `@typren/adapter-cloudfront`) instead of
+ * CloudFront KeyValueStore, see `@typren/adapter-cloudfront`) instead of
  * hand-maintaining a redirect config.
  *
  * ponytail: single-locale only (reads the default-locale published page, no
@@ -56,8 +56,8 @@ const canonicalPath = (slug: string, homeSlug?: string): string => (slug === hom
  *
  * Throws (fail loud at build/config time, never silently drops a bad entry)
  * on: a malformed alias (not an absolute path), an alias that shadows a real
- * page's own canonical path — including a page aliasing itself, which would
- * be a redirect loop — a duplicate alias claimed by two pages, or more total
+ * page's own canonical path (including a page aliasing itself, which would
+ * be a redirect loop), a duplicate alias claimed by two pages, or more total
  * aliases than `maxEntries`.
  */
 export function buildRedirects(store: ContentStore, opts: BuildRedirectsOptions = {}): RedirectEntry[] {

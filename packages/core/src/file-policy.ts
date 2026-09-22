@@ -13,7 +13,7 @@ export interface AccessPolicyFile {
 
 /**
  * File-backed `Policy`: reads the YAML file at `file` and checks the
- * resolved user's group against the requested action. DEFAULT CLOSED — no
+ * resolved user's group against the requested action. DEFAULT CLOSED, no
  * member entry (exact email, falling back to a `*@domain` wildcard) or no
  * action listed for the matched group means deny, full stop; there is no
  * fallback allow.
@@ -26,7 +26,7 @@ export interface AccessPolicyFile {
  *
  * `file`'s location is the caller's responsibility to keep OUTSIDE whatever
  * the dashboard's ContentAdapter can write (`content/**` and the media dir)
- * — that's what closes the escalation trap (an editor promoting themselves
+ *, that's what closes the escalation trap (an editor promoting themselves
  * to admin), not anything in here. See docs/hosted-platform.md, "The
  * escalation trap".
  */
@@ -38,9 +38,12 @@ export function filePolicy(opts: { file: string }): Policy {
       if (!doc?.groups || !doc.members) return false;
 
       const email = user.email.toLowerCase();
-      const domain = email.slice(email.indexOf("@")); // "" when email has no "@"
+      const at = email.indexOf("@");
       const members = new Map(Object.entries(doc.members).map(([k, v]) => [k.toLowerCase(), v]));
-      const groupName = members.get(email) ?? members.get(`*${domain}`);
+      // The wildcard tier only applies to a real "@domain" suffix. An identity
+      // with no "@" gets the exact-match tier only (slice(-1) on it would have
+      // matched a "*<last char>" key, which is not a domain rule).
+      const groupName = members.get(email) ?? (at === -1 ? undefined : members.get(`*${email.slice(at)}`));
       const actions = groupName ? doc.groups[groupName] : undefined;
       return actions?.includes(ctx.action) ?? false;
     },

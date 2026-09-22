@@ -209,7 +209,7 @@ export interface CmsConfig {
    *  every `AuthContext` the package builds (actions.ts, settings.ts,
    *  media.ts, api/routes.ts) so a hosted `authorize()` can enforce isolation
    *  structurally. Resolve server-side per request (see `createTyprenApi`'s
-   *  config-factory form) — never take these from the client. Omit for a
+   *  config-factory form), never take these from the client. Omit for a
    *  single-site config; behavior is byte-identical. */
   siteId?: string;
   accountId?: string;

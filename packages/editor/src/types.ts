@@ -14,7 +14,7 @@ import type { FieldFormIcons } from "./icon-picker-field";
  *  write: `saveDraft`/`publish` are already RPC-shaped (`Promise<SaveResult>`,
  *  same optimistic-lock contract as `PageActions`). `writeBootstrap` is typed
  *  `Promise<void>` here even though `SettingsAdapter.writeBootstrap` itself is
- *  a plain synchronous fs write — the host is expected to wire it through an
+ *  a plain synchronous fs write, the host is expected to wire it through an
  *  auth-gated RPC (a "use server" action calling `authorize({action:"admin"})`
  *  first, or the HTTP client's `writeBootstrap`), since this package has no
  *  way to enforce that boundary itself, only to document the requirement (see
@@ -37,7 +37,7 @@ export type TyprenEditorSettingsActions = {
  *
  * v1 scope was the Pages editing loop only; `sections`/`collections`/
  * `settings` below grow it into the SDUI admin shell core's `sections.ts`
- * anticipates (`resolveSections`/`SectionCtx`) — additive, so a host that
+ * anticipates (`resolveSections`/`SectionCtx`), additive, so a host that
  * never sets `sections` keeps today's Pages-only picker/shell byte-identical.
  * `media`/`icons` already degrade gracefully when omitted (see FieldForm), so
  * a host with no media library or icon set configured needs nothing extra
@@ -66,20 +66,20 @@ export interface TyprenEditorHost {
   icons?: FieldFormIcons;
   /** Host-injected chrome (account switcher, marketplace link, agent-panel
    *  trigger, …), rendered at the right of the shell's header. The only
-   *  extension seam this package has — no plugin framework, the host renders
+   *  extension seam this package has, no plugin framework, the host renders
    *  whatever it wants and @typren/editor just gives it a mount point. Only
    *  shown while a page is open (the picker screen has no header yet). */
   topBarSlot?: ReactNode;
-  /** SDUI section config — core's `resolveSections()`-compatible list (Pages/
+  /** SDUI section config, core's `resolveSections()`-compatible list (Pages/
    *  Media/Settings/Collection/Custom). Omit → the v1 Pages-only picker/shell
    *  (byte-identical to a host that predates this field). A non-empty list
    *  switches `TyprenEditor` to the section-switcher shell (`SectionShell`):
    *  a left rail plus whichever section `TyprenEditorProps.sectionId` names.
    *  "custom" sections aren't rendered by this package (no plugin runtime
-   *  here — see `docs/hosted-platform.md`'s "custom sections ship code"); a
+   *  here, see `docs/hosted-platform.md`'s "custom sections ship code"); a
    *  host that declares one is responsible for its own routing around it. */
   sections?: Section[];
-  /** Per-collection-section write actions, keyed by section id — core's
+  /** Per-collection-section write actions, keyed by section id, core's
    *  `buildCollectionActions(config)` output passes straight through. Only
    *  needed when `sections` includes a "collection" entry; a collection
    *  section with no matching entry here renders read-only (create/delete

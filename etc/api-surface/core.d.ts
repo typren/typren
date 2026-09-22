@@ -167,11 +167,11 @@ import type { CmsConfig } from "../types.js";
  * ## Resources
  * ```
  * GET    /pages                              list (?locale=)
- * POST   /pages                              create           { title, locale? } -> { slug }
+ * POST   /pages                              create           (?locale=) { title } -> { slug }
  * GET    /pages/:slug                        draft ?? published (?locale=)
- * PUT    /pages/:slug/draft                  save draft       { page, baseVersion?, locale? }
- * DELETE /pages/:slug/draft                  discard draft
- * POST   /pages/:slug/publish                publish          { baseVersion?, locale? }
+ * PUT    /pages/:slug/draft                  save draft       (?locale=) { page, baseVersion? }
+ * DELETE /pages/:slug/draft                  discard draft    (?locale=)
+ * POST   /pages/:slug/publish                publish          (?locale=) { baseVersion? }
  * POST   /pages/:slug/rename                 rename slug      { newSlug } -> SaveResult-shaped (409 on collision)
  * POST   /pages/:slug/duplicate              duplicate        (?locale=) -> { slug }
  * DELETE /pages/:slug                        delete page
@@ -179,17 +179,17 @@ import type { CmsConfig } from "../types.js";
  * DELETE /pages/:slug/translations/:locale   delete translation
  * GET    /collections/:id                    list records     (?locale=) -> { records: CollectionRecordInfo[] }
  * GET    /collections/:id/:slug              draft ?? published (?locale=)
- * POST   /collections/:id                    create           { title, locale? } -> { slug }
- * PUT    /collections/:id/:slug/draft        save draft       { page, baseVersion?, locale? }
- * DELETE /collections/:id/:slug/draft        discard draft
- * POST   /collections/:id/:slug/publish      publish          { baseVersion?, locale? }
+ * POST   /collections/:id                    create           (?locale=) { title } -> { slug }
+ * PUT    /collections/:id/:slug/draft        save draft       (?locale=) { page, baseVersion? }
+ * DELETE /collections/:id/:slug/draft        discard draft    (?locale=)
+ * POST   /collections/:id/:slug/publish      publish          (?locale=) { baseVersion? }
  * DELETE /collections/:id/:slug              delete record
  * GET    /media                              list
  * POST   /media                              upload (multipart/form-data, field "file")
  * DELETE /media/:id                          delete
  * GET    /settings                           runtime + bootstrap snapshot + version
- * PUT    /settings/draft                     save draft       { settings, baseVersion?, locale? }
- * POST   /settings/publish                   publish          { baseVersion?, locale? }
+ * PUT    /settings/draft                     save draft       (?locale=) { settings, baseVersion? }
+ * POST   /settings/publish                   publish          (?locale=) { baseVersion? }
  * PUT    /settings/bootstrap                 write bootstrap  (admin)   { patch }
  * ```
  *
@@ -300,7 +300,7 @@ export interface AuthAdapter {
 export declare function legacyAuthAdapter(fn: () => boolean | Promise<boolean>): AuthAdapter;
 /** The "what may they do?" half of `withPolicy`'s split (see below): given
  *  the user identity has already resolved, decide the action. No identity
- *  resolution of its own — `filePolicy` (file-policy.ts) is the first
+ *  resolution of its own, `filePolicy` (file-policy.ts) is the first
  *  implementation. */
 export interface Policy {
     authorize(user: AuthUser | null, ctx: AuthContext): boolean | Promise<boolean>;
@@ -309,11 +309,11 @@ export interface Policy {
  * Compose an identity adapter ("who is this?") with a `Policy` ("what may
  * they do?") into one `AuthAdapter`. `identity.getUser()` resolves the user;
  * `policy.authorize()` decides. The identity adapter's OWN `authorize()` (if
- * any) is never called — the policy is authoritative, so adding a group
+ * any) is never called, the policy is authoritative, so adding a group
  * policy can't silently be opted out of by picking a different identity
  * adapter. Fails closed: no `getUser`, no user, or any error resolving
  * either side denies. See docs/hosted-platform.md, "Compose identity and
- * policy — do not fuse them".
+ * policy, do not fuse them".
  */
 export declare function withPolicy(identity: AuthAdapter, policy: Policy): AuthAdapter;
 /** Single resolution point used by BOTH the action guard and the layout gate,
@@ -449,7 +449,7 @@ export interface AccessPolicyFile {
 }
 /**
  * File-backed `Policy`: reads the YAML file at `file` and checks the
- * resolved user's group against the requested action. DEFAULT CLOSED — no
+ * resolved user's group against the requested action. DEFAULT CLOSED, no
  * member entry (exact email, falling back to a `*@domain` wildcard) or no
  * action listed for the matched group means deny, full stop; there is no
  * fallback allow.
@@ -462,7 +462,7 @@ export interface AccessPolicyFile {
  *
  * `file`'s location is the caller's responsibility to keep OUTSIDE whatever
  * the dashboard's ContentAdapter can write (`content/**` and the media dir)
- * — that's what closes the escalation trap (an editor promoting themselves
+ *, that's what closes the escalation trap (an editor promoting themselves
  * to admin), not anything in here. See docs/hosted-platform.md, "The
  * escalation trap".
  */
@@ -730,7 +730,7 @@ import type { ContentAdapter } from "./types.js";
 import { type NotionBlock } from "./notion-blocks.js";
 export type { NotionBlock } from "./notion-blocks.js";
 /** Notion property types this adapter can round-trip: text, numbers,
- *  single/multi enums, booleans, dates, and a relation to another database —
+ *  single/multi enums, booleans, dates, and a relation to another database,
  *  not Notion's full property-type list (no formula, rollup, people, files:
  *  none of those round-trip meaningfully through a plain read/write value,
  *  being either computed or reference-shaped in ways a generic mapper can't
@@ -746,7 +746,7 @@ export type NotionPropertyMap = Record<string, {
 }>;
 /** Raw per-property JSON Notion returns/expects for one property, e.g.
  *  `{ number: 42 }`, `{ title: [{ plain_text: "..." }] }`. Untyped beyond
- *  "a JSON object" — its shape depends on the property's Notion type. */
+ *  "a JSON object", its shape depends on the property's Notion type. */
 export type NotionRawProperty = Record<string, unknown>;
 /** One Notion database row, trimmed to what this adapter needs. `properties`
  *  is keyed by Notion property name. */
@@ -756,7 +756,7 @@ export type NotionPage = {
     properties: Record<string, NotionRawProperty>;
 };
 /**
- * The seam between the adapter and Notion's HTTP API — mocked directly in
+ * The seam between the adapter and Notion's HTTP API, mocked directly in
  * tests (see notion-adapter.test.ts), so no network/HTTP-mocking library is
  * needed to unit-test the adapter's read/write/mapping logic. Every method is
  * SYNCHRONOUS to satisfy `ContentAdapter` (see `createFetchNotionClient`'s
@@ -774,7 +774,7 @@ export interface NotionClient {
     /** Notion has no hard delete via the API, only archive (= its trash). */
     archivePage(pageId: string): void;
     /** A page's block children, recursively resolved (each returned block's own
-     *  `children` is already populated when `has_children` is true) — see
+     *  `children` is already populated when `has_children` is true), see
      *  notion-blocks.ts for what they turn into. Only called when a
      *  `NotionAdapterOptions.content` of `"blocks"` is configured; omit it on a
      *  client that never backs such a collection. */
@@ -790,7 +790,7 @@ export type NotionAdapterOptions = {
      *  adapter (`writeRaw` on an unknown slug): a page id doesn't exist until
      *  Notion assigns one, so it can't be the slug a caller picks up front.
      *  Omit for read/update/delete-only use against rows that already exist
-     *  (slug = Notion page id) — fine for collections whose records are only
+     *  (slug = Notion page id), fine for collections whose records are only
      *  ever created in Notion directly. */
     slugProperty?: string;
     /** metaKey of a rich_text property to round-trip as `PageContent.body`.
@@ -799,23 +799,23 @@ export type NotionAdapterOptions = {
      *  row-shaped record. */
     bodyProperty?: string;
     /** `"blocks"`: `body` is the page's own block content (paragraphs,
-     *  headings, lists, ...) converted to markdown — see notion-blocks.ts —
+     *  headings, lists, ...) converted to markdown (see notion-blocks.ts)
      *  instead of a `bodyProperty` column.
      *
-     *  `"slices"`: the page reads as a full typren page record — `body` is
+     *  `"slices"`: the page reads as a full typren page record, `body` is
      *  always `""` and `slices` comes from running the same block tree through
      *  `blocksToSegments` + `pageRecordFrom` (prose runs become a `"prose"`
      *  slice carrying markdown, `::componentName` directives become named
      *  slices in document order). The host's slice registry resolves each
      *  `slice` name at render time; a name with no registered component is the
-     *  registry's problem, not this adapter's — it degrades the same way any
+     *  registry's problem, not this adapter's, it degrades the same way any
      *  other unregistered slice does there (see `SliceZone`'s scaffold),
      *  never a throw here.
      *
      *  Both need a `client` whose `listBlockChildren` is implemented (throws
      *  loud otherwise). READ-ONLY for now: `writeRaw`/`writeDraftRaw` still
      *  only push `properties` (see the `content` note on
-     *  `createNotionAdapter`'s own doc comment) — a body/slice edit against a
+     *  `createNotionAdapter`'s own doc comment), a body/slice edit against a
      *  blocks- or slices-backed record is not written back to Notion yet.
      *  Default `"none"` keeps the `bodyProperty`/property-only behavior
      *  unchanged. */
@@ -828,12 +828,12 @@ export type NotionAdapterOptions = {
  * the schema-shaped prop bag (see `NotionPropertyMap`), `body` is optional
  * (see `bodyProperty`). `slices` is `[]` unless `content: "slices"` is set,
  * in which case a page's own block content is read as an ordered list of
- * typren slices (see the `content` doc on `NotionAdapterOptions`) — matching
+ * typren slices (see the `content` doc on `NotionAdapterOptions`), matching
  * how a markdown *page* record already carries slices, just sourced from
  * Notion blocks instead of frontmatter.
  *
  * typren: Notion has no draft/publish distinction (unlike the filesystem
- * adapter's separate `.drafts` dir) — every draft op writes straight through
+ * adapter's separate `.drafts` dir), every draft op writes straight through
  * to the published row (`writeDraftRaw` calls the same path as `writeRaw`;
  * `readDraftRaw`/`hasDraft` always report "no draft" so `ContentStore.publish`
  * safely no-ops after the write-through already landed). This drops
@@ -845,8 +845,8 @@ export type NotionAdapterOptions = {
  *
  * typren: `content: "blocks"` and `content: "slices"` (see
  * `NotionAdapterOptions`) both read a page's own block content but do NOT
- * write it back — `writeRaw` only ever pushes `properties`. A body/slice
- * edit against such a record is silently (from Notion's point of view —
+ * write it back, `writeRaw` only ever pushes `properties`. A body/slice
+ * edit against such a record is silently (from Notion's point of view;
  * loudly from this code's, via the one-time `console.warn` below) NOT
  * persisted. typren TODO: slice write-back needs a segments -> blocks
  * inverse of `blocksToSegments` (a lossy, rate-limit-heavy replace: delete
@@ -856,7 +856,7 @@ export type NotionAdapterOptions = {
  */
 export declare function createNotionAdapter({ client, databaseId, properties, slugProperty, bodyProperty, content, defaultLocale, locales, }: NotionAdapterOptions): ContentAdapter;
 /** Real `NotionClient` against `https://api.notion.com`. `token` is an
- *  internal-integration secret — pass it from `process.env` only (never
+ *  internal-integration secret, pass it from `process.env` only (never
  *  commit one); the caller owns getting it there. */
 export declare function createFetchNotionClient(token: string): NotionClient;
 
@@ -878,21 +878,21 @@ import type { PageContent } from "./types.js";
  *   segments -> output: `blocksToMarkdown` renders the prose segments back
  *     into one markdown string (component segments become a visible comment,
  *     never silently vanish); `pageRecordFrom` instead maps EVERY segment,
- *     prose and component alike, into one ordered typren `slices` array —
+ *     prose and component alike, into one ordered typren `slices` array;
  *     see its own doc comment for why that mapping is lossless.
  *
- * Component-call convention (generic — no entity/component names live here):
+ * Component-call convention (generic, no entity/component names live here):
  * a `callout` or `code` block whose first line is `::componentName` is a
- * component call; every remaining line is JSON (not YAML — no yaml parser is
+ * component call; every remaining line is JSON (not YAML, no yaml parser is
  * already a dependency of this package, and hand-authoring one JSON object
  * in a Notion code block is a small ask) parsed as that component's props.
  * Malformed JSON, a missing name, or an empty prop body after the `::name`
  * line all degrade to treating the block as ordinary prose rather than
- * throwing — a typo in Notion should never break the whole page read.
+ * throwing, a typo in Notion should never break the whole page read.
  */
 /** One Notion block, trimmed to what conversion needs. `children` is only
  *  present when the caller (see NotionClient.listBlockChildren) already
- *  resolved nested blocks — this module never fetches anything itself. */
+ *  resolved nested blocks, this module never fetches anything itself. */
 export type NotionBlock = {
     id: string;
     type: string;
@@ -924,13 +924,13 @@ export declare function blocksToSegments(blocks: NotionBlock[]): NotionSegment[]
  *  lists, to_do, quote, code, divider, image, table, toggle, bookmark/
  *  link_preview/embed; anything else degrades to an HTML comment, see
  *  `renderBlock`). A component segment (see the directive convention above)
- *  is NOT prose — it becomes a visible marker comment instead of silently
+ *  is NOT prose, it becomes a visible marker comment instead of silently
  *  disappearing from the body; callers that want it realized as a real
  *  component belong in `pageRecordFrom` instead. */
 export declare function blocksToMarkdown(blocks: NotionBlock[]): string;
 /** Segments -> a typren `PageContent`, ordered slices only (no `body`): a
  *  prose segment becomes one `{ slice: proseSlice, markdown }` entry, a
- *  component segment becomes `{ slice: name, ...props }` — the exact shape
+ *  component segment becomes `{ slice: name, ...props }`, the exact shape
  *  `CmsConfig.registry` already expects (see types.ts's `Slice`). This is
  *  lossless on ORDER (typren's `slices` is itself an ordered array, so
  *  interleaved prose/component runs survive exactly as authored) but NOT on
@@ -938,8 +938,8 @@ export declare function blocksToMarkdown(blocks: NotionBlock[]): string;
  *  as two separate channels, not one interleaved stream, so putting every
  *  segment into `slices` (leaving `body` empty) is the one mapping that
  *  doesn't need a channel that doesn't exist. A host must register a
- *  `proseSlice`-named component (default `"prose"`) that renders `markdown`
- *  — same as registering any other slice; this module doesn't render one. */
+ *  `proseSlice`-named component (default `"prose"`) that renders `markdown`,
+ *  same as registering any other slice; this module doesn't render one. */
 export declare function pageRecordFrom(segments: NotionSegment[], opts?: {
     proseSlice?: string;
     meta?: Record<string, unknown>;
@@ -968,7 +968,7 @@ export declare function typrenProxyRewrite(url: URL | string, opts?: {
 // ---- dist/redirects.d.ts ----
 import type { ContentStore } from "./store.js";
 /** Per-page redirect frontmatter. Lives inside a page's existing `meta`
- *  (frontmatter minus `slices:`), no new file format — same convention as
+ *  (frontmatter minus `slices:`), no new file format, same convention as
  *  seo/types.ts's PageSeoMeta. Each alias is an absolute, on-site path that
  *  should permanently redirect to this page, e.g. `aliases: ["/old-path"]`. */
 export type PageRedirectMeta = {
@@ -996,7 +996,7 @@ export type BuildRedirectsOptions = {
  * validated and de-duplicated across the whole site. Framework-agnostic:
  * hosts turn this into whatever their infra wants (Next `redirects()`,
  * a Netlify/Cloudflare `_redirects` file, `vercel.json`, an nginx map, a
- * CloudFront KeyValueStore — see `@typren/adapter-cloudfront`) instead of
+ * CloudFront KeyValueStore, see `@typren/adapter-cloudfront`) instead of
  * hand-maintaining a redirect config.
  *
  * ponytail: single-locale only (reads the default-locale published page, no
@@ -1006,8 +1006,8 @@ export type BuildRedirectsOptions = {
  *
  * Throws (fail loud at build/config time, never silently drops a bad entry)
  * on: a malformed alias (not an absolute path), an alias that shadows a real
- * page's own canonical path — including a page aliasing itself, which would
- * be a redirect loop — a duplicate alias claimed by two pages, or more total
+ * page's own canonical path (including a page aliasing itself, which would
+ * be a redirect loop), a duplicate alias claimed by two pages, or more total
  * aliases than `maxEntries`.
  */
 export declare function buildRedirects(store: ContentStore, opts?: BuildRedirectsOptions): RedirectEntry[];
@@ -1058,7 +1058,7 @@ export interface CollectionSection extends SectionBase {
     dir?: string;
     /** Pre-built adapter for a non-filesystem backend (Notion, a KV store, ...).
      *  Used as-is, bypassing markdown-adapter construction and the Pages dir-
-     *  overlap guard entirely — an adapter owns its own storage, so there is no
+     *  overlap guard entirely, an adapter owns its own storage, so there is no
      *  dir to overlap. Provide exactly one of `dir`/`adapter`. */
     adapter?: ContentAdapter;
     /** Reuses FieldDef/SliceSchema verbatim: a record IS a slice-shaped prop bag. */
@@ -1344,6 +1344,10 @@ export type PageSeoMeta = {
     sitemap?: {
         priority?: number;
         changeFrequency?: MetadataRoute.Sitemap[number]["changeFrequency"];
+        /** `lastmod` for this page, `YYYY-MM-DD` or full ISO datetime, passed
+         *  through verbatim. Omitted → the entry carries no `lastmod` at all;
+         *  buildSitemap never substitutes build time for a date it doesn't know. */
+        lastModified?: string;
     };
 };
 /** A slice declares structured data for its own props. Returns one JSON-LD
@@ -1714,7 +1718,7 @@ export interface CmsConfig {
      *  every `AuthContext` the package builds (actions.ts, settings.ts,
      *  media.ts, api/routes.ts) so a hosted `authorize()` can enforce isolation
      *  structurally. Resolve server-side per request (see `createTyprenApi`'s
-     *  config-factory form) — never take these from the client. Omit for a
+     *  config-factory form), never take these from the client. Omit for a
      *  single-site config; behavior is byte-identical. */
     siteId?: string;
     accountId?: string;
@@ -1759,7 +1763,7 @@ export declare const defaultMessages: Messages;
  * (byte-identical to the old same-origin-only behavior, for local/self-host
  * setups embedding their own dashboard). A hosted dashboard framing a
  * customer's site is cross-origin by definition, so it must pass its own
- * origin explicitly here (learned from the site record) — this is never
+ * origin explicitly here (learned from the site record), this is never
  * `"*"`; the channel always compares against one explicit value.
  */
 export declare function initPreviewBridge(allowedOrigin?: string): () => void;

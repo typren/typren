@@ -6,12 +6,12 @@ import { TyprenEditor, type TyprenEditorProps } from "./typren-editor";
 import type { TyprenEditorHost } from "./types";
 
 /** Same as `TyprenEditorHost`, except `topBarSlot` takes a raw DOM `Node`
- *  instead of a `ReactNode` — a non-React host (the whole point of this
+ *  instead of a `ReactNode`, a non-React host (the whole point of this
  *  entry) can't produce JSX. `DomSlot` below projects it into the tree. */
 export type TyprenShellHost = Omit<TyprenEditorHost, "topBarSlot"> & { topBarSlot?: Node };
 
 /** Projects a host-supplied DOM node into the React tree without adopting it
- *  (no cloning, no serialization) — it's moved into a plain wrapper div and
+ *  (no cloning, no serialization), it's moved into a plain wrapper div and
  *  moved back out on cleanup. `display: contents` keeps the wrapper out of
  *  the host's layout. */
 function DomSlot({ node }: Readonly<{ node: Node }>) {
@@ -30,14 +30,14 @@ type ShellProps = Omit<TyprenEditorProps, "host"> & { host?: TyprenShellHost };
 
 /**
  * Wraps `TyprenEditor` as a custom element for hosts that aren't React
- * themselves (Astro islands, a plain `<script type="module">`, …) — same
+ * themselves (Astro islands, a plain `<script type="module">`, …), same
  * React tree as this package's main export, mounted with `react-dom/client`.
  *
  * Renders into light DOM, no shadow root: the shell's classes reference the
  * `--typren-*` custom properties from `@typren/core`'s `theme.css`, which the
  * host page is expected to load globally, same as every other consumer.
  *
- * Mount by setting properties, not attributes — the data here is objects and
+ * Mount by setting properties, not attributes, the data here is objects and
  * functions, which attributes can't carry:
  *
  *   const el = document.createElement("typren-shell");

@@ -22,7 +22,7 @@ export type { TyprenEditorHost };
  *
  * `host.sections` (omitted by default) switches this component from the v1
  * Pages-only picker/shell to `SectionShell`, the SDUI section-switcher admin
- * (Media/Collections/Settings/…) — additive, so a host that never sets it
+ * (Media/Collections/Settings/…), additive, so a host that never sets it
  * keeps today's behavior byte-identical. "Onboarding" is deliberately not a
  * section here: core's `sections.ts` never gave it a `SectionKind` (it's a
  * first-run wizard gated on `bootstrap.onboarded`, not a rail entry), so it
@@ -42,14 +42,14 @@ export interface TyprenEditorProps {
   /** Content locale for reads/writes (single-locale hosts omit this). */
   locale?: string;
   /** How the editor's root positions itself. "takeover" (default) is a
-   *  `fixed inset-0 z-[100]` full-viewport overlay — correct when the editor
+   *  `fixed inset-0 z-[100]` full-viewport overlay, correct when the editor
    *  IS the app (the local single-site tier). "embedded" renders in normal
    *  flow instead, filling its parent (`h-full`, `min-h-0`, no fixed
    *  positioning or z-index): the host owns page scroll and chrome, and its
    *  mount point must resolve to a definite height (e.g. a flex column with
    *  `h-full` down to it). Native `<dialog>` pickers (image/icon) render in
    *  the browser's top layer regardless of this setting, so they stay above
-   *  the editor root either way — don't reintroduce a fixed/z-indexed
+   *  the editor root either way, don't reintroduce a fixed/z-indexed
    *  popover without the same guarantee. */
   layout?: "takeover" | "embedded";
   onNavigate: (slug: string | null) => void;
@@ -59,7 +59,7 @@ export interface TyprenEditorProps {
   /** Host overrides for the editor UI's strings, deep-merged onto the
    *  package's English defaults. */
   messages?: Partial<Messages>;
-  /** Section id to render — only meaningful when `host.sections` is set
+  /** Section id to render, only meaningful when `host.sections` is set
    *  (defaults to the first resolved section otherwise). Mirrors `slug`'s
    *  "the host owns routing" contract. */
   sectionId?: string;
@@ -70,8 +70,8 @@ export interface TyprenEditorProps {
    *  `listCollectionRecords()`). Only meaningful when `host.sections`
    *  includes a "collection" entry. */
   collectionRecords?: Record<string, CollectionRecordInfo[]>;
-  /** `CollectionPanel`'s `mode`/`selectedSlug`/`onNavigate`, forwarded as-is
-   *  — mirrors `slug`/`onNavigate` above but for the active Collection
+  /** `CollectionPanel`'s `mode`/`selectedSlug`/`onNavigate`, forwarded as-is;
+   *  mirrors `slug`/`onNavigate` above but for the active Collection
    *  section's own record, e.g. a `?record=<slug>&mode=edit` URL. Omit all
    *  three to keep `CollectionPanel`'s own uncontrolled state. */
   collectionMode?: CollectionMode;

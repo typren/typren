@@ -97,12 +97,19 @@ export function createSettingsStore(config: CmsConfig): SettingsStore {
   };
   const EMPTY: SiteSettingsRuntime = { brand: { name: "" }, seo: {} };
   return {
+    // Existence is checked against the DEFAULT locale: getPublished always
+    // reads the default-locale doc as its base, and a locale with no
+    // translation of its own must fall back to it (the same rule pages
+    // follow), not to EMPTY.
     get: (locale) =>
-      adapter.exists(SETTINGS_SLUG, locale)
+      adapter.exists(SETTINGS_SLUG, adapter.defaultLocale)
         ? (store.getPublished(SETTINGS_SLUG, locale).meta as unknown as SiteSettingsRuntime)
         : EMPTY,
-    currentVersion: (locale) =>
-      adapter.exists(SETTINGS_SLUG, locale) ? store.currentVersion(SETTINGS_SLUG, locale) : null,
+    // No exists() guard: store.currentVersion already returns null for a
+    // missing doc, and gating on the published file dropped the version of a
+    // draft-only doc, reopening the silent-first-save-overwrite hole this
+    // method exists to close.
+    currentVersion: (locale) => store.currentVersion(SETTINGS_SLUG, locale),
     async saveDraft(next, baseVersion, locale) {
       await guardAdmin();
       return actions.saveDraft(

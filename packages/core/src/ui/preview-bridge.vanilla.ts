@@ -27,7 +27,7 @@ const STYLE = `
  * (byte-identical to the old same-origin-only behavior, for local/self-host
  * setups embedding their own dashboard). A hosted dashboard framing a
  * customer's site is cross-origin by definition, so it must pass its own
- * origin explicitly here (learned from the site record) — this is never
+ * origin explicitly here (learned from the site record), this is never
  * `"*"`; the channel always compares against one explicit value.
  */
 export function initPreviewBridge(allowedOrigin?: string): () => void {

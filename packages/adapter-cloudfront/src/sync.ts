@@ -11,7 +11,7 @@ export type SyncOptions = {
 export type SyncResult = {
   puts: KvsPair[];
   deletes: string[];
-  /** False for both "already in sync" and `dryRun` — either way nothing was written. */
+  /** False for both "already in sync" and `dryRun`, either way nothing was written. */
   applied: boolean;
 };
 
@@ -20,7 +20,7 @@ export type SyncResult = {
  * `storeName`: computes puts (new or changed keys) and deletes (live keys no
  * longer wanted), no-ops when there's nothing to do, and otherwise chunks the
  * change list at the API's 50-change cap, chaining each write's returned
- * ETag into the next (an ETag is single-use — reusing a stale one 412s).
+ * ETag into the next (an ETag is single-use, reusing a stale one 412s).
  * `dryRun` computes and returns the diff without writing.
  */
 export async function syncRedirects(client: KvsClient, storeName: string, want: Map<string, string>, opts: SyncOptions = {}): Promise<SyncResult> {

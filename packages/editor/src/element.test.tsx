@@ -4,7 +4,7 @@ import type { PageActions } from "@typren/core";
 import { TyprenShellElement, type TyprenShellHost } from "./element";
 
 // This suite drives the custom element imperatively (no @testing-library/react
-// `render`), so nothing else flips this on for us — React's own recommendation
+// `render`), so nothing else flips this on for us. React's own recommendation
 // for a custom test runner. See https://react.dev/reference/react/act
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

@@ -1,8 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
-import { createNotionAdapter, type NotionClient, type NotionPage } from "./notion-adapter";
+
+// Only createFetchNotionClient's transport test below ever reaches spawnSync;
+// every other test injects the in-memory fakeClient and never spawns.
+vi.mock("node:child_process", () => {
+  const mock = { spawnSync: vi.fn() };
+  return { ...mock, default: mock };
+});
+
+import { spawnSync } from "node:child_process";
+import { createFetchNotionClient, createNotionAdapter, type NotionClient, type NotionPage } from "./notion-adapter";
 import type { NotionBlock } from "./notion-blocks";
 
-/** Hand-rolled in-memory `NotionClient`: no network, no mocking library —
+/** Hand-rolled in-memory `NotionClient`: no network, no mocking library;
  *  same spirit as markdown-adapter.test.ts using a real temp dir instead of
  *  mocking `node:fs`. `blocksByPageId` is only used by the content:"blocks"
  *  tests; omitting it (the default) leaves `listBlockChildren` unset, same
@@ -281,7 +290,7 @@ describe("notion-adapter content: \"blocks\"", () => {
 describe('notion-adapter content: "slices"', () => {
   const nameOnly = { name: { name: "Name", type: "title" as const } };
   // prose, then a directive, then more prose, then a directive with no props
-  // and a name nothing registers — this adapter has no opinion on that,
+  // and a name nothing registers, this adapter has no opinion on that,
   // see the second test below.
   const pageBlocks: NotionBlock[] = [
     { id: "b1", type: "paragraph", paragraph: { rich_text: [{ plain_text: "intro" }] } },
@@ -400,5 +409,33 @@ describe("notion-adapter listSlugs ordering", () => {
       slugProperty: "name",
     });
     expect(adapter.listSlugs()).toEqual(["Ada", "Zed"]);
+  });
+});
+
+describe("createFetchNotionClient transport", () => {
+  it("keeps the integration token off the child process argv (stdin only)", () => {
+    const mocked = vi.mocked(spawnSync);
+    mocked.mockReturnValue({
+      error: undefined,
+      stdout: JSON.stringify({
+        status: 200,
+        text: JSON.stringify({ id: "p1", archived: false, properties: {} }),
+      }),
+      stderr: "",
+      status: 0,
+      signal: null,
+      output: [],
+      pid: 1,
+    } as unknown as ReturnType<typeof spawnSync>);
+
+    const page = createFetchNotionClient("secret_notion_token").retrievePage("p1");
+    expect(page).toEqual({ id: "p1", archived: false, properties: {} });
+
+    const call = mocked.mock.calls.at(-1)!;
+    const argv = call[1] as string[];
+    const opts = call[2] as { input?: string };
+    expect(argv.join(" ")).not.toContain("secret_notion_token");
+    expect(opts.input).toContain("secret_notion_token");
+    expect(argv.at(-1)).toBe("https://api.notion.com/v1/pages/p1");
   });
 });

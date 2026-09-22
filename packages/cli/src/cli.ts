@@ -3,11 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import matter from "gray-matter";
 import { buildTemplates, TYPREN_BOOTSTRAP_MARKER, TYPREN_REWRITE_MARKER } from "@typren/core/templates/init";
 import { createFsSettingsAdapter, resolveI18n, type SiteSettingsBootstrap, type Slice } from "@typren/core";
-import { firstRunNotice, isEnabled, record, setEnabled } from "./telemetry";
+import { firstRunNotice, isEnabled, readCliVersion, record, setEnabled } from "./telemetry";
 
 export type ScaffoldResult =
   | { ok: true; baseDir: string; created: string[]; skipped: string[] }
@@ -976,17 +976,6 @@ function runTelemetryCommand(args: string[]): void {
   }
   console.error(`typren telemetry: unknown argument "${sub}" (expected "on" or "off")`);
   process.exitCode = 1;
-}
-
-/** Reads this package's own version out of its package.json rather than a
- *  hardcoded string that drifts on every release bump, the same
- *  import.meta.url-relative approach telemetry.ts's readCliVersion() uses
- *  (this file also ships as dist/cli.js, a sibling of dist/telemetry.js, so
- *  "../package.json" resolves the same way from either). */
-function readCliVersion(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const pkg = JSON.parse(fs.readFileSync(path.join(here, "..", "package.json"), "utf8")) as { version?: unknown };
-  return typeof pkg.version === "string" ? pkg.version : "0.0.0";
 }
 
 // Every command word `main()` actually dispatches to. `--help`/`--version`

@@ -25,7 +25,7 @@ export type CollectionMode = "list" | "create" | "edit";
  * = `deletePage`. Ported from meditor's `<meditor-collection>`.
  *
  * `actions` is optional: without it (host declared the section but wired no
- * write actions — see `TyprenEditorHost.collections`) the list still renders
+ * write actions, see `TyprenEditorHost.collections`) the list still renders
  * from `records`, but create/edit/delete are disabled rather than throwing.
  *
  * `mode`/`selectedSlug` are optionally controlled, same doctrine as

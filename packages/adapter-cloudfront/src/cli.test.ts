@@ -34,7 +34,7 @@ describe("runSyncRedirects", () => {
     const client = fakeKvsClient();
     const result = await runSyncRedirects(dir, { contentDir: dir, storeName: "my-store" }, client);
 
-    expect(result).toEqual({ ok: true, result: { puts: [{ key: "/old-about", value: "/about" }], deletes: [], applied: true } });
+    expect(result).toEqual({ ok: true, result: { puts: [{ key: "/old-about", value: "/about/" }], deletes: [], applied: true } });
     expect(client.describeStore).toHaveBeenCalledWith("my-store");
   });
 
@@ -111,7 +111,7 @@ describe("main", () => {
         ["sync-redirects", "--content-dir", dir, "--store", "my-store", "--dry-run"],
         { kvs: fakeKvsClient() }
       );
-      expect(log).toHaveBeenCalledWith(expect.stringContaining("put    /old-about -> /about"));
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("put    /old-about -> /about/"));
       expect(log).toHaveBeenCalledWith(expect.stringContaining("dry run"));
     } finally {
       log.mockRestore();

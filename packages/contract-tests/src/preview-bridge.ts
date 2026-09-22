@@ -33,7 +33,7 @@ export type InitPreviewBridge = () => () => void;
  * `window.parent === window` for a top-level document, so spying on
  * `window.parent.postMessage` observes what the bridge sends.
  *
- * Does not cover the editor-shell (dashboard) side of the protocol — that
+ * Does not cover the editor-shell (dashboard) side of the protocol, that
  * half has no vanilla, framework-free entry point to call the same way, and
  * duplicating packages/editor/src/editor-shell.tsx's own logic here would be
  * speculative rather than a contract check.

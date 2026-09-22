@@ -1,6 +1,6 @@
 {
   "name": "@typren/contract-tests",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Conformance suite factories for Typren's cross-repo contracts (createTyprenApi's REST routes, the preview-bridge protocol). Core runs them against itself; editor, cloud and every provider run them in their own CI against the core version they install. See docs/hosted-platform.md#cross-repo-compatibility.",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,

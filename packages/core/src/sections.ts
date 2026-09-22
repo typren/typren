@@ -3,6 +3,7 @@ import type { ContentAdapter, MediaAdapter, MediaAsset, SliceSchema } from "./ty
 import type { PageActions } from "./actions";
 import type { Messages } from "./i18n";
 import type { SiteSettings, SettingsStore } from "./settings";
+import { slugify } from "./store";
 
 // ponytail: the predecessor's custom-element editor shell (and the element
 // `FieldFormMedia` was originally declared on) was dropped from this port;
@@ -56,7 +57,7 @@ export interface CollectionSection extends SectionBase {
   dir?: string;
   /** Pre-built adapter for a non-filesystem backend (Notion, a KV store, ...).
    *  Used as-is, bypassing markdown-adapter construction and the Pages dir-
-   *  overlap guard entirely — an adapter owns its own storage, so there is no
+   *  overlap guard entirely, an adapter owns its own storage, so there is no
    *  dir to overlap. Provide exactly one of `dir`/`adapter`. */
   adapter?: ContentAdapter;
   /** Reuses FieldDef/SliceSchema verbatim: a record IS a slice-shaped prop bag. */
@@ -167,7 +168,7 @@ export function resolveSections(config: { sections?: Section[] }): ResolvedSecti
           `typren: custom section "${s.label}" needs exactly one of element/mount/host (got ${provided})`
         );
     }
-    const id = s.id ?? (s.kind === "collection" || s.kind === "custom" ? slug(s.label) : s.kind);
+    const id = s.id ?? (s.kind === "collection" || s.kind === "custom" ? slugify(s.label) : s.kind);
     if (seen.has(id)) throw new Error(`typren: duplicate section id "${id}"`);
     seen.add(id);
     return { raw: s, id, label: s.label, kind: s.kind, group: s.group ?? defaultGroup(s.kind), icon: s.icon };
@@ -176,11 +177,4 @@ export function resolveSections(config: { sections?: Section[] }): ResolvedSecti
 
 function defaultGroup(k: SectionKind): string {
   return k === "settings" ? "other" : "content";
-}
-function slug(s: string): string {
-  return s
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
 }

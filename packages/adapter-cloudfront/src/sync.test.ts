@@ -4,7 +4,7 @@ import type { KvsClient, KvsPair } from "./types";
 
 /** Stand-in KvsClient over an in-memory map, so sync.ts's diff/chunk/ETag
  *  logic is tested without touching real AWS. ETag is just a counter,
- *  bumped on every write, and `updateKeys` rejects a stale one — the same
+ *  bumped on every write, and `updateKeys` rejects a stale one, the same
  *  CAS contract the real store enforces. */
 function fakeKvsClient(seed: Record<string, string> = {}, status = "READY") {
   const store = new Map(Object.entries(seed));
