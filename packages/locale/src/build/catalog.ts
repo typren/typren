@@ -154,6 +154,11 @@ export async function buildCatalogs(
     // stringify could differ (key order, unicode form) from what was hashed.
     writeFileSync(catalogPath, canonicalize(catalog));
 
+    // Providers already reject unsafe locale keys; restated as literal
+    // comparisons so the prototype-pollution sanitizer is statically provable.
+    if (lang === "__proto__" || lang === "constructor" || lang === "prototype") {
+      throw new Error(`buildCatalogs: unsafe locale key "${lang}" escaped the provider contract`);
+    }
     manifest.apps[options.app]![lang] = { hash };
     catalogPaths[lang] = catalogPath;
   }

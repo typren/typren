@@ -8,7 +8,10 @@ import type { Catalog } from "./types";
 // constructs into stored XSS, but real legal/terms copy legitimately
 // contains `<a href>`. Denylist, not a tag allowlist, so ordinary
 // formatting never needs a codebase change to keep shipping.
-const DANGEROUS_TAG_PATTERN = /<\s*\/?\s*(script|iframe|object|embed|svg|style|link|meta)\b/i;
+// A single bounded character class (not adjacent unbounded quantifiers) keeps
+// the scan linear on hostile input; anything mixing whitespace and slashes
+// before the tag name is dangerous regardless of the exact arrangement.
+const DANGEROUS_TAG_PATTERN = /<[\s/]{0,32}(script|iframe|object|embed|svg|style|link|meta)\b/i;
 // Fixed allowlist of known DOM event-handler attribute names, not a bare
 // `on\w+=`. Real translated copy can contain URL query params like
 // `?convenioId=133` that a bare `on\w+=` would false-flag if it ever

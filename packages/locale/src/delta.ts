@@ -39,33 +39,43 @@ export function diff(from: Catalog, to: Catalog): Delta {
   return { changed, removed };
 }
 
-function hasUnsafeSegment(parts: string[]): boolean {
-  return parts.some((part) => UNSAFE_KEYS.has(part));
+// Literal comparisons (not a Set lookup) so static analysis can prove the
+// prototype-pollution sanitizer; UNSAFE_KEYS stays the canonical list for
+// callers that only read.
+function isUnsafeSegment(part: string): boolean {
+  return part === "__proto__" || part === "constructor" || part === "prototype";
 }
 
 function setPath(obj: Catalog, path: string, value: string): void {
   const parts = path.split(".");
-  if (hasUnsafeSegment(parts)) return;
+  if (parts.some(isUnsafeSegment)) return;
   let node = obj;
   for (let i = 0; i < parts.length - 1; i++) {
     const part = parts[i]!;
+    if (isUnsafeSegment(part)) return;
     const next = node[part];
     if (typeof next !== "object" || next === null) node[part] = {};
     node = node[part] as Catalog;
   }
-  node[parts[parts.length - 1]!] = value;
+  const leaf = parts[parts.length - 1]!;
+  if (isUnsafeSegment(leaf)) return;
+  node[leaf] = value;
 }
 
 function deletePath(obj: Catalog, path: string): void {
   const parts = path.split(".");
-  if (hasUnsafeSegment(parts)) return;
+  if (parts.some(isUnsafeSegment)) return;
   let node: Catalog = obj;
   for (let i = 0; i < parts.length - 1; i++) {
-    const next = node[parts[i]!];
+    const part = parts[i]!;
+    if (isUnsafeSegment(part)) return;
+    const next = node[part];
     if (typeof next !== "object" || next === null) return;
     node = next;
   }
-  delete node[parts[parts.length - 1]!];
+  const leaf = parts[parts.length - 1]!;
+  if (isUnsafeSegment(leaf)) return;
+  delete node[leaf];
 }
 
 /**

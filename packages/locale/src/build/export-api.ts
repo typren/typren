@@ -123,7 +123,9 @@ function readDotPath(source: unknown, path: string): unknown {
 
 function joinUrl(baseUrl: string | undefined, path: string): string {
   if (!baseUrl) return path;
-  return baseUrl.replace(/\/+$/, "") + (path.startsWith("/") ? path : `/${path}`);
+  let base = baseUrl;
+  while (base.endsWith("/")) base = base.slice(0, -1);
+  return base + (path.startsWith("/") ? path : `/${path}`);
 }
 
 function fillProjectId(path: string, projectId: string): string {
