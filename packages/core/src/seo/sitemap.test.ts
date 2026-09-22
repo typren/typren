@@ -49,4 +49,22 @@ describe("buildSitemap", () => {
     const [entry] = buildSitemap(store, config);
     expect("lastModified" in entry).toBe(false);
   });
+
+  it("multi-locale: one entry per locale with hreflang alternates, page overrides on each", () => {
+    const store = fakeStore([{ slug: "about", meta: { sitemap: { lastModified: "2026-01-02" } } }]);
+    const i18n = { locales: ["en", "es"], defaultLocale: "en", routing: "prefix-except-default" as const };
+    const entries = buildSitemap(store, config, { i18n });
+
+    expect(entries.map((e) => e.url)).toEqual([
+      `${config.siteUrl}/about`, // default locale unprefixed
+      `${config.siteUrl}/es/about`,
+    ]);
+    for (const entry of entries) {
+      expect(entry.alternates?.languages).toEqual({
+        en: `${config.siteUrl}/about`,
+        es: `${config.siteUrl}/es/about`,
+      });
+      expect(entry.lastModified).toBe("2026-01-02");
+    }
+  });
 });
