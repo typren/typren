@@ -195,6 +195,11 @@ export declare function isEnabled(): boolean;
 export declare function firstRunNotice(): string | null;
 /** Persists an explicit opt-in/opt-out choice, e.g. from `typren telemetry on|off`. */
 export declare function setEnabled(on: boolean): void;
+/** This package's own version, read from its package.json rather than a
+ *  hardcoded string that drifts on every release bump. Shared with cli.ts's
+ *  `--version` (both ship as dist/ siblings, so "../package.json" resolves
+ *  the same way from either). */
+export declare function readCliVersion(): string;
 /**
  * Fire-and-forget usage beacon. Never awaited by callers, never throws, and
  * never delays the command it's called from: with no `TYPREN_TELEMETRY_URL`
