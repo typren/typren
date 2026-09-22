@@ -32,7 +32,7 @@
     },
     "packages/adapter-cloudfront": {
       "name": "@typren/adapter-cloudfront",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "bin": {
         "typren-cloudfront": "./dist/cli.js",
       },
@@ -47,7 +47,7 @@
     },
     "packages/cli": {
       "name": "typren",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "bin": {
         "typren": "./dist/cli.js",
       },
@@ -71,7 +71,7 @@
     },
     "packages/core": {
       "name": "@typren/core",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "dependencies": {
         "dompurify": "^3.4.15",
         "gray-matter": "^4.0.3",
@@ -108,7 +108,7 @@
     },
     "packages/editor": {
       "name": "@typren/editor",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "dependencies": {
         "@typren/core": "workspace:*",
         "class-variance-authority": "^0.7.1",
@@ -141,8 +141,8 @@
         "fflate": "^0.8.3",
       },
       "devDependencies": {
-        "@types/node": "^20",
-        "typescript": "^5",
+        "@types/node": "^26.5.0",
+        "typescript": "^6.0.3",
         "vue": "^3.5.0",
       },
       "peerDependencies": {
