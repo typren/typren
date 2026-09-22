@@ -35,4 +35,18 @@ describe("buildSitemap", () => {
     const [entry] = buildSitemap(store, config);
     expect(entry).toMatchObject({ priority: 0.2, changeFrequency: "yearly" });
   });
+
+  it("passes a frontmatter lastModified through verbatim", () => {
+    const store = fakeStore([
+      { slug: "post", meta: { sitemap: { lastModified: "2026-05-07" } } },
+    ]);
+    const [entry] = buildSitemap(store, config);
+    expect(entry.lastModified).toBe("2026-05-07");
+  });
+
+  it("omits lastModified entirely when the page declares none — never build time", () => {
+    const store = fakeStore([{ slug: "about" }]);
+    const [entry] = buildSitemap(store, config);
+    expect("lastModified" in entry).toBe(false);
+  });
 });
