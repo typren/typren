@@ -7,7 +7,7 @@
  * across releases) but needs a `.api-extractor.json` per entry point, a
  * doc-comment release-tag convention (@public/@internal) this codebase
  * doesn't use, and a new dependency. This script does the one thing item 2
- * needs — detect when the public type surface moves — in ~80 lines with
+ * needs, detect when the public type surface moves, in ~80 lines with
  * tools already in devDependencies. Upgrade to api-extractor if the surface
  * ever needs API Review reports or per-symbol release tagging; a diff gate
  * doesn't.
@@ -22,7 +22,7 @@
  *
  * Run after `bun run build`. `bun run api-surface:generate` writes the
  * snapshot to etc/api-surface/; CI reruns it and diffs against the checked-in
- * copy — any difference means the public type surface changed and needs a
+ * copy, any difference means the public type surface changed and needs a
  * changeset.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -75,7 +75,7 @@ function resolveSpecifier(fromFile, spec) {
   const target = path.resolve(path.dirname(fromFile), spec);
   if (target.endsWith(".js") && existsSync(target.replace(/\.js$/, ".d.ts"))) return target.replace(/\.js$/, ".d.ts");
   if (existsSync(target)) return target; // already had a .d.ts extension
-  return null; // external package (react, next/server, …) — nothing to follow
+  return null; // external package (react, next/server, …), nothing to follow
 }
 
 function collectSurface(entries) {

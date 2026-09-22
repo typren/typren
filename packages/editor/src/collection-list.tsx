@@ -15,10 +15,10 @@ function titleCase(key: string): string {
 }
 
 /** Resolve the list's primary (clickable, always-rendered) column and the
- *  extra data columns — pure so it's testable without mounting the table.
+ *  extra data columns, pure so it's testable without mounting the table.
  *  Defaults: primary = `titleField`, else "title" if present in the schema,
  *  else the first schema key; extra columns = the explicit `columns` list,
- *  else the first 4 schema keys (primary excluded from "extra" — it gets its
+ *  else the first 4 schema keys (primary excluded from "extra", it gets its
  *  own always-present column so a record stays clickable even for an
  *  empty/unusual schema). Ported from meditor's `resolveListColumns`. */
 export function resolveListColumns(
@@ -56,7 +56,7 @@ export function CollectionList({
   columns?: string[];
   onSelect: (slug: string) => void;
   /** Omit to render without a delete column (degrades read-only, e.g. no
-   *  write actions configured for this collection — see `TyprenEditorHost`). */
+   *  write actions configured for this collection, see `TyprenEditorHost`). */
   onDelete?: (slug: string) => Promise<void>;
 }>) {
   const [pending, setPending] = useState<string | null>(null);

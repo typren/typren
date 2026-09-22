@@ -76,7 +76,7 @@ export function EditorShell({
    *  positioning, and this component's own theme-toggle button, and switches
    *  to a plain flex child that fills its parent. For embedding inside
    *  `SectionShell`, whose own left rail (`SectionNav`) already carries the
-   *  Pages section's page list AND the shell's one shared theme toggle — see
+   *  Pages section's page list AND the shell's one shared theme toggle, see
    *  `sections.ts`'s "renders from data" doctrine. Standalone use (the
    *  default) is unchanged. */
   hideNav?: boolean;

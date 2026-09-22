@@ -2,7 +2,7 @@
 // README: ContentAdapter -> ContentStore -> makeActions(config) -> editor UI
 // (here). `TyprenEditorHost.sections` grows it from the v1 Pages-only loop
 // into the SDUI admin shell (Media/Collections/Settings) core's `sections.ts`
-// anticipates — additive, see `types.ts`'s doc comment. Onboarding stays out
+// anticipates (additive; see `types.ts`'s doc comment). Onboarding stays out
 // of scope: core never gave it a `SectionKind`.
 
 export { TyprenEditor, type TyprenEditorProps } from "./typren-editor";
