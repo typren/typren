@@ -32,7 +32,7 @@
     },
     "packages/adapter-cloudfront": {
       "name": "@typren/adapter-cloudfront",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "bin": {
         "typren-cloudfront": "./dist/cli.js",
       },
@@ -47,7 +47,7 @@
     },
     "packages/cli": {
       "name": "typren",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "bin": {
         "typren": "./dist/cli.js",
       },
@@ -62,7 +62,7 @@
     },
     "packages/contract-tests": {
       "name": "@typren/contract-tests",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@types/node": "^26.5.0",
         "typescript": "^6.0.3",
@@ -71,7 +71,7 @@
     },
     "packages/core": {
       "name": "@typren/core",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "dependencies": {
         "dompurify": "^3.4.15",
         "gray-matter": "^4.0.3",
@@ -108,7 +108,7 @@
     },
     "packages/editor": {
       "name": "@typren/editor",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "dependencies": {
         "@typren/core": "workspace:*",
         "class-variance-authority": "^0.7.1",
@@ -129,6 +129,14 @@
       "peerDependencies": {
         "react": ">=19",
         "react-dom": ">=19",
+      },
+    },
+    "packages/forms": {
+      "name": "@typren/forms",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/node": "^26.5.0",
+        "typescript": "^6.0.3",
       },
     },
     "packages/locale": {
@@ -513,6 +521,8 @@
     "@typren/core": ["@typren/core@workspace:packages/core"],
 
     "@typren/editor": ["@typren/editor@workspace:packages/editor"],
+
+    "@typren/forms": ["@typren/forms@workspace:packages/forms"],
 
     "@typren/locale": ["@typren/locale@workspace:packages/locale"],
 
