@@ -20,7 +20,7 @@ function titleCase(s: string): string {
 }
 
 /** Groups resolved sections "Content" then "Other" then any unknown groups,
- *  each in registration order — mirrors core's `resolveSections` default
+ *  each in registration order, mirrors core's `resolveSections` default
  *  grouping so the rail's order never drifts from the config it renders. */
 function groupSections(sections: ResolvedSection[]): { label: string; items: ResolvedSection[] }[] {
   const buckets = new Map<string, ResolvedSection[]>();
@@ -36,16 +36,16 @@ function groupSections(sections: ResolvedSection[]): { label: string; items: Res
 /**
  * `SectionShell`'s single left rail: the SDUI section switcher (spec-parity
  * with meditor's `<meditor-section-nav>`, ported fresh in React). Renders
- * purely from `sections` (`core`'s `resolveSections()` output) — no host code
+ * purely from `sections` (`core`'s `resolveSections()` output), no host code
  * runs here, matching `docs/hosted-platform.md`'s "renders from data, not
  * customer code" doctrine. Full navigation is reported via `onSelect`, not an
  * `<a href>`: this package never touches routing itself (see `EditorShell`'s
- * doc comment) — the host's `TyprenEditorProps.onNavigateSection` decides
+ * doc comment), the host's `TyprenEditorProps.onNavigateSection` decides
  * what a section id means for its URLs.
  *
  * The Pages section keeps its own page tree (`PagesNav`, rendered by
  * `EditorShell` itself in `hideNav` mode) rather than this rail growing one
- * too — a deliberate simplification vs. meditor's single merged rail: two
+ * too, a deliberate simplification vs. meditor's single merged rail: two
  * thin rails side by side when Pages is active, one everywhere else, for a
  * fraction of the code (no page-tree duplication, no extra host data prop).
  */
@@ -72,7 +72,7 @@ export function SectionNav({
           <Fragment key={group.label}>
             {i > 0 && <li aria-hidden className="my-1 h-px w-6 bg-[var(--typren-border)]" />}
             {group.items.map((s) => {
-              // `ResolvedSection.icon` is untyped (`unknown`) in core — a host
+              // `ResolvedSection.icon` is untyped (`unknown`) in core, a host
               // hands it an already-rendered node (React's equivalent of the
               // spec's "inline lucide svg"), never a component to instantiate.
               // Falls back to a kind-default lucide icon when omitted.

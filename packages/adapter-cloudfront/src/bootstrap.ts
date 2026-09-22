@@ -8,7 +8,7 @@ export type BootstrapOptions = {
   storeName: string;
   functionName?: string;
   /** Required to proceed when a DIFFERENT viewer-request function is already
-   *  attached. Without it, bootstrap refuses rather than silently replace it —
+   *  attached. Without it, bootstrap refuses rather than silently replace it:
    *  `FunctionAssociations` is a whole-list write, and blind-replacing
    *  whatever is there has caused a real outage before (see
    *  redirects.function.js's own doc comment). */
@@ -24,7 +24,7 @@ export type BootstrapResult =
  * create the KeyValueStore if it doesn't exist yet, upsert+publish the
  * canonical viewer-request function associated with it, then attach that
  * function to the distribution's default cache behavior. Never creates the
- * distribution or its origin — that's IaC (Terraform/CDK/SST) territory.
+ * distribution or its origin, that's IaC (Terraform/CDK/SST) territory.
  *
  * Checks what's already attached BEFORE replacing it: re-running this with
  * the same functionName is a safe no-op-ish upsert, but a DIFFERENT function

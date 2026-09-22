@@ -4,7 +4,7 @@ import { blocksToMarkdown, blocksToSegments, pageRecordFrom, type NotionBlock } 
 export type { NotionBlock } from "./notion-blocks";
 
 /** Notion property types this adapter can round-trip: text, numbers,
- *  single/multi enums, booleans, dates, and a relation to another database —
+ *  single/multi enums, booleans, dates, and a relation to another database,
  *  not Notion's full property-type list (no formula, rollup, people, files:
  *  none of those round-trip meaningfully through a plain read/write value,
  *  being either computed or reference-shaped in ways a generic mapper can't
@@ -31,7 +31,7 @@ export type NotionPropertyMap = Record<string, { name: string; type: NotionPrope
 
 /** Raw per-property JSON Notion returns/expects for one property, e.g.
  *  `{ number: 42 }`, `{ title: [{ plain_text: "..." }] }`. Untyped beyond
- *  "a JSON object" — its shape depends on the property's Notion type. */
+ *  "a JSON object", its shape depends on the property's Notion type. */
 export type NotionRawProperty = Record<string, unknown>;
 
 /** One Notion database row, trimmed to what this adapter needs. `properties`
@@ -39,7 +39,7 @@ export type NotionRawProperty = Record<string, unknown>;
 export type NotionPage = { id: string; archived: boolean; properties: Record<string, NotionRawProperty> };
 
 /**
- * The seam between the adapter and Notion's HTTP API — mocked directly in
+ * The seam between the adapter and Notion's HTTP API, mocked directly in
  * tests (see notion-adapter.test.ts), so no network/HTTP-mocking library is
  * needed to unit-test the adapter's read/write/mapping logic. Every method is
  * SYNCHRONOUS to satisfy `ContentAdapter` (see `createFetchNotionClient`'s
@@ -57,7 +57,7 @@ export interface NotionClient {
   /** Notion has no hard delete via the API, only archive (= its trash). */
   archivePage(pageId: string): void;
   /** A page's block children, recursively resolved (each returned block's own
-   *  `children` is already populated when `has_children` is true) — see
+   *  `children` is already populated when `has_children` is true), see
    *  notion-blocks.ts for what they turn into. Only called when a
    *  `NotionAdapterOptions.content` of `"blocks"` is configured; omit it on a
    *  client that never backs such a collection. */
@@ -71,7 +71,7 @@ const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object"
 const arr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.map(obj) : []);
 /** A Notion rich-text run's plain string, from either a real API response
  *  (`plain_text`) or the shape a caller writes (`text.content`, see
- *  `writeProp`) — the fallback means a page just created/updated through
+ *  `writeProp`), the fallback means a page just created/updated through
  *  THIS adapter reads back correctly even from a test double that echoes the
  *  write payload verbatim instead of round-tripping it through Notion's own
  *  response normalization. */
@@ -83,7 +83,7 @@ function readProp(raw: NotionRawProperty | undefined, name: string, type: Notion
   // Real Notion responses carry the property's own `type` tag; a mismatch
   // against the configured type is a config bug (wrong property name/type in
   // NotionPropertyMap) that would otherwise silently read `undefined` off
-  // the wrong key — loud beats a silently-wrong value here.
+  // the wrong key, loud beats a silently-wrong value here.
   if ("type" in raw && raw.type !== type)
     throw new Error(`typren: notion property "${name}" expected type "${type}" but got "${String(raw.type)}"`);
   switch (type) {
@@ -153,7 +153,7 @@ export type NotionAdapterOptions = {
    *  adapter (`writeRaw` on an unknown slug): a page id doesn't exist until
    *  Notion assigns one, so it can't be the slug a caller picks up front.
    *  Omit for read/update/delete-only use against rows that already exist
-   *  (slug = Notion page id) — fine for collections whose records are only
+   *  (slug = Notion page id), fine for collections whose records are only
    *  ever created in Notion directly. */
   slugProperty?: string;
   /** metaKey of a rich_text property to round-trip as `PageContent.body`.
@@ -162,23 +162,23 @@ export type NotionAdapterOptions = {
    *  row-shaped record. */
   bodyProperty?: string;
   /** `"blocks"`: `body` is the page's own block content (paragraphs,
-   *  headings, lists, ...) converted to markdown — see notion-blocks.ts —
+   *  headings, lists, ...) converted to markdown (see notion-blocks.ts)
    *  instead of a `bodyProperty` column.
    *
-   *  `"slices"`: the page reads as a full typren page record — `body` is
+   *  `"slices"`: the page reads as a full typren page record, `body` is
    *  always `""` and `slices` comes from running the same block tree through
    *  `blocksToSegments` + `pageRecordFrom` (prose runs become a `"prose"`
    *  slice carrying markdown, `::componentName` directives become named
    *  slices in document order). The host's slice registry resolves each
    *  `slice` name at render time; a name with no registered component is the
-   *  registry's problem, not this adapter's — it degrades the same way any
+   *  registry's problem, not this adapter's, it degrades the same way any
    *  other unregistered slice does there (see `SliceZone`'s scaffold),
    *  never a throw here.
    *
    *  Both need a `client` whose `listBlockChildren` is implemented (throws
    *  loud otherwise). READ-ONLY for now: `writeRaw`/`writeDraftRaw` still
    *  only push `properties` (see the `content` note on
-   *  `createNotionAdapter`'s own doc comment) — a body/slice edit against a
+   *  `createNotionAdapter`'s own doc comment), a body/slice edit against a
    *  blocks- or slices-backed record is not written back to Notion yet.
    *  Default `"none"` keeps the `bodyProperty`/property-only behavior
    *  unchanged. */
@@ -192,12 +192,12 @@ export type NotionAdapterOptions = {
  * the schema-shaped prop bag (see `NotionPropertyMap`), `body` is optional
  * (see `bodyProperty`). `slices` is `[]` unless `content: "slices"` is set,
  * in which case a page's own block content is read as an ordered list of
- * typren slices (see the `content` doc on `NotionAdapterOptions`) — matching
+ * typren slices (see the `content` doc on `NotionAdapterOptions`), matching
  * how a markdown *page* record already carries slices, just sourced from
  * Notion blocks instead of frontmatter.
  *
  * typren: Notion has no draft/publish distinction (unlike the filesystem
- * adapter's separate `.drafts` dir) — every draft op writes straight through
+ * adapter's separate `.drafts` dir), every draft op writes straight through
  * to the published row (`writeDraftRaw` calls the same path as `writeRaw`;
  * `readDraftRaw`/`hasDraft` always report "no draft" so `ContentStore.publish`
  * safely no-ops after the write-through already landed). This drops
@@ -209,8 +209,8 @@ export type NotionAdapterOptions = {
  *
  * typren: `content: "blocks"` and `content: "slices"` (see
  * `NotionAdapterOptions`) both read a page's own block content but do NOT
- * write it back — `writeRaw` only ever pushes `properties`. A body/slice
- * edit against such a record is silently (from Notion's point of view —
+ * write it back, `writeRaw` only ever pushes `properties`. A body/slice
+ * edit against such a record is silently (from Notion's point of view;
  * loudly from this code's, via the one-time `console.warn` below) NOT
  * persisted. typren TODO: slice write-back needs a segments -> blocks
  * inverse of `blocksToSegments` (a lossy, rate-limit-heavy replace: delete
@@ -250,7 +250,7 @@ export function createNotionAdapter({
       return page && !page.archived ? page : null;
     }
     // ponytail: no server-side filter (Notion's filter JSON shape is
-    // property-type-specific, a lot of code for what's an internal lookup) —
+    // property-type-specific, a lot of code for what's an internal lookup);
     // scan the full listing client-side instead. Fine for admin-table-sized
     // databases; swap in a filtered query if a collection grows into the
     // thousands of rows.
@@ -271,7 +271,7 @@ export function createNotionAdapter({
     return String(readProp(page.properties[def.name], def.name, def.type) ?? "");
   };
 
-  /** `content: "slices"` only — the page's block tree as an ordered list of
+  /** `content: "slices"` only, the page's block tree as an ordered list of
    *  typren slices (see the `content` doc on `NotionAdapterOptions`). Reuses
    *  the same generic segment mapping `content: "blocks"` uses for markdown,
    *  just keeping the component segments instead of flattening them away. */
@@ -289,7 +289,7 @@ export function createNotionAdapter({
     const out: Record<string, NotionRawProperty> = {};
     for (const [key, def] of Object.entries(properties)) if (key in meta) out[def.name] = writeProp(meta[key], def.type);
     if (content === "blocks") {
-      // typren: NOT written back — see the `content` write-side note on this
+      // typren: NOT written back, see the `content` write-side note on this
       // function's doc comment. One warning per adapter instance, not per
       // call, so a UI that autosaves on every keystroke doesn't spam stderr.
       if (body && !warnedUnsavedBody) {
@@ -299,7 +299,7 @@ export function createNotionAdapter({
         warnedUnsavedBody = true;
       }
     } else if (content === "slices") {
-      // typren TODO: slice write-back — see the `content` write-side note on
+      // typren TODO: slice write-back, see the `content` write-side note on
       // this function's doc comment. Same one-warning-per-instance shape as
       // the "blocks" branch above.
       if (slices.length && !warnedUnsavedSlices) {
@@ -395,20 +395,24 @@ export function createNotionAdapter({
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
-// ponytail: `ContentAdapter` (./types.ts) is sync-only — typren issue #29
+// ponytail: `ContentAdapter` (./types.ts) is sync-only, typren issue #29
 // tracks an async-ContentAdapter follow-up that hasn't landed. Notion is
 // HTTP-only (inherently async), so *something* has to bridge the two.
 // This shells a one-shot child Node process per call that does the real
 // fetch and prints the JSON result on stdout; `spawnSync` blocks this thread
-// until it exits, giving a genuinely synchronous call — not a stale cache,
+// until it exits, giving a genuinely synchronous call, not a stale cache,
 // not a silently fire-and-forget write, an actual round trip. Ceiling: one
 // process spawn per Notion call (spawn overhead on top of network latency).
 // Fine for a local, never-deployed admin tool at admin-table row counts; not
 // for a high-QPS server. Upgrade: delete this function and call `fetch`
 // directly the day `ContentAdapter`'s methods return promises.
 function notionRequestSync(token: string, method: string, path: string, body?: unknown): Record<string, unknown> {
+  // The fetch init (with the Authorization header) travels on stdin, never on
+  // argv: a process's argv is readable by every other local user via the
+  // process table, so a secret must not appear there.
   const script =
-    "const [url, init] = process.argv.slice(1).map((s) => JSON.parse(s));" +
+    "const url = process.argv[1];" +
+    "const init = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));" +
     "fetch(url, init).then(async (r) => { const text = await r.text();" +
     "process.stdout.write(JSON.stringify({ status: r.status, text })); })" +
     ".catch((e) => { process.stdout.write(JSON.stringify({ status: 0, text: String(e && e.message || e) })); });";
@@ -421,7 +425,8 @@ function notionRequestSync(token: string, method: string, path: string, body?: u
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   };
-  const result = spawnSync(process.execPath, ["-e", script, JSON.stringify(`${NOTION_API}${path}`), JSON.stringify(init)], {
+  const result = spawnSync(process.execPath, ["-e", script, `${NOTION_API}${path}`], {
+    input: JSON.stringify(init),
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
   });
@@ -466,7 +471,7 @@ function fetchBlockChildren(token: string, blockId: string): NotionBlock[] {
 }
 
 /** Real `NotionClient` against `https://api.notion.com`. `token` is an
- *  internal-integration secret — pass it from `process.env` only (never
+ *  internal-integration secret, pass it from `process.env` only (never
  *  commit one); the caller owns getting it there. */
 export function createFetchNotionClient(token: string): NotionClient {
   return {

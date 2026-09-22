@@ -13,7 +13,7 @@ import type { TyprenEditorHost } from "./types";
 
 /**
  * The SDUI admin shell: `SectionNav`'s single left rail plus whichever
- * section `activeId` names, filling one region — every built-in renderer
+ * section `activeId` names, filling one region, every built-in renderer
  * (`EditorShell`, `MediaLibrarySection`, `SettingsPanel`, `CollectionPanel`)
  * owns its own internal canvas/panel split, so this component never imposes
  * a second one. Ported (fresh, in React) from meditor's `<meditor-shell>`;
@@ -23,7 +23,7 @@ import type { TyprenEditorHost } from "./types";
  *
  * Owns the one shared dark-mode toggle (`localStorage["typren-theme"]`, same
  * key `EditorShell` reads/writes standalone) so every section shares a theme
- * instead of drifting independently — see `SectionNav`'s footer button.
+ * instead of drifting independently, see `SectionNav`'s footer button.
  *
  * No routing inside this component, same doctrine as `EditorShell`/
  * `TyprenEditor`: `onSelectSection`/`onNavigatePage`/`onReload` report
@@ -64,11 +64,11 @@ export function SectionShell({
   onNavigatePage: (slug: string | null) => void;
   onReload: () => void;
   locale?: string;
-  /** Server-fetched rows per collection section, keyed by section id — core's
+  /** Server-fetched rows per collection section, keyed by section id, core's
    *  `listCollectionRecords()` output, same "no client read action" shape as
    *  `TyprenEditorHost.collections`. */
   collectionRecords?: Record<string, CollectionRecordInfo[]>;
-  /** `CollectionPanel`'s `mode`/`selectedSlug`/`onNavigate`, forwarded as-is —
+  /** `CollectionPanel`'s `mode`/`selectedSlug`/`onNavigate`, forwarded as-is;
    *  same "the host owns routing" doctrine as `slug`/`onNavigatePage` above,
    *  applied to Collection sections (e.g. a `?record=<slug>&mode=edit` URL).
    *  Omit all three to keep `CollectionPanel`'s own uncontrolled state. */
@@ -152,7 +152,7 @@ export function SectionShell({
       break;
     case "custom":
       // No plugin runtime here (see docs/hosted-platform.md's "custom
-      // sections ship code") — say so loudly rather than paint an empty pane.
+      // sections ship code"), say so loudly rather than paint an empty pane.
       region = (
         <div className="flex min-w-0 flex-1 items-center justify-center p-8 text-center text-sm text-[var(--typren-muted-fg)]">
           &ldquo;{active.label}&rdquo; is a custom section. @typren/editor has no plugin runtime to render it — the

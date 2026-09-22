@@ -106,6 +106,11 @@ export function createMarkdownAdapter({
         .readdirSync(dir, { withFileTypes: true })
         .filter((e) => e.isFile() && e.name.endsWith(".md"))
         .map((e) => e.name.replace(/\.md$/, ""))
+        // A shared content dir can hold files whose names aren't valid slugs
+        // (site_backup.md, "About Us.md"). They can never be addressed through
+        // the slug guard anyway, so skip them here rather than letting safe()
+        // throw below and take the whole listing down with them.
+        .filter((slug) => SAFE_SLUG.test(slug))
         // Only pages that actually carry a slice array: skips site.md, legal
         // bodies, etc. without a hardcoded exclude list. Collections opt out:
         // every .md in a collection dir is a record, slices or not.

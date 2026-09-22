@@ -16,22 +16,22 @@ import type { PageContent, Slice } from "./types";
  *   segments -> output: `blocksToMarkdown` renders the prose segments back
  *     into one markdown string (component segments become a visible comment,
  *     never silently vanish); `pageRecordFrom` instead maps EVERY segment,
- *     prose and component alike, into one ordered typren `slices` array —
+ *     prose and component alike, into one ordered typren `slices` array;
  *     see its own doc comment for why that mapping is lossless.
  *
- * Component-call convention (generic — no entity/component names live here):
+ * Component-call convention (generic, no entity/component names live here):
  * a `callout` or `code` block whose first line is `::componentName` is a
- * component call; every remaining line is JSON (not YAML — no yaml parser is
+ * component call; every remaining line is JSON (not YAML, no yaml parser is
  * already a dependency of this package, and hand-authoring one JSON object
  * in a Notion code block is a small ask) parsed as that component's props.
  * Malformed JSON, a missing name, or an empty prop body after the `::name`
  * line all degrade to treating the block as ordinary prose rather than
- * throwing — a typo in Notion should never break the whole page read.
+ * throwing, a typo in Notion should never break the whole page read.
  */
 
 /** One Notion block, trimmed to what conversion needs. `children` is only
  *  present when the caller (see NotionClient.listBlockChildren) already
- *  resolved nested blocks — this module never fetches anything itself. */
+ *  resolved nested blocks, this module never fetches anything itself. */
 export type NotionBlock = {
   id: string;
   type: string;
@@ -75,7 +75,7 @@ function richTextToPlain(runs: unknown): string {
 
 /** `{ name, props }` when `block` is a callout/code block whose text starts
  *  with `::name`; `null` for anything else (including a `::` line with
- *  invalid JSON after it — malformed is "not a directive", not an error). */
+ *  invalid JSON after it, malformed is "not a directive", not an error). */
 function componentDirective(block: NotionBlock): { name: string; props: Record<string, unknown> } | null {
   if (block.type !== "callout" && block.type !== "code") return null;
   const payload = asObj(block[block.type]);
@@ -137,7 +137,7 @@ function tableMarkdown(block: NotionBlock, indent: string): string {
       const cells = cellsOf(row);
       const line = `${indent}| ${cells.join(" | ")} |`;
       // Best-effort: treat the first row as the header (Notion's
-      // `has_column_header` toggle isn't threaded through here — good enough
+      // `has_column_header` toggle isn't threaded through here, good enough
       // for a generic markdown render, not a lossless table round-trip).
       return i === 0 ? `${line}\n${indent}| ${cells.map(() => "---").join(" | ")} |` : line;
     })
@@ -211,7 +211,7 @@ function renderBlocks(blocks: NotionBlock[], depth: number): string {
  *  lists, to_do, quote, code, divider, image, table, toggle, bookmark/
  *  link_preview/embed; anything else degrades to an HTML comment, see
  *  `renderBlock`). A component segment (see the directive convention above)
- *  is NOT prose — it becomes a visible marker comment instead of silently
+ *  is NOT prose, it becomes a visible marker comment instead of silently
  *  disappearing from the body; callers that want it realized as a real
  *  component belong in `pageRecordFrom` instead. */
 export function blocksToMarkdown(blocks: NotionBlock[]): string {
@@ -226,7 +226,7 @@ export function blocksToMarkdown(blocks: NotionBlock[]): string {
 
 /** Segments -> a typren `PageContent`, ordered slices only (no `body`): a
  *  prose segment becomes one `{ slice: proseSlice, markdown }` entry, a
- *  component segment becomes `{ slice: name, ...props }` — the exact shape
+ *  component segment becomes `{ slice: name, ...props }`, the exact shape
  *  `CmsConfig.registry` already expects (see types.ts's `Slice`). This is
  *  lossless on ORDER (typren's `slices` is itself an ordered array, so
  *  interleaved prose/component runs survive exactly as authored) but NOT on
@@ -234,8 +234,8 @@ export function blocksToMarkdown(blocks: NotionBlock[]): string {
  *  as two separate channels, not one interleaved stream, so putting every
  *  segment into `slices` (leaving `body` empty) is the one mapping that
  *  doesn't need a channel that doesn't exist. A host must register a
- *  `proseSlice`-named component (default `"prose"`) that renders `markdown`
- *  — same as registering any other slice; this module doesn't render one. */
+ *  `proseSlice`-named component (default `"prose"`) that renders `markdown`,
+ *  same as registering any other slice; this module doesn't render one. */
 export function pageRecordFrom(
   segments: NotionSegment[],
   opts: { proseSlice?: string; meta?: Record<string, unknown> } = {}

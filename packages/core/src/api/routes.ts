@@ -24,11 +24,11 @@ import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
  * ## Resources
  * ```
  * GET    /pages                              list (?locale=)
- * POST   /pages                              create           { title, locale? } -> { slug }
+ * POST   /pages                              create           (?locale=) { title } -> { slug }
  * GET    /pages/:slug                        draft ?? published (?locale=)
- * PUT    /pages/:slug/draft                  save draft       { page, baseVersion?, locale? }
- * DELETE /pages/:slug/draft                  discard draft
- * POST   /pages/:slug/publish                publish          { baseVersion?, locale? }
+ * PUT    /pages/:slug/draft                  save draft       (?locale=) { page, baseVersion? }
+ * DELETE /pages/:slug/draft                  discard draft    (?locale=)
+ * POST   /pages/:slug/publish                publish          (?locale=) { baseVersion? }
  * POST   /pages/:slug/rename                 rename slug      { newSlug } -> SaveResult-shaped (409 on collision)
  * POST   /pages/:slug/duplicate              duplicate        (?locale=) -> { slug }
  * DELETE /pages/:slug                        delete page
@@ -36,17 +36,17 @@ import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
  * DELETE /pages/:slug/translations/:locale   delete translation
  * GET    /collections/:id                    list records     (?locale=) -> { records: CollectionRecordInfo[] }
  * GET    /collections/:id/:slug              draft ?? published (?locale=)
- * POST   /collections/:id                    create           { title, locale? } -> { slug }
- * PUT    /collections/:id/:slug/draft        save draft       { page, baseVersion?, locale? }
- * DELETE /collections/:id/:slug/draft        discard draft
- * POST   /collections/:id/:slug/publish      publish          { baseVersion?, locale? }
+ * POST   /collections/:id                    create           (?locale=) { title } -> { slug }
+ * PUT    /collections/:id/:slug/draft        save draft       (?locale=) { page, baseVersion? }
+ * DELETE /collections/:id/:slug/draft        discard draft    (?locale=)
+ * POST   /collections/:id/:slug/publish      publish          (?locale=) { baseVersion? }
  * DELETE /collections/:id/:slug              delete record
  * GET    /media                              list
  * POST   /media                              upload (multipart/form-data, field "file")
  * DELETE /media/:id                          delete
  * GET    /settings                           runtime + bootstrap snapshot + version
- * PUT    /settings/draft                     save draft       { settings, baseVersion?, locale? }
- * POST   /settings/publish                   publish          { baseVersion?, locale? }
+ * PUT    /settings/draft                     save draft       (?locale=) { settings, baseVersion? }
+ * POST   /settings/publish                   publish          (?locale=) { baseVersion? }
  * PUT    /settings/bootstrap                 write bootstrap  (admin)   { patch }
  * ```
  *

@@ -181,7 +181,7 @@ export async function main(argv: string[] = process.argv.slice(2), clients: Main
   printBootstrapResult(result);
 }
 
-// Only run when executed directly, not when imported by cli.test.ts — same
+// Only run when executed directly, not when imported by cli.test.ts, same
 // realpath-resolved guard as packages/cli/src/cli.ts (npx/npm invoke via a
 // node_modules/.bin symlink Node's ESM loader resolves through).
 function isDirectRun(): boolean {

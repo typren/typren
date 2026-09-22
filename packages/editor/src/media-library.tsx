@@ -8,7 +8,7 @@ import { useT } from "./intl";
 
 /**
  * The Media section's body: standalone browse/upload/delete over `MediaGrid`
- * (the same grid `ImagePickerField`'s in-dialog picker uses — one asset-grid
+ * (the same grid `ImagePickerField`'s in-dialog picker uses, one asset-grid
  * UI for both). Embedded directly in `SectionShell`'s region: no `PagesNav`
  * of its own (the shell's `SectionNav` rail is the one left nav now) and no
  * fixed-overlay positioning, just a flex child that fills the region.
@@ -23,7 +23,7 @@ export function MediaLibrarySection({ media }: Readonly<{ media?: FieldFormMedia
   useEffect(() => {
     if (!media) return;
     media.list().then(setAssets);
-    // Mount-only fetch — `media` is a stable RPC reference for the lifetime
+    // Mount-only fetch, `media` is a stable RPC reference for the lifetime
     // of this section.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -40,7 +40,7 @@ export function MediaLibrarySection({ media }: Readonly<{ media?: FieldFormMedia
     setBusy(true);
     setStatus(t("media.uploading"));
     let failedError = "";
-    // Sequential — avoids the fs adapter's random-suffix writes racing each
+    // Sequential, avoids the fs adapter's random-suffix writes racing each
     // other for no benefit (see media.md's upload pipeline).
     for (const file of Array.from(files)) {
       const body = new FormData();

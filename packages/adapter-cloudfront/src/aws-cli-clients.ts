@@ -1,9 +1,9 @@
 // Real AWS-backed KvsClient/CloudFrontClient implementations. Shells out to
 // the `aws` CLI (same mechanism as the working dandelion-site reference this
-// package is modeled on — see the task's prior-art PR) rather than adding
+// package is modeled on, see the task's prior-art PR) rather than adding
 // the AWS SDK as a dependency.
 //
-// ponytail: this is the thin, mechanical glue — parse `aws ... --output
+// ponytail: this is the thin, mechanical glue, parse `aws ... --output
 // json`, done. It's excluded from the coverage gate (see vitest.config.ts)
 // because exercising it for real needs a live AWS account; the actual logic
 // (diff/chunk/ETag-chain in sync.ts, the guard/upsert flow in bootstrap.ts)
@@ -138,10 +138,15 @@ export function createAwsCliCloudFrontClient(): CloudFrontClient {
 
     async setViewerRequestFunction(distributionId, functionArn) {
       const dist = aws<DistributionConfigResponse>("cloudfront", "get-distribution-config", "--id", distributionId);
-      dist.DistributionConfig.DefaultCacheBehavior.FunctionAssociations = {
-        Quantity: 1,
-        Items: [{ FunctionARN: functionArn, EventType: "viewer-request" }],
-      };
+      // FunctionAssociations is one whole-list write covering EVERY event
+      // type, so replace only the viewer-request slot: silently dropping an
+      // attached viewer-response function (security headers, etc.) is exactly
+      // the class of outage bootstrap's guard exists to prevent.
+      const kept = (dist.DistributionConfig.DefaultCacheBehavior.FunctionAssociations?.Items ?? []).filter(
+        (i) => i.EventType !== "viewer-request"
+      );
+      const items = [...kept, { FunctionARN: functionArn, EventType: "viewer-request" }];
+      dist.DistributionConfig.DefaultCacheBehavior.FunctionAssociations = { Quantity: items.length, Items: items };
       withTempFile(JSON.stringify(dist.DistributionConfig), (configFile) =>
         aws("cloudfront", "update-distribution", "--id", distributionId, "--if-match", dist.ETag, "--distribution-config", `file://${configFile}`)
       );

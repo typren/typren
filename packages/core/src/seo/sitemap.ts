@@ -33,7 +33,7 @@ export function buildSitemap(
       // `lastmod` only when the page declares one: stamping build time on every
       // page tells crawlers the whole site changed on every deploy, and they
       // learn to discount the signal. Omitting it is valid per the sitemap
-      // protocol and honest — a date we don't know is not "now".
+      // protocol and honest: a date we don't know is not "now".
       ...(meta.sitemap?.lastModified ? { lastModified: meta.sitemap.lastModified } : {}),
       changeFrequency: meta.sitemap?.changeFrequency ?? (slug === homeSlug ? "weekly" : defaultChangeFrequency),
       priority: meta.sitemap?.priority ?? (slug === homeSlug ? 1 : defaultPriority),

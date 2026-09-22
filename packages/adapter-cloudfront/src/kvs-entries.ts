@@ -15,12 +15,17 @@ export const KVS_MAX_VALUE_BYTES = 1024;
  */
 export function toKvsEntries(entries: RedirectEntry[]): KvsPair[] {
   return entries.map(({ from, to, slug }) => {
+    // Core normalizes `to` to the slashless form, but this target serves a
+    // `trailingSlash: true` static export whose canonical page URLs all end in
+    // "/". Emitting the slash form makes the edge redirect land directly on
+    // the canonical URL in one 301, instead of a second bare-to-slash hop.
+    const value = to === "/" ? to : `${to}/`;
     if (Buffer.byteLength(from) > KVS_MAX_KEY_BYTES) {
       throw new Error(`typren: redirect "from" for "${slug}" exceeds the CloudFront KVS ${KVS_MAX_KEY_BYTES}-byte key limit: ${from}`);
     }
-    if (Buffer.byteLength(to) > KVS_MAX_VALUE_BYTES) {
+    if (Buffer.byteLength(value) > KVS_MAX_VALUE_BYTES) {
       throw new Error(`typren: redirect "to" for "${slug}" exceeds the CloudFront KVS ${KVS_MAX_VALUE_BYTES}-byte value limit (from ${from})`);
     }
-    return { key: from, value: to };
+    return { key: from, value };
   });
 }

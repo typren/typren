@@ -51,6 +51,14 @@ describe("routeLocale (prefix-except-default)", () => {
     expect(routeLocale(exceptDefault, "/es/about")).toEqual({ type: "next" });
     expect(routeLocale(exceptDefault, "/")).toEqual({ type: "next" });
   });
+
+  it("never redirects to a protocol-relative pathname (open-redirect guard)", () => {
+    expect(routeLocale(exceptDefault, "/en//evil.example")).toEqual({ type: "redirect", pathname: "/evil.example" });
+    expect(routeLocale(exceptDefault, "/en///evil.example/x")).toEqual({
+      type: "redirect",
+      pathname: "/evil.example/x",
+    });
+  });
 });
 
 describe("routeLocale (prefix-all)", () => {

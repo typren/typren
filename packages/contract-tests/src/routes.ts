@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 /**
  * REST route contract for `createTyprenApi` (packages/core/src/api/routes.ts).
  * Mirrors that file's own `## Resources` doc comment, which is the contract's
- * source of truth — keep the two in sync by hand; there is no generator here,
+ * source of truth. Keep the two in sync by hand; there is no generator here,
  * on purpose (see the package README/description: this is a fixture list, not
- * a schema compiler).
+ * a schema compiler). One cross-cutting rule the rows encode: `locale` always
+ * rides the `?locale=` query param, matching both the handler and
+ * `createTyprenClient`. It is never a body key.
  */
 export interface RouteFixture {
   method: "GET" | "POST" | "PUT" | "DELETE";
@@ -20,11 +22,17 @@ export interface RouteFixture {
 
 export const ROUTE_CONTRACT: RouteFixture[] = [
   { method: "GET", path: "/pages", query: ["locale"], description: "list pages" },
-  { method: "POST", path: "/pages", body: ["title", "locale"], description: "create a page -> { slug }" },
+  { method: "POST", path: "/pages", body: ["title"], query: ["locale"], description: "create a page -> { slug }" },
   { method: "GET", path: "/pages/:slug", query: ["locale"], description: "draft ?? published" },
-  { method: "PUT", path: "/pages/:slug/draft", body: ["page", "baseVersion", "locale"], description: "save draft" },
-  { method: "DELETE", path: "/pages/:slug/draft", description: "discard draft" },
-  { method: "POST", path: "/pages/:slug/publish", body: ["baseVersion", "locale"], description: "publish" },
+  {
+    method: "PUT",
+    path: "/pages/:slug/draft",
+    body: ["page", "baseVersion"],
+    query: ["locale"],
+    description: "save draft",
+  },
+  { method: "DELETE", path: "/pages/:slug/draft", query: ["locale"], description: "discard draft" },
+  { method: "POST", path: "/pages/:slug/publish", body: ["baseVersion"], query: ["locale"], description: "publish" },
   {
     method: "POST",
     path: "/pages/:slug/rename",
@@ -42,27 +50,35 @@ export const ROUTE_CONTRACT: RouteFixture[] = [
     description: "list records -> { records: CollectionRecordInfo[] }",
   },
   { method: "GET", path: "/collections/:id/:slug", query: ["locale"], description: "draft ?? published" },
-  { method: "POST", path: "/collections/:id", body: ["title", "locale"], description: "create -> { slug }" },
+  { method: "POST", path: "/collections/:id", body: ["title"], query: ["locale"], description: "create -> { slug }" },
   {
     method: "PUT",
     path: "/collections/:id/:slug/draft",
-    body: ["page", "baseVersion", "locale"],
+    body: ["page", "baseVersion"],
+    query: ["locale"],
     description: "save draft",
   },
-  { method: "DELETE", path: "/collections/:id/:slug/draft", description: "discard draft" },
+  { method: "DELETE", path: "/collections/:id/:slug/draft", query: ["locale"], description: "discard draft" },
   {
     method: "POST",
     path: "/collections/:id/:slug/publish",
-    body: ["baseVersion", "locale"],
+    body: ["baseVersion"],
+    query: ["locale"],
     description: "publish",
   },
   { method: "DELETE", path: "/collections/:id/:slug", description: "delete record" },
   { method: "GET", path: "/media", description: "list media" },
   { method: "POST", path: "/media", description: "upload (multipart/form-data, field \"file\")" },
   { method: "DELETE", path: "/media/:id", description: "delete media" },
-  { method: "GET", path: "/settings", description: "runtime + bootstrap snapshot + version" },
-  { method: "PUT", path: "/settings/draft", body: ["settings", "baseVersion", "locale"], description: "save draft" },
-  { method: "POST", path: "/settings/publish", body: ["baseVersion", "locale"], description: "publish" },
+  { method: "GET", path: "/settings", query: ["locale"], description: "runtime + bootstrap snapshot + version" },
+  {
+    method: "PUT",
+    path: "/settings/draft",
+    body: ["settings", "baseVersion"],
+    query: ["locale"],
+    description: "save draft",
+  },
+  { method: "POST", path: "/settings/publish", body: ["baseVersion"], query: ["locale"], description: "publish" },
   { method: "PUT", path: "/settings/bootstrap", body: ["patch"], description: "write bootstrap (admin)" },
 ];
 
@@ -80,14 +96,14 @@ export interface RouteContractSeed {
  * live handler (create -> list -> read -> save draft -> publish -> rename ->
  * duplicate -> delete), asserting the exact status codes and response shapes
  * the table above documents, plus the two routing fallbacks (404, 405). No
- * fixture content is required beyond a working handler — the suite creates
- * and cleans up its own page — so any `createTyprenApi(config)` a consumer
+ * fixture content is required beyond a working handler, the suite creates
+ * and cleans up its own page, so any `createTyprenApi(config)` a consumer
  * builds can run it as-is.
  *
  * Deliberately NOT exhaustive over every row in ROUTE_CONTRACT: translations
  * need a second configured locale, collections/media/settings need their own
  * section/adapter config, and all four already have their own coverage in
- * routes.test.ts — duplicating it here on top of a made-up locale or section
+ * routes.test.ts, duplicating it here on top of a made-up locale or section
  * would be a speculative fixture, not a contract check. This suite is the
  * shape that would actually break for an outside contributor with zero setup:
  * the pages resource's HTTP contract.

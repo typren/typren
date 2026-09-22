@@ -93,7 +93,7 @@ function fromBootstrapSlice(flat: Record<string, unknown>): Partial<SiteSettings
   };
 }
 
-/** SAFE_ROUTE-shaped regex + reserved-word check — same rule a future
+/** SAFE_ROUTE-shaped regex + reserved-word check, same rule a future
  *  onboarding wizard's admin-route step would use (see core's `CmsConfig.onboarding`). */
 function validateAdminRoute(route: string): string | null {
   if (!SAFE_ROUTE.test(route)) return "Admin route must start with a letter/digit and contain only letters, digits, or hyphens.";
@@ -115,8 +115,8 @@ const EMPTY_BS: SiteSettingsBootstrap = {
  * onto a flat `SliceSchema` and renders them through `FieldForm` verbatim (no
  * new form technology), with the same optimistic-lock conflict banner as
  * `EditorShell`. A separate collapsible "Advanced" panel edits the bootstrap
- * tier (adminRoute/locales/defaultLocale/routing) via `settings.writeBootstrap`
- * — see `TyprenEditorSettingsActions`'s doc comment for the auth boundary this
+ * tier (adminRoute/locales/defaultLocale/routing) via `settings.writeBootstrap`;
+ * see `TyprenEditorSettingsActions`'s doc comment for the auth boundary this
  * write crosses. Ported from meditor's `<meditor-settings>`.
  */
 export function SettingsPanel({
@@ -128,7 +128,7 @@ export function SettingsPanel({
   onReload,
 }: Readonly<{
   settings?: TyprenEditorSettingsActions;
-  /** Host-fetched `{...SiteSettingsRuntime, bootstrap}` snapshot — a sync
+  /** Host-fetched `{...SiteSettingsRuntime, bootstrap}` snapshot, a sync
    *  server read (`SettingsStore.get()`/`bootstrap.readBootstrap()`), so the
    *  host pre-fetches it, same pattern `page`/`initialVersion` use for Pages. */
   snapshot?: SiteSettings;
