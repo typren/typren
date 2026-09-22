@@ -83,6 +83,31 @@ describe("createSettingsStore", () => {
     expect(fs.existsSync(path.join(dir, ".typren", "settings.md"))).toBe(true);
   });
 
+  it("reports the draft's version before the first publish, so the next save can conflict-detect", async () => {
+    const store = createSettingsStore(makeConfig());
+    expect(store.currentVersion()).toBeNull();
+
+    const saved = await store.saveDraft({ brand: { name: "Acme" }, seo: {} });
+    expect(saved.ok).toBe(true);
+    expect(store.currentVersion()).toBe((saved as { version: string }).version);
+  });
+
+  it("falls back to the default locale's settings for a locale with no translation", async () => {
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: createMarkdownAdapter({ contentDir, locales: ["en", "fr"], defaultLocale: "en" }),
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+    };
+    const store = createSettingsStore(config);
+    await store.saveDraft({ brand: { name: "Acme" }, seo: {} });
+    await store.publish();
+
+    expect(store.get("fr")).toMatchObject({ brand: { name: "Acme" } });
+    expect(store.get("fr")).not.toEqual({ brand: { name: "" }, seo: {} });
+  });
+
   it("gates writes on the distinct 'admin' auth action, not the content-write action", async () => {
     const actions: AuthAction[] = [];
     const denyAdmin: AuthAdapter = {

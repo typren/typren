@@ -55,7 +55,7 @@ export const defaultMessages: Messages = {
   "media.uploadFailed": "Upload failed: {error}",
   "media.confirmDelete": "Delete “{name}”? This cannot be undone.",
 
-  // Settings section (SDUI shell — distinct from the legacy `site.*` keys above)
+  // Settings section (SDUI shell, distinct from the legacy `site.*` keys above)
   "settings.title": "Settings",
   "settings.blurb": "Brand, SEO and theme — saved as a draft, live once published.",
   "settings.advanced": "Advanced",

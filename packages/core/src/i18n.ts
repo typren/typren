@@ -64,10 +64,13 @@ export function routeLocale(i18n: I18nConfig, pathname: string): LocaleRoute {
   const seg = pathname.split("/")[1] ?? "";
   if (defaultIsUnprefixed(i18n)) {
     // Kill duplicate content: the default locale is served unprefixed, so an
-    // explicit `/en/x` canonicalizes to `/x`.
+    // explicit `/en/x` canonicalizes to `/x`. Collapse repeated leading
+    // slashes on the result: hosts feed this pathname to a Location header,
+    // where a browser resolves "//host/x" as protocol-relative, so stripping
+    // "/en//host/x" to "//host/x" verbatim would be an open redirect.
     if (seg === i18n.defaultLocale) {
       const stripped = pathname.slice(`/${i18n.defaultLocale}`.length) || "/";
-      return { type: "redirect", pathname: stripped };
+      return { type: "redirect", pathname: stripped.startsWith("//") ? `/${stripped.replace(/^\/+/, "")}` : stripped };
     }
     // Known non-default locale prefix → the [locale] route serves it as-is.
     // Anything else is a bare default-locale path → serve as-is.

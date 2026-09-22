@@ -58,6 +58,13 @@ describe("filePolicy", () => {
     expect(await policy.authorize(user("nobody@elsewhere.com"), { action: "saveDraft" })).toBe(false);
   });
 
+  it("never applies a wildcard rule to an identity with no @ (no domain to match)", async () => {
+    // "admin" ends in "n"; a domain wildcard must not degrade to a last-character match.
+    fs.writeFileSync(file, `${ACCESS_YML}  "*n": editor\n`);
+    const policy = filePolicy({ file });
+    expect(await policy.authorize(user("admin"), { action: "publish" })).toBe(false);
+  });
+
   it("denies a user with no email (nothing to match against)", async () => {
     const policy = filePolicy({ file });
     expect(await policy.authorize(user(undefined), { action: "read" })).toBe(false);
