@@ -7,7 +7,7 @@ function isProvider(value: unknown): value is LocaleSourceProvider {
 
 /**
  * Resolves a `LocaleSourceProvider` from a bare dir string, a `SourceConfig`,
- * or an already-built provider (passed straight through — the escape hatch
+ * or an already-built provider (passed straight through: the escape hatch
  * for tests and for callers wiring their own provider). The switch is the
  * whole registry: a follow-up config shape (added to `SourceConfig` in
  * provider.ts) gets one more case here.

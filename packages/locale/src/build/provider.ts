@@ -8,7 +8,7 @@ export type RawEntries = Record<string, Uint8Array>;
  * producer (fs directory, Lokalise, any TMS with a bundle-export API, ...)
  * and `buildCatalogs` doesn't care which one it's talking to.
  *
- * Two methods, two concerns — never conflate them:
+ * Two methods, two concerns. Never conflate them:
  *
  * - `loadRawEntries` is the byte-identical drop-in path: exact bytes, keyed
  *   by the producer's ORIGINAL filename verbatim (e.g. "en_US.json", underscore
@@ -19,7 +19,7 @@ export type RawEntries = Record<string, Uint8Array>;
  *   "en_US" -> "en-US"). This is what `buildCatalogs` reads.
  *
  * A provider must never let normalization leak into `loadRawEntries`' keys,
- * and must never skip it in `loadSource`'s keys — the split is the contract.
+ * and must never skip it in `loadSource`'s keys. The split is the contract.
  */
 export interface LocaleSourceProvider {
   /** Short identifier for error messages / config validation (e.g. "files", "lokalise"). */
@@ -28,7 +28,7 @@ export interface LocaleSourceProvider {
   loadSource(): Promise<Record<string, Catalog>>;
 }
 
-/** Config for the reference fs provider — a directory of one `<locale>.json` per locale. */
+/** Config for the reference fs provider: a directory of one `<locale>.json` per locale. */
 export interface FilesSourceConfig {
   type: "files";
   /** Directory containing one `<locale>.json` per locale. */
@@ -43,7 +43,7 @@ export interface FilesSourceConfig {
 
 /**
  * Discriminated union of every source's config shape. Only "files" ships in
- * this port (see fs-provider.ts) — further providers ("lokalise", a generic
+ * this port (see fs-provider.ts); further providers ("lokalise", a generic
  * export-API source, ...) are follow-up work: add each one's config shape
  * here and a case in resolve-provider.ts to slot it in as a sibling.
  */

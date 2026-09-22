@@ -1,6 +1,6 @@
 /**
  * Nested JSON catalog. Leaves are plain strings, which may contain flat
- * single-brace `{var}` placeholders. No arrays, no plurals — keep the
+ * single-brace `{var}` placeholders. No arrays, no plurals. Keep the
  * shape flat/simple so a consuming app's own render engine stays in sync
  * with what this package can express.
  */

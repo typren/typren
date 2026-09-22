@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { hashCatalog } from "../canonicalize";
+import { merge } from "../delta";
 import type { Catalog, Manifest } from "../types";
-import { injectInto, loadMessages, type KVStorage } from "./index";
+import { clearLoadMessagesMemo, injectInto, loadMessages, type KVStorage } from "./index";
 
 const APP = "site";
 const LANG = "en";
 const BUILD_VERSION = "v1";
 const MANIFEST_URL = "https://cdn.example/manifest/site.json";
 const catalogUrl = (hash: string) => `https://cdn.example/catalog/site/en/${hash}.json`;
+const deltaUrl = (fromHash: string, toHash: string) => `https://cdn.example/delta/site/en/${fromHash}-${toHash}.json`;
 
 function manifestWithHash(hash: string): Manifest {
   return { v: 1, buildVersion: BUILD_VERSION, apps: { [APP]: { [LANG]: { hash } } } };
@@ -20,6 +22,19 @@ function memoryStorage(): KVStorage {
     setItem: (k, v) => {
       map.set(k, v);
     },
+  };
+}
+
+/** Same backing store as {@link memoryStorage}, plus a read counter for the memoization test. */
+function trackingStorage(): KVStorage & { reads: number } {
+  const backing = memoryStorage();
+  return {
+    reads: 0,
+    getItem(key) {
+      this.reads++;
+      return backing.getItem(key);
+    },
+    setItem: backing.setItem,
   };
 }
 
@@ -37,6 +52,7 @@ if (realLocalStorage) {
 
 beforeEach(() => {
   localStorage.clear();
+  clearLoadMessagesMemo();
 });
 
 describe("loadMessages", () => {
@@ -123,9 +139,9 @@ describe("loadMessages", () => {
   it("removal release: edit applied, removed key kept, cached under R, no onError", async () => {
     const baked: Catalog = { Greeting: { Hello: "Hi {name}" }, Nav: { Legacy: "Old link" } };
     const bakedHash = await hashCatalog(baked);
-    // The release removed Nav.Legacy AND edited Greeting.Hello — the additive
+    // The release removed Nav.Legacy AND edited Greeting.Hello, so the additive
     // merge can never hash to R, which the old flow treated as corruption
-    // (permanently bricking OTA + refetching every load).
+    // (permanently bricking OTA and refetching every load).
     const remote: Catalog = { Greeting: { Hello: "Hey {name}" } };
     const remoteHash = await hashCatalog(remote);
     const errors: unknown[] = [];
@@ -247,7 +263,7 @@ describe("loadMessages", () => {
     const remoteHash = await hashCatalog(remote);
 
     localStorage.setItem(`locale:${APP}:${LANG}:v0`, JSON.stringify({ hash: "old", catalog: { A: "stale" } }));
-    localStorage.setItem(`locale:${APP}:other-lang:v0`, "unrelated"); // different prefix — untouched
+    localStorage.setItem(`locale:${APP}:other-lang:v0`, "unrelated"); // different prefix, untouched
 
     await loadMessages({
       app: APP,
@@ -447,6 +463,184 @@ describe("loadMessages", () => {
     });
 
     expect(result).toEqual(remote);
+  });
+
+  it("delta-first happy path: applies the delta and never fetches the full catalog", async () => {
+    const baked: Catalog = { Greeting: { Hello: "Hi {name}" }, Nav: { Home: "Home" } };
+    const bakedHash = await hashCatalog(baked);
+    const changed = { "Greeting.Hello": "Hey there {name}" };
+    // No key was removed in this release, so the full remote catalog IS the
+    // additive merge, and its hash doubles as both the manifest hash and the
+    // delta's additiveHash.
+    const remote = merge(baked, { changed, removed: [] }, { allowRemove: false });
+    const remoteHash = await hashCatalog(remote);
+    const delta = { changed, additiveHash: remoteHash };
+
+    const fetchImpl = async (url: string) => {
+      if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
+      if (url === deltaUrl(bakedHash, remoteHash)) return delta;
+      throw new Error(`unexpected fetch (full catalog must never be fetched on a verified delta hit): ${url}`);
+    };
+
+    const result = await loadMessages({
+      app: APP,
+      lang: LANG,
+      buildVersion: BUILD_VERSION,
+      bakedCatalog: baked,
+      bakedHash,
+      manifestUrl: MANIFEST_URL,
+      catalogUrl,
+      deltaUrl,
+      fetchImpl,
+    });
+
+    expect(result).toEqual(remote);
+    const cached = JSON.parse(localStorage.getItem(`locale:${APP}:${LANG}:${BUILD_VERSION}`)!);
+    expect(cached).toEqual({ hash: remoteHash, catalog: remote });
+  });
+
+  it("delta fetch failure (404) falls through silently to the full-catalog path", async () => {
+    const baked: Catalog = { A: "a" };
+    const bakedHash = await hashCatalog(baked);
+    const remote: Catalog = { A: "b" };
+    const remoteHash = await hashCatalog(remote);
+    const errors: unknown[] = [];
+    let catalogFetched = false;
+
+    const fetchImpl = async (url: string) => {
+      if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
+      if (url === deltaUrl(bakedHash, remoteHash)) throw new Error("request failed: 404");
+      if (url === catalogUrl(remoteHash)) {
+        catalogFetched = true;
+        return remote;
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const result = await loadMessages({
+      app: APP,
+      lang: LANG,
+      buildVersion: BUILD_VERSION,
+      bakedCatalog: baked,
+      bakedHash,
+      manifestUrl: MANIFEST_URL,
+      catalogUrl,
+      deltaUrl,
+      fetchImpl,
+      onError: (e) => errors.push(e),
+    });
+
+    expect(result).toEqual(remote);
+    expect(catalogFetched).toBe(true);
+    expect(errors).toEqual([]); // a missed delta window is expected, not an error
+  });
+
+  it("delta additiveHash mismatch: onError fires once, full-catalog path still succeeds", async () => {
+    const baked: Catalog = { A: "a" };
+    const bakedHash = await hashCatalog(baked);
+    const remote: Catalog = { A: "b" };
+    const remoteHash = await hashCatalog(remote);
+    const errors: unknown[] = [];
+    // Shape-valid, but the claimed hash doesn't match what applying `changed` onto baked actually produces.
+    const badDelta = { changed: { A: "b" }, additiveHash: "deadbeef".repeat(8) };
+
+    const fetchImpl = async (url: string) => {
+      if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
+      if (url === deltaUrl(bakedHash, remoteHash)) return badDelta;
+      if (url === catalogUrl(remoteHash)) return remote;
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const result = await loadMessages({
+      app: APP,
+      lang: LANG,
+      buildVersion: BUILD_VERSION,
+      bakedCatalog: baked,
+      bakedHash,
+      manifestUrl: MANIFEST_URL,
+      catalogUrl,
+      deltaUrl,
+      fetchImpl,
+      onError: (e) => errors.push(e),
+    });
+
+    expect(result).toEqual(remote);
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0])).toMatch(/additive-hash mismatch/);
+  });
+
+  it("hostile delta with a __proto__ path stays inert end-to-end", async () => {
+    const baked: Catalog = { greet: "hello" };
+    const bakedHash = await hashCatalog(baked);
+    const changed = JSON.parse('{"greet":"hi","__proto__":{"polluted":"yes"}}');
+    const additiveMerged = merge(baked, { changed, removed: [] }, { allowRemove: false });
+    const remoteHash = await hashCatalog(additiveMerged); // no removals, so this doubles as the additiveHash
+    const delta = { changed, additiveHash: remoteHash };
+
+    const fetchImpl = async (url: string) => {
+      if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
+      if (url === deltaUrl(bakedHash, remoteHash)) return delta;
+      throw new Error(`unexpected fetch (full catalog must never be fetched on a verified delta hit): ${url}`);
+    };
+
+    const result = await loadMessages({
+      app: APP,
+      lang: LANG,
+      buildVersion: BUILD_VERSION,
+      bakedCatalog: baked,
+      bakedHash,
+      manifestUrl: MANIFEST_URL,
+      catalogUrl,
+      deltaUrl,
+      fetchImpl,
+    });
+
+    expect(result.greet).toBe("hi");
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect((Object.prototype as unknown as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it("memoizes the merged catalog: a second poll against an unchanged remote returns the SAME object with no storage reads and no catalog/delta fetches", async () => {
+    const baked: Catalog = { A: "a" };
+    const bakedHash = await hashCatalog(baked);
+    const remote: Catalog = { A: "b" };
+    const remoteHash = await hashCatalog(remote);
+
+    let manifestFetches = 0;
+    let otherFetches = 0;
+    const fetchImpl = async (url: string) => {
+      if (url === MANIFEST_URL) {
+        manifestFetches++;
+        return manifestWithHash(remoteHash);
+      }
+      otherFetches++;
+      return remote;
+    };
+    const storage = trackingStorage();
+
+    const opts = {
+      app: APP,
+      lang: LANG,
+      buildVersion: BUILD_VERSION,
+      bakedCatalog: baked,
+      bakedHash,
+      manifestUrl: MANIFEST_URL,
+      catalogUrl,
+      fetchImpl,
+      storage,
+    };
+
+    const first = await loadMessages(opts);
+    expect(first).toEqual(remote);
+    expect(manifestFetches).toBe(1);
+    expect(otherFetches).toBe(1);
+    expect(storage.reads).toBe(1);
+
+    const second = await loadMessages(opts);
+    expect(second).toBe(first); // same object reference, not just equal by value
+    expect(manifestFetches).toBe(2); // the manifest poll still happens
+    expect(otherFetches).toBe(1); // no new catalog/delta fetch
+    expect(storage.reads).toBe(1); // no new storage read
   });
 });
 

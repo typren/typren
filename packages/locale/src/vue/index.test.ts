@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { hashCatalog } from "../canonicalize";
 import type { Catalog } from "../types";
+import { clearLoadMessagesMemo } from "../ota";
 import { applyOtaForLocale, applyOtaVueI18n, type VueI18nStoreLike } from "./index";
 
 function makeStore(messages: Record<string, unknown>): VueI18nStoreLike & { calls: number } {
@@ -42,6 +43,7 @@ if (realLocalStorage) {
 
 beforeEach(() => {
   localStorage.clear();
+  clearLoadMessagesMemo();
 });
 
 describe("applyOtaForLocale", () => {

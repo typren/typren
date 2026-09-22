@@ -1,8 +1,19 @@
 import type { Catalog, Delta } from "./types";
 
+/**
+ * Keys that collide with `Object.prototype` machinery. A remote catalog is
+ * attacker-adjacent input (CDN compromise, MITM on a misconfigured origin),
+ * so any of these appearing as an object key or a dot-path segment is
+ * dropped everywhere: flatten, setPath, deletePath, and canonicalize.
+ * Otherwise `obj["__proto__"] = {...}` walks the prototype setter and
+ * pollutes every object in the realm.
+ */
+export const UNSAFE_KEYS: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
+
 function flatten(catalog: Catalog, prefix = ""): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(catalog)) {
+    if (UNSAFE_KEYS.has(key)) continue;
     const path = prefix ? `${prefix}.${key}` : key;
     if (typeof value === "string") {
       out[path] = value;
@@ -23,13 +34,18 @@ export function diff(from: Catalog, to: Catalog): Delta {
     if (fromFlat[key] !== value) changed[key] = value;
   }
 
-  const removed = Object.keys(fromFlat).filter((key) => !(key in toFlat));
+  const removed = Object.keys(fromFlat).filter((key) => !Object.hasOwn(toFlat, key));
 
   return { changed, removed };
 }
 
+function hasUnsafeSegment(parts: string[]): boolean {
+  return parts.some((part) => UNSAFE_KEYS.has(part));
+}
+
 function setPath(obj: Catalog, path: string, value: string): void {
   const parts = path.split(".");
+  if (hasUnsafeSegment(parts)) return;
   let node = obj;
   for (let i = 0; i < parts.length - 1; i++) {
     const part = parts[i]!;
@@ -42,6 +58,7 @@ function setPath(obj: Catalog, path: string, value: string): void {
 
 function deletePath(obj: Catalog, path: string): void {
   const parts = path.split(".");
+  if (hasUnsafeSegment(parts)) return;
   let node: Catalog = obj;
   for (let i = 0; i < parts.length - 1; i++) {
     const next = node[parts[i]!];
@@ -57,7 +74,7 @@ function deletePath(obj: Catalog, path: string): void {
  * the swap and re-render.
  *
  * `removed` is applied ONLY when `opts.allowRemove` is true (default
- * false): a delta landing on an OLD build must never remove keys — the old
+ * false): a delta landing on an OLD build must never remove keys. The old
  * build's code still calls them, and a rename would render the raw key
  * literal. Removal only takes effect at the next bake.
  */
@@ -79,12 +96,12 @@ function varsOf(value: string): Set<string> {
 }
 
 /**
- * Publish-time compatibility gate: a changed string may only ship as a
+ * Publish-time compatibility check: a changed string may only ship as a
  * delta to older builds if it uses exactly the same `{var}` set as the
  * string it replaces. Otherwise the caller must version-pin instead of
  * shipping the delta to old builds (e.g. "Hello {name}" -> "{count} left").
  */
-export function assertCompatible(fromVal: string, toVal: string): boolean {
+export function isPlaceholderCompatible(fromVal: string, toVal: string): boolean {
   const from = varsOf(fromVal);
   const to = varsOf(toVal);
   if (from.size !== to.size) return false;

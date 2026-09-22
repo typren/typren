@@ -5,8 +5,8 @@ import { hashCatalog } from "../canonicalize";
 /**
  * Minimal storage contract, shaped like `localStorage` (`getItem`/`setItem`)
  * so real `localStorage` can be passed straight through with no adapter.
- * `removeItem`/`key`/`length` are OPTIONAL — a plain two-method object still
- * satisfies the type — and only enable best-effort eviction of stale cache
+ * `removeItem`/`key`/`length` are OPTIONAL; a plain two-method object still
+ * satisfies the type. They only enable best-effort eviction of stale cache
  * entries when present (real `localStorage` has all three).
  */
 export interface KVStorage {
@@ -44,8 +44,8 @@ function defaultStorage(): KVStorage {
 
 // Cache reads/writes get their own try/catch, separate from the outer
 // fail-to-baked guard in loadMessages: a private-window write failure (quota
-// exceeded, storage disabled) must not discard an already-verified merge —
-// caching is best-effort, the returned catalog isn't contingent on it.
+// exceeded, storage disabled) must not discard an already-verified merge.
+// Caching is best-effort; the returned catalog isn't contingent on it.
 function safeGet(storage: KVStorage, key: string): string | null {
   try {
     return storage.getItem(key);
@@ -65,7 +65,7 @@ function safeSet(storage: KVStorage, key: string, value: string): boolean {
 
 /**
  * Best-effort removal of this {app,lang}'s cache entries from OTHER build
- * versions — every deploy changes the cache key, so without eviction old
+ * versions. Every deploy changes the cache key, so without eviction old
  * entries accumulate in localStorage forever. Skipped entirely when the
  * storage doesn't expose enumeration (plain getItem/setItem objects).
  */
@@ -89,7 +89,7 @@ interface CacheEntry {
   catalog: Catalog;
 }
 
-/** A corrupt/garbage cached value (bad JSON, wrong shape) is a cache miss, not an error — the next safeSet repairs it. */
+/** A corrupt/garbage cached value (bad JSON, wrong shape) is a cache miss, not an error. The next safeSet repairs it. */
 function parseCacheEntry(raw: string): CacheEntry | null {
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -108,6 +108,53 @@ function parseCacheEntry(raw: string): CacheEntry | null {
   return null;
 }
 
+/**
+ * Shape this client needs from a `PublishedDelta` (see `build/catalog.ts`):
+ * just enough to verify and apply an additive delta. The fetched catalog is
+ * already a trust boundary here (CDN compromise, MITM on a misconfigured
+ * origin), so a fetched delta gets the same shape check before its
+ * `changed` keys ever reach `merge`.
+ */
+interface FetchedDelta {
+  changed: Record<string, string>;
+  additiveHash: string;
+}
+
+function isFetchedDelta(value: unknown): value is FetchedDelta {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as FetchedDelta).changed === "object" &&
+    (value as FetchedDelta).changed !== null &&
+    typeof (value as FetchedDelta).additiveHash === "string"
+  );
+}
+
+// Capped at MEMO_CAP entries, oldest evicted first: enough to cover a
+// handful of {app,lang,buildVersion} combos in one tab without growing
+// unbounded across a long session.
+const MEMO_CAP = 8;
+const memoCache = new Map<string, Catalog>();
+
+function memoSet(key: string, catalog: Catalog): void {
+  memoCache.delete(key);
+  memoCache.set(key, catalog);
+  if (memoCache.size > MEMO_CAP) {
+    const oldestKey = memoCache.keys().next().value;
+    if (oldestKey !== undefined) memoCache.delete(oldestKey);
+  }
+}
+
+/**
+ * Clears the module-level merge memo. Test-only: this package's own test
+ * suite reuses identical {app,lang,buildVersion,content} combinations across
+ * `it` blocks, which would otherwise collide on the memo key with a prior
+ * case and skip the storage/fetch behavior that case means to exercise.
+ */
+export function clearLoadMessagesMemo(): void {
+  memoCache.clear();
+}
+
 export interface LoadMessagesOptions {
   app: string;
   lang: string;
@@ -117,6 +164,14 @@ export interface LoadMessagesOptions {
   manifestUrl: string;
   /** Builds the URL for the full catalog at a given content hash. */
   catalogUrl: (hash: string) => string;
+  /**
+   * Builds the URL for a precomputed additive delta from `fromHash` to
+   * `toHash` (see `PublishedDelta` in build/catalog.ts). Optional: when set,
+   * `loadMessages` tries this smaller delta-first path before falling back
+   * to the full catalog fetch. Omit it to keep the full-catalog-only
+   * behavior.
+   */
+  deltaUrl?: (fromHash: string, toHash: string) => string;
   /** Injected fetch, `(url) => Promise<json>`. Defaults to global `fetch`. */
   fetchImpl?: (url: string) => Promise<unknown>;
   storage?: KVStorage;
@@ -132,24 +187,38 @@ async function defaultFetch(url: string): Promise<unknown> {
 
 /**
  * Fail-safe OTA delta loader. Never throws: any fetch/parse failure resolves
- * to `bakedCatalog` — a bad OTA payload must never break the app, only skip
- * the update. Order of operations:
+ * to `bakedCatalog`, because a bad OTA payload must never break the app. It
+ * can only skip the update. Order of operations:
  *
- *  1. GET the manifest -> remote hash R for {app,lang}.
- *  2. If a cache entry for {app,lang,buildVersion} already carries hash R,
- *     reuse its already-merged catalog (skips re-fetching + re-merging).
+ *  1. GET the manifest to get remote hash R for {app,lang}.
+ *  2. A module-level memo keyed by {app,lang,buildVersion,R} returns the
+ *     SAME object reference on a repeat poll against an unchanged R, with no
+ *     storage read and no catalog/delta fetch beyond the manifest. This
+ *     matters downstream: callers gate a re-render on reference equality.
+ *  3. If a cache entry for {app,lang,buildVersion} already carries hash R,
+ *     reuse its already-merged catalog (skips re-fetching and re-merging).
  *     Keying by buildVersion means a stale build's cache entry can never be
- *     read by a newer build (different key), so it can't leak mismatched
- *     content forward across a deploy.
- *  3. Else if R === bakedHash, return baked as-is (no catalog fetch at all).
- *  4. Else fetch the full catalog at R and verify the FETCHED content hashes
- *     to R (content-address check — corruption/tampering reports via
+ *     read by a newer build, since that build uses a different key, so it
+ *     can never leak mismatched content forward across a deploy.
+ *  4. Else if R equals bakedHash, return baked as-is (no catalog fetch at all).
+ *  5. Else, when `deltaUrl` is set, try the precomputed additive delta
+ *     first: fetch it, apply its `changed` keys onto baked with
+ *     `allowRemove:false`, and verify the merge hashes to the delta's
+ *     `additiveHash`. A verified hit is far cheaper than the full catalog on
+ *     a typical poll. Any fetch, parse, or shape failure falls through
+ *     silently to step 6 (a 404 just means the baked hash fell outside the
+ *     precomputed window, e.g. a fresh CI build with no history yet). A
+ *     hash mismatch reports through `onError` and also falls through to
+ *     step 6, rather than straight to baked, so a delta bug never blocks an
+ *     update the full-catalog path could still deliver.
+ *  6. Fetch the full catalog at R and verify the FETCHED content hashes to R
+ *     (a content-address check; corruption or tampering reports via
  *     `onError` and falls back to baked). Then merge over baked with
  *     `allowRemove:false` (a delta must never remove keys for an old build),
  *     cache the merged result under R, and return it. The merged catalog is
  *     deliberately NOT required to hash to R: a release that removed keys
- *     makes that unsatisfiable by design (the no-remove merge keeps them),
- *     and requiring it would permanently brick OTA for such releases.
+ *     makes that unsatisfiable by design, since the no-remove merge keeps
+ *     them, and requiring it would permanently brick OTA for such releases.
  */
 export async function loadMessages(options: LoadMessagesOptions): Promise<Catalog> {
   const {
@@ -160,6 +229,7 @@ export async function loadMessages(options: LoadMessagesOptions): Promise<Catalo
     bakedHash,
     manifestUrl,
     catalogUrl,
+    deltaUrl,
     fetchImpl = defaultFetch,
     storage = defaultStorage(),
     onError,
@@ -172,13 +242,53 @@ export async function loadMessages(options: LoadMessagesOptions): Promise<Catalo
     const remoteHash = manifest.apps[app]?.[lang]?.hash;
     if (!remoteHash) return bakedCatalog; // nothing published for this app/lang
 
+    const memoKey = `${cacheKey}:${remoteHash}`;
+    const memoized = memoCache.get(memoKey);
+    if (memoized) return memoized;
+
     const cachedRaw = safeGet(storage, cacheKey);
     if (cachedRaw) {
       const cached = parseCacheEntry(cachedRaw);
-      if (cached && cached.hash === remoteHash) return cached.catalog;
+      if (cached && cached.hash === remoteHash) {
+        memoSet(memoKey, cached.catalog);
+        return cached.catalog;
+      }
     }
 
-    if (remoteHash === bakedHash) return bakedCatalog;
+    if (remoteHash === bakedHash) {
+      memoSet(memoKey, bakedCatalog);
+      return bakedCatalog;
+    }
+
+    if (deltaUrl) {
+      try {
+        const rawDelta = await fetchImpl(deltaUrl(bakedHash, remoteHash));
+        if (isFetchedDelta(rawDelta)) {
+          const additiveMerged = merge(bakedCatalog, { changed: rawDelta.changed, removed: [] }, { allowRemove: false });
+          const additiveMergedHash = await hashCatalog(additiveMerged);
+          if (additiveMergedHash === rawDelta.additiveHash) {
+            const written = safeSet(
+              storage,
+              cacheKey,
+              JSON.stringify({ hash: remoteHash, catalog: additiveMerged } satisfies CacheEntry),
+            );
+            if (written) evictStaleEntries(storage, `locale:${app}:${lang}:`, cacheKey);
+            memoSet(memoKey, additiveMerged);
+            return additiveMerged;
+          }
+          onError?.(
+            new Error(
+              `ota delta additive-hash mismatch for ${app}/${lang}: delta claims ${rawDelta.additiveHash}, additive merge hashes to ${additiveMergedHash}`,
+            ),
+          );
+        }
+        // Wrong shape: treated the same as a fetch failure below, a silent
+        // fall-through to the full-catalog path.
+      } catch {
+        // Delta fetch/parse failure (404, network error, bad JSON): the
+        // common case, not an error. Fall through silently.
+      }
+    }
 
     const remoteCatalog = (await fetchImpl(catalogUrl(remoteHash))) as Catalog;
     const contentHash = await hashCatalog(remoteCatalog);
@@ -191,6 +301,7 @@ export async function loadMessages(options: LoadMessagesOptions): Promise<Catalo
 
     const written = safeSet(storage, cacheKey, JSON.stringify({ hash: remoteHash, catalog: merged } satisfies CacheEntry));
     if (written) evictStaleEntries(storage, `locale:${app}:${lang}:`, cacheKey);
+    memoSet(memoKey, merged);
     return merged;
   } catch (error) {
     onError?.(error);

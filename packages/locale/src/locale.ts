@@ -2,7 +2,7 @@ import type { Catalog } from "./types";
 
 /**
  * Dot-path lookup into a nested catalog, e.g. "Namespace.KeyName". Returns
- * `{ value: string }` rather than a bare string — that wrapper shape is
+ * `{ value: string }` rather than a bare string. That wrapper shape is
  * this package's stable return convention (see `t` below), kept even here
  * for callers that resolve without interpolating.
  */
@@ -19,11 +19,11 @@ export function resolve(catalog: Catalog, key: string): { value: string } | unde
 }
 
 // Matches a single `{var}` placeholder, but not one embedded inside a
-// doubled `{{var}}` — those are left alone verbatim (not our syntax).
+// doubled `{{var}}`. Those are left alone verbatim (not our syntax).
 const PLACEHOLDER = /(?<!\{)\{(\w+)\}(?!\})/g;
 
 /**
- * Flat single-brace `{var}` substitution only — no ICU plural/select, no
+ * Flat single-brace `{var}` substitution only. No ICU plural/select, no
  * `{{ }}`. A missing arg leaves the placeholder literal instead of throwing.
  */
 export function interpolate(template: string, args?: Record<string, string | number>): string {

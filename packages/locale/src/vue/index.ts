@@ -5,8 +5,8 @@ import { loadMessages, type LoadMessagesOptions } from "../ota";
 /**
  * Shape of the in-house `vue-composable` i18n store: an i18n definition
  * (`{ locale, messages, fallback }`) held behind a `shallowRef` and replaced
- * wholesale via `setI18n`. This adapter feeds the existing render engine
- * (it already handles interpolation/plurals) — it only swaps message
+ * wholesale via `setI18n`. This adapter feeds the existing render engine,
+ * which already handles interpolation/plurals. It only swaps message
  * strings in, never interpolates itself.
  */
 export interface VueComposableI18nDefinition {
@@ -23,7 +23,13 @@ export interface VueI18nStoreLike {
 export type ApplyOtaOptions = Omit<LoadMessagesOptions, "bakedCatalog" | "bakedHash" | "lang"> & {
   /** Locale to patch, e.g. "en-GB". */
   locale: string;
-  /** Baked hash for {app,locale}; defaults to hashing the loaded messages. */
+  /**
+   * Baked hash for {app,locale}. Defaults to hashing the loaded messages on
+   * every call, which is correct but re-hashes the whole baked catalog
+   * (every key, easily ~10^4 for a typical app) on every OTA poll. Pass the
+   * build-time constant instead (computed once at build and inlined) to
+   * skip that repeated hashing; this is the recommended production setting.
+   */
   bakedHash?: string;
 };
 
@@ -32,9 +38,10 @@ export type ApplyOtaOptions = Omit<LoadMessagesOptions, "bakedCatalog" | "bakedH
  * `vue-composable` messages, replacing `i18n` via `setI18n` so the
  * `shallowRef` identity changes and `$t` re-renders.
  *
- * Additive + fail-safe. Leaves the store untouched when: the locale's
- * messages are still a lazy `() => import()` (not loaded yet — call again
- * after load), OTA reports no change, or anything throws. Never throws.
+ * Additive and fail-safe. Leaves the store untouched when the locale's
+ * messages are still a lazy `() => import()` (not loaded yet, call again
+ * after load), when OTA reports no change, or when anything throws. Never
+ * throws.
  */
 export async function applyOtaForLocale(store: VueI18nStoreLike, options: ApplyOtaOptions): Promise<void> {
   const { locale, bakedHash, ...rest } = options;
@@ -50,7 +57,7 @@ export async function applyOtaForLocale(store: VueI18nStoreLike, options: ApplyO
       bakedCatalog,
       bakedHash: bakedHash ?? (await hashCatalog(bakedCatalog)),
     });
-    if (merged === bakedCatalog) return; // no change — leave the store alone
+    if (merged === bakedCatalog) return; // no change, leave the store alone
     store.setI18n({
       ...current,
       messages: { ...current.messages, [locale]: merged },
@@ -71,9 +78,10 @@ export interface VueI18nGlobalLike {
 
 /**
  * vue-i18n variant of {@link applyOtaForLocale}: merges the OTA delta onto a
- * locale via `i18n.global.setLocaleMessage`. Additive + fail-safe — leaves
+ * locale via `i18n.global.setLocaleMessage`. Additive and fail-safe. Leaves
  * the instance untouched when the locale isn't loaded yet (empty message
- * object), OTA reports no change, or anything throws. Never throws.
+ * object), when OTA reports no change, or when anything throws. Never
+ * throws.
  */
 export async function applyOtaVueI18n(global: VueI18nGlobalLike, options: ApplyOtaOptions): Promise<void> {
   const { locale, bakedHash, ...rest } = options;

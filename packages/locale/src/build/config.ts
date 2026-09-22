@@ -1,6 +1,6 @@
 import type { SourceConfig } from "./provider";
 
-/** The committed `locale-adapter.config.json` shape — no secret values, ${VAR} placeholders resolved at run time. */
+/** The committed build-config file shape ({ app, source }). No secret values; ${VAR} placeholders are resolved at run time. */
 export interface BuildConfig {
   app: string;
   source: SourceConfig;
@@ -11,7 +11,7 @@ const ENV_VAR_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 /**
  * Recursively interpolates `${VAR}` placeholders in every string leaf of
  * `config` against `env` (defaults to `process.env`). Throws a clear error
- * naming the missing var + the dot-path it was referenced at — never
+ * naming the missing var and the dot-path it was referenced at. It never
  * silently sends an empty token to a source. Non-string values pass through
  * unchanged.
  */
@@ -37,7 +37,7 @@ export function resolveConfigEnv<T>(config: T, env: Record<string, string | unde
   return resolveValue(config, "") as T;
 }
 
-/** Every distinct `${VAR}` name referenced anywhere in `config` — reports every missing var at once instead of failing fast on the first. */
+/** Every distinct `${VAR}` name referenced anywhere in `config`. Reports every missing var at once instead of failing fast on the first. */
 export function collectEnvVarNames(config: unknown): string[] {
   const names = new Set<string>();
   const walk = (value: unknown) => {

@@ -1,4 +1,4 @@
-export type { BuildOptions, BuildResult } from "./catalog";
+export type { BuildOptions, BuildResult, PublishedDelta } from "./catalog";
 export { buildCatalogs, writeDelta } from "./catalog";
 export type { BuildConfig } from "./config";
 export { resolveConfigEnv, collectEnvVarNames } from "./config";

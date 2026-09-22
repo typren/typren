@@ -11,7 +11,7 @@ function listJsonFiles(dir: string): string[] {
 /**
  * Reference LocaleSourceProvider: a directory of one `<locale>.json` per
  * locale. Proves the port's raw/normalized split even without a real HTTP
- * source — `loadRawEntries` never touches a filename, `loadSource` applies
+ * source: `loadRawEntries` never touches a filename, `loadSource` applies
  * `langMap` (default "_" -> "-") to the catalog key only.
  */
 export function createFsSourceProvider(dir: string, langMap?: Record<string, string>): LocaleSourceProvider {
