@@ -136,7 +136,11 @@ export function setEnabled(on: boolean): void {
   writeState({ ...readState(), enabled: on });
 }
 
-function readCliVersion(): string {
+/** This package's own version, read from its package.json rather than a
+ *  hardcoded string that drifts on every release bump. Shared with cli.ts's
+ *  `--version` (both ship as dist/ siblings, so "../package.json" resolves
+ *  the same way from either). */
+export function readCliVersion(): string {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const raw = fs.readFileSync(path.join(here, "..", "package.json"), "utf8");
