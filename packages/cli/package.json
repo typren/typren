@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
     "check:scaffold": "node scripts/check-scaffold.mjs"
   },
