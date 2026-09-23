@@ -1,6 +1,6 @@
 {
   "name": "@typren/forms",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Form handling for typren sites: a canonical submission model with server-authoritative validation, honeypot plus pluggable spam verification, a web-standard Request/Response handler, and pluggable delivery sinks (webhook, HubSpot, Google Sheets, JSONL file).",
   "keywords": [
     "cms",
