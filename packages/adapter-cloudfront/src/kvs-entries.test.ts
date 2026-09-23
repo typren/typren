@@ -20,6 +20,25 @@ describe("toKvsEntries", () => {
     expect(toKvsEntries(entries)).toEqual([{ key: "/press", value: "https://example.com/story" }]);
   });
 
+  it("carries a query or fragment through the slash canonicalization intact", () => {
+    const entries: RedirectEntry[] = [
+      { from: "/old", to: "/new?utm=1", slug: "map:m.json" },
+      { from: "/old2", to: "/new/?keep=1", slug: "map:m.json" },
+      { from: "/old3", to: "/new#section", slug: "map:m.json" },
+    ];
+    expect(toKvsEntries(entries).map((e) => e.value)).toEqual(["/new/?utm=1", "/new/?keep=1", "/new/#section"]);
+  });
+
+  it("appendSlash: false emits on-site targets verbatim (bare-URL-canonical sites)", () => {
+    const entries: RedirectEntry[] = [{ from: "/old", to: "/new", slug: "map:m.json" }];
+    expect(toKvsEntries(entries, { appendSlash: false })).toEqual([{ key: "/old", value: "/new" }]);
+  });
+
+  it("stores the key percent-encoded, the form the edge sees", () => {
+    const entries: RedirectEntry[] = [{ from: "/café page", to: "/new", slug: "map:m.json" }];
+    expect(toKvsEntries(entries)[0].key).toBe("/caf%C3%A9%20page");
+  });
+
   it("leaves on-site file targets and already-slashed targets untouched", () => {
     const entries: RedirectEntry[] = [
       { from: "/old-report", to: "/docs/report.pdf", slug: "map:m.json" },

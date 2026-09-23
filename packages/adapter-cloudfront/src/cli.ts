@@ -28,6 +28,12 @@ export type SyncRedirectsCliOptions = {
    *  With no typren content dir at all, the map alone drives the sync, which
    *  is what a non-typren CloudFront site uses. */
   map?: string;
+  /** `false` for a site whose canonical page URLs are the bare form: on-site
+   *  targets are then synced verbatim instead of gaining the trailing slash.
+   *  Default `true`, the trailing-slash static-export shape. */
+  trailingSlash?: boolean;
+  /** Permit an empty desired state to delete every live key (see sync.ts). */
+  allowEmpty?: boolean;
 };
 
 export type SyncRedirectsCliResult = { ok: true; result: SyncResult } | { ok: false; error: string };
@@ -41,11 +47,19 @@ export async function runSyncRedirects(cwd: string, opts: SyncRedirectsCliOption
     const contentDir = opts.contentDir ? path.resolve(cwd, opts.contentDir) : detectContentDir(cwd);
     const store = scanContentStore(contentDir);
     const fromContent = buildRedirects(store, { homeSlug: opts.homeSlug });
+    // Canonical public paths of the scanned pages, so a map entry can't
+    // silently 301 a live page away (mergeRedirectEntries refuses shadows).
+    const pagePaths = store.listPages().map((p) => (p.slug === opts.homeSlug ? "/" : `/${p.slug}`));
     const entries = opts.map
-      ? mergeRedirectEntries(fromContent, await loadRedirectMap(cwd, opts.map))
+      ? mergeRedirectEntries(fromContent, await loadRedirectMap(cwd, opts.map), pagePaths)
       : fromContent;
-    const want = new Map(toKvsEntries(entries).map(({ key, value }) => [key, value]));
-    const result = await syncRedirects(client, opts.storeName ?? DEFAULT_STORE_NAME, want, { dryRun: opts.dryRun });
+    const want = new Map(
+      toKvsEntries(entries, { appendSlash: opts.trailingSlash !== false }).map(({ key, value }) => [key, value])
+    );
+    const result = await syncRedirects(client, opts.storeName ?? DEFAULT_STORE_NAME, want, {
+      dryRun: opts.dryRun,
+      allowEmpty: opts.allowEmpty,
+    });
     return { ok: true, result };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -128,7 +142,7 @@ function printHelp(): void {
   console.log(`typren-cloudfront: CloudFront host adapter for typren
 
 Usage:
-  npx typren-cloudfront sync-redirects [--content-dir <path>] [--map <file>] [--store <name>] [--home-slug <slug>] [--dry-run]
+  npx typren-cloudfront sync-redirects [--content-dir <path>] [--map <file>] [--store <name>] [--home-slug <slug>] [--trailing-slash false] [--allow-empty] [--dry-run]
   npx typren-cloudfront bootstrap --distribution-id <id> [--store <name>] [--function-name <name>] [--force]
   npx typren-cloudfront --help
 
@@ -171,14 +185,31 @@ export async function main(argv: string[] = process.argv.slice(2), clients: Main
   const flags = parseFlags(argv.slice(1));
   const kvsClient = clients.kvs ?? createAwsCliKvsClient();
 
+  // A value-taking flag followed by another flag parses as boolean true
+  // (`--map --dry-run`): silently discarding it would run WITHOUT the map,
+  // and with the empty-state delete guard off that's how a whole redirect
+  // map gets wiped. Fail loud instead.
+  const stringFlag = (name: string): string | undefined => {
+    const value = flags[name];
+    if (value === true) {
+      console.error(`typren-cloudfront: --${name} requires a value`);
+      process.exitCode = 1;
+      return undefined;
+    }
+    return typeof value === "string" ? value : undefined;
+  };
+
   if (command === "sync-redirects") {
     const opts: SyncRedirectsCliOptions = {
-      contentDir: typeof flags["content-dir"] === "string" ? flags["content-dir"] : undefined,
-      storeName: typeof flags.store === "string" ? flags.store : undefined,
-      homeSlug: typeof flags["home-slug"] === "string" ? flags["home-slug"] : undefined,
+      contentDir: stringFlag("content-dir"),
+      storeName: stringFlag("store"),
+      homeSlug: stringFlag("home-slug"),
       dryRun: flags["dry-run"] === true,
-      map: typeof flags.map === "string" ? flags.map : undefined,
+      map: stringFlag("map"),
+      trailingSlash: stringFlag("trailing-slash") !== "false",
+      allowEmpty: flags["allow-empty"] === true,
     };
+    if (process.exitCode === 1) return;
     const result = await runSyncRedirects(process.cwd(), opts, kvsClient);
     printSyncResult(result, opts);
     return;
@@ -186,11 +217,12 @@ export async function main(argv: string[] = process.argv.slice(2), clients: Main
 
   // command === "bootstrap"
   const opts: BootstrapCliOptions = {
-    distributionId: typeof flags["distribution-id"] === "string" ? flags["distribution-id"] : undefined,
-    storeName: typeof flags.store === "string" ? flags.store : undefined,
-    functionName: typeof flags["function-name"] === "string" ? flags["function-name"] : undefined,
+    distributionId: stringFlag("distribution-id"),
+    storeName: stringFlag("store"),
+    functionName: stringFlag("function-name"),
     force: flags.force === true,
   };
+  if (process.exitCode === 1) return;
   const result = await runBootstrap(opts, kvsClient, clients.cf ?? createAwsCliCloudFrontClient());
   printBootstrapResult(result);
 }

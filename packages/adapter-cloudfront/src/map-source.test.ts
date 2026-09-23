@@ -58,6 +58,18 @@ describe("loadRedirectMap", () => {
     await expect(loadRedirectMap(dir, file)).rejects.toThrow(/'to' must be an absolute path or http\(s\) URL/);
   });
 
+  it("rejects protocol-relative, backslash and control-char targets", async () => {
+    for (const to of ["//evil.example", "/x\\evil", "/x\r\ninjected", "https://e.com/a b"]) {
+      const file = write("unsafe.json", JSON.stringify([{ from: "/old", to }]));
+      await expect(loadRedirectMap(dir, file)).rejects.toThrow(/'to' must|protocol-relative/);
+    }
+  });
+
+  it("rejects a self-redirect, which would 301-loop at the edge", async () => {
+    const file = write("loop.json", JSON.stringify([{ from: "/x", to: "/x/" }]));
+    await expect(loadRedirectMap(dir, file)).rejects.toThrow(/redirects to itself/);
+  });
+
   it("rejects a duplicate 'from' after normalization", async () => {
     const file = write(
       "dupe.json",
@@ -87,5 +99,11 @@ describe("mergeRedirectEntries", () => {
   it("refuses a 'from' claimed by both sources, naming them", () => {
     const map: RedirectEntry[] = [{ from: "/old-about", to: "/elsewhere", slug: "map:m.json" }];
     expect(() => mergeRedirectEntries(content, map)).toThrow(/"about" \(frontmatter\) and "map:m\.json"/);
+  });
+
+  it("refuses a map entry that shadows a live page's canonical path", () => {
+    const map: RedirectEntry[] = [{ from: "/pricing", to: "/plans", slug: "map:m.json" }];
+    expect(() => mergeRedirectEntries(content, map, ["/pricing", "/about"])).toThrow(/live page's own path/);
+    expect(mergeRedirectEntries(content, map, ["/about"])).toHaveLength(2);
   });
 });

@@ -64,6 +64,16 @@ describe("runSyncRedirects", () => {
     });
   });
 
+  it("errors when a value-taking flag swallows the next flag (--map --dry-run)", async () => {
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((message) => void errors.push(String(message)));
+    await main(["sync-redirects", "--map", "--dry-run"], { kvs: fakeKvsClient() });
+    expect(process.exitCode).toBe(1);
+    expect(errors.join("\n")).toMatch(/--map requires a value/);
+    process.exitCode = 0;
+    spy.mockRestore();
+  });
+
   it("merges frontmatter aliases with the map and refuses a cross-source duplicate", async () => {
     dir = mkdtempSync(path.join(tmpdir(), "typren-content-"));
     writeFileSync(path.join(dir, "about.md"), '---\nslices: []\naliases: ["/old-about"]\n---\n');
@@ -71,6 +81,19 @@ describe("runSyncRedirects", () => {
 
     const result = await runSyncRedirects(dir, { contentDir: dir, map: "redirects.json" }, fakeKvsClient());
     expect(result).toMatchObject({ ok: false, error: expect.stringContaining("declared by both") });
+  });
+
+  it("syncs targets verbatim with trailingSlash: false (bare-URL-canonical site)", async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "typren-content-"));
+    writeFileSync(path.join(dir, "redirects.json"), JSON.stringify([{ from: "/legacy", to: "/hub" }]));
+
+    const client = fakeKvsClient();
+    const result = await runSyncRedirects(
+      dir,
+      { contentDir: dir, map: "redirects.json", trailingSlash: false },
+      client
+    );
+    expect(result).toMatchObject({ ok: true, result: { puts: [{ key: "/legacy", value: "/hub" }] } });
   });
 
   it("defaults the store name", async () => {

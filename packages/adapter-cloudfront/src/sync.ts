@@ -6,6 +6,10 @@ export const KVS_UPDATE_BATCH_SIZE = 50;
 
 export type SyncOptions = {
   dryRun?: boolean;
+  /** Permit a sync whose desired state is EMPTY to delete every live key.
+   *  Off by default: an empty `want` is far more often a wrong cwd or a
+   *  mistyped flag than a real intention to unpublish every redirect. */
+  allowEmpty?: boolean;
 };
 
 export type SyncResult = {
@@ -34,6 +38,13 @@ export async function syncRedirects(client: KvsClient, storeName: string, want: 
 
   const puts = [...want].filter(([key, value]) => liveMap.get(key) !== value).map(([key, value]) => ({ key, value }));
   const deletes = [...liveMap.keys()].filter((key) => !want.has(key));
+
+  if (want.size === 0 && deletes.length > 0 && !opts.allowEmpty && !opts.dryRun) {
+    throw new Error(
+      `typren: refusing to delete all ${deletes.length} live redirect(s) because the desired state is empty — ` +
+        `usually a wrong working directory or a missing --map. Pass --allow-empty if unpublishing everything is intended.`
+    );
+  }
 
   if ((puts.length === 0 && deletes.length === 0) || opts.dryRun) {
     return { puts, deletes, applied: false };
