@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { NextRequest } from "next/server";
+import { NextRequest } from "next/server.js";
 import {
   createMarkdownMirrorMiddleware,
   createMarkdownRouteHandler,
