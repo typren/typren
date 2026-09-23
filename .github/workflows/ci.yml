@@ -55,13 +55,15 @@ jobs:
         env:
           COVERAGE_BASE_REF: origin/develop
 
-      # Changesets already ships the "did this PR touch a package without
-      # declaring a bump" check natively (`status --since`, exit 1 when a
-      # workspace package changed but no changeset covers it) — no need for a
-      # bespoke script. A change that shouldn't bump anything (docs, tests,
-      # CI) still needs `changeset add --empty` to clear this, which is the
-      # correct way to say "seen, no release" rather than the check having a
-      # separate docs/tests/CI carve-out it has to get right.
+      # Changesets already ships a "packages changed but no changeset declared"
+      # check natively (`status --since`, exit 1) — no need for a bespoke
+      # script. Note the check is repo-global, not per-package: ANY changeset
+      # on the branch clears ALL touched packages, so it enforces "the author
+      # thought about releasing", not "every touched package is covered". A
+      # change that shouldn't bump anything (docs, tests, CI) still needs
+      # `changeset add --empty` to clear it, which is the correct way to say
+      # "seen, no release" rather than the check having a separate
+      # docs/tests/CI carve-out it has to get right.
       #
       # The one legitimate carve-out is the Version Packages PR itself:
       # `changeset version` consumes the changeset files while bumping
