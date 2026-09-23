@@ -1,5 +1,11 @@
 # @typren/forms
 
+## 0.1.1
+
+### Patch Changes
+
+- 168e325: 0.1.0 was published without its dist (build never ran for the package in the release job); this release repairs the pipeline and republishes with the compiled output.
+
 ## 0.1.0
 
 ### Minor Changes
