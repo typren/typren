@@ -284,7 +284,12 @@ describe("createVueComposableOtaClient", () => {
       fallback: "en",
       messages: { en: { Greeting: "Hello", Nested: { Bye: "Bye" } }, es: { Greeting: "Hola" } },
     });
-    const remoteEn: Catalog = { Greeting: "Hello v2", Nested: { Bye: "Bye v2" }, Added: "New" };
+    const remoteEn: Catalog = {
+      Greeting: "Hello v2",
+      Nested: { Bye: "Bye v2" },
+      Added: "New",
+      AddedTree: { Deep: "x" },
+    };
     const client = createVueComposableOtaClient(
       () => instanceOf(engine, "en"),
       clientOpts({
@@ -374,6 +379,67 @@ describe("createVueComposableOtaClient", () => {
     );
     await client.apply("es");
     expect(calls).toEqual([["es", { Greeting: "Hola {name}!" }]]);
+  });
+
+  it("passes a per-locale deltaUrl through and uses the verified delta", async () => {
+    const { instance, calls } = makeInstance("es");
+    const baked: Catalog = { Greeting: "Hola" };
+    const merged: Catalog = { Greeting: "Hola v2" };
+    const bakedHash = await hashCatalog(baked);
+    const remoteHash = await hashCatalog(merged);
+    const deltaUrls: string[] = [];
+    const client = createVueComposableOtaClient(
+      () => instance,
+      clientOpts({
+        bakedCatalogFor: () => ({ Greeting: "Hola" }),
+        deltaUrl: (locale, fromHash, toHash) => {
+          const url = `https://cdn/delta/site/${locale}/${fromHash}-${toHash}.json`;
+          deltaUrls.push(url);
+          return url;
+        },
+        fetchImpl: async (url) => {
+          if (url.includes("manifest")) {
+            return { v: 1, buildVersion: "b1", apps: { site: { es: { hash: remoteHash } } } } satisfies Manifest;
+          }
+          if (url.includes("delta")) {
+            return { changed: { Greeting: "Hola v2" }, additiveHash: remoteHash };
+          }
+          throw new Error(`full catalog must not be fetched: ${url}`);
+        },
+      }),
+    );
+    await client.apply("es");
+    expect(deltaUrls).toEqual([`https://cdn/delta/site/es/${bakedHash}-${remoteHash}.json`]);
+    expect(calls).toEqual([["es", merged]]);
+  });
+
+  it("bakedCatalogFor failure reports through onError and injects nothing", async () => {
+    const { instance, calls } = makeInstance("es");
+    const errors: unknown[] = [];
+    const client = createVueComposableOtaClient(
+      () => instance,
+      clientOpts({
+        bakedCatalogFor: () => {
+          throw new Error("baked catalog module missing");
+        },
+        fetchImpl: makeClientFetch("site", { es: { Greeting: "Hola v2" } }),
+        onError: (e) => errors.push(e),
+      }),
+    );
+    await client.apply("es");
+    expect(calls).toEqual([]);
+    expect(errors).toHaveLength(1);
+  });
+
+  it("nullish instance (store not ready) skips injection without throwing", async () => {
+    const client = createVueComposableOtaClient(
+      () => null,
+      clientOpts({
+        bakedCatalogFor: () => ({ Greeting: "Hola" }),
+        fetchImpl: makeClientFetch("site", { es: { Greeting: "Hola v2" } }),
+      }),
+    );
+    await expect(client.apply("es")).resolves.toBeUndefined();
   });
 
   it("race: a stale apply resolving after a newer one never injects", async () => {
