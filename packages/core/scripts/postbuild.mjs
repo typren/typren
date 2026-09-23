@@ -53,8 +53,8 @@ for (const file of walk(DIST).filter((f) => f.endsWith(".js") || f.endsWith(".d.
 copyFileSync("src/theme.css", path.join(DIST, "theme.css"));
 
 // Smoke: raw Node ESM must load every server-safe entry, including `seo`
-// (it imports `next/server.js`, which IS in next@16's exports map, unlike
-// bare `next/server`; see the changeset for this fix).
+// (it imports `next/server.js`; next ships no exports map, so the subpath
+// resolves as a file path and Node ESM needs the extension; see changeset).
 const SERVER_ENTRIES = ["index.js", "proxy.js", "i18n.js", "auth/local.js", "seo/index.js"];
 execFileSync(
   process.execPath,

@@ -16,8 +16,8 @@
  *
  * ```ts
  * // proxy.ts (host project root, alongside app/)
- * import { NextResponse } from "next/server";
- * import type { NextRequest } from "next/server";
+ * import { NextResponse } from "next/server.js";
+ * import type { NextRequest } from "next/server.js";
  * import { typrenProxyRewrite } from "@typren/core/proxy";
  *
  * export function proxy(request: NextRequest) {
