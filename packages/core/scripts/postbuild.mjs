@@ -52,11 +52,10 @@ for (const file of walk(DIST).filter((f) => f.endsWith(".js") || f.endsWith(".d.
 
 copyFileSync("src/theme.css", path.join(DIST, "theme.css"));
 
-// Smoke: raw Node ESM must load every server-safe entry. Excluded on purpose:
-// `seo` imports `next/server`, which next@16 leaves out of its exports map,
-// so that entry is Next-runtime-only and can't load under bare node by
-// construction.
-const SERVER_ENTRIES = ["index.js", "proxy.js", "i18n.js", "auth/local.js"];
+// Smoke: raw Node ESM must load every server-safe entry, including `seo`
+// (it imports `next/server.js`, which IS in next@16's exports map, unlike
+// bare `next/server`; see the changeset for this fix).
+const SERVER_ENTRIES = ["index.js", "proxy.js", "i18n.js", "auth/local.js", "seo/index.js"];
 execFileSync(
   process.execPath,
   ["--input-type=module", "-e", SERVER_ENTRIES.map((e) => `await import("./${DIST}/${e}");`).join("\n")],

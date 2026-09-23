@@ -1239,7 +1239,7 @@ export type SliceMarkdownRegistry = Record<string, (props: Record<string, unknow
 export declare function renderSlicesAsMarkdown(slices: Slice[], overrides?: SliceMarkdownRegistry): string;
 
 // ---- dist/seo/markdown-route.d.ts ----
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server.js";
 import type { ContentStore } from "../store.js";
 import { type SliceMarkdownRegistry } from "./markdown-render.js";
 /** Matches "/some-slug.md" (single path segment) and returns the slug, or

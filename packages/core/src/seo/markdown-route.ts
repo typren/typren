@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server.js";
 import type { ContentStore } from "../store";
 import { renderSlicesAsMarkdown, type SliceMarkdownRegistry } from "./markdown-render";
 
