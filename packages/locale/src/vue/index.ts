@@ -1,5 +1,4 @@
 import type { Catalog } from "../types";
-import { hashCatalog } from "../canonicalize";
 import { loadMessages, type LoadMessagesOptions } from "../ota";
 
 /**
@@ -20,17 +19,9 @@ export interface VueI18nStoreLike {
   setI18n(def: VueComposableI18nDefinition): void;
 }
 
-export type ApplyOtaOptions = Omit<LoadMessagesOptions, "bakedCatalog" | "bakedHash" | "lang"> & {
+export type ApplyOtaOptions = Omit<LoadMessagesOptions, "bakedCatalog" | "lang"> & {
   /** Locale to patch, e.g. "en-GB". */
   locale: string;
-  /**
-   * Baked hash for {app,locale}. Defaults to hashing the loaded messages on
-   * every call, which is correct but re-hashes the whole baked catalog
-   * (every key, easily ~10^4 for a typical app) on every OTA poll. Pass the
-   * build-time constant instead (computed once at build and inlined) to
-   * skip that repeated hashing; this is the recommended production setting.
-   */
-  bakedHash?: string;
 };
 
 /**
@@ -44,7 +35,7 @@ export type ApplyOtaOptions = Omit<LoadMessagesOptions, "bakedCatalog" | "bakedH
  * throws.
  */
 export async function applyOtaForLocale(store: VueI18nStoreLike, options: ApplyOtaOptions): Promise<void> {
-  const { locale, bakedHash, ...rest } = options;
+  const { locale, ...rest } = options;
   const current = store.i18n;
   const baked = current?.messages?.[locale];
   // Only patch a locale whose messages are a resolved object, not a lazy loader.
@@ -55,7 +46,6 @@ export async function applyOtaForLocale(store: VueI18nStoreLike, options: ApplyO
       ...rest,
       lang: locale,
       bakedCatalog,
-      bakedHash: bakedHash ?? (await hashCatalog(bakedCatalog)),
     });
     if (merged === bakedCatalog) return; // no change, leave the store alone
     store.setI18n({
@@ -84,7 +74,7 @@ export interface VueI18nGlobalLike {
  * throws.
  */
 export async function applyOtaVueI18n(global: VueI18nGlobalLike, options: ApplyOtaOptions): Promise<void> {
-  const { locale, bakedHash, ...rest } = options;
+  const { locale, ...rest } = options;
   const baked = global.getLocaleMessage(locale) as Catalog;
   if (!baked || Object.keys(baked).length === 0) return; // not loaded yet
   try {
@@ -92,7 +82,6 @@ export async function applyOtaVueI18n(global: VueI18nGlobalLike, options: ApplyO
       ...rest,
       lang: locale,
       bakedCatalog: baked,
-      bakedHash: bakedHash ?? (await hashCatalog(baked)),
     });
     if (merged === baked) return; // no change
     global.setLocaleMessage(locale, merged);
