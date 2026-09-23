@@ -24,8 +24,11 @@ export const exportApiPresets: Record<string, ExportApiPreset> = {
         export_empty_as: "skip",
       },
     },
+    // Response shapes differ between the two endpoints (verified against the
+    // live API): the CREATE response carries process_id at the TOP level,
+    // while the POLL response nests everything under a `process` wrapper.
     poll: {
-      idPath: "process.process_id",
+      idPath: "process_id",
       path: "/processes/{processId}",
       statusPath: "process.status",
       doneValues: ["finished"],

@@ -150,7 +150,7 @@ describe("createExportApiSourceProvider", () => {
         expect(init?.method).toBe("POST");
         expect((init?.headers as Record<string, string>)["X-Api-Token"]).toBe(TOKEN_VALUE);
         expect(JSON.parse(init?.body as string)).toMatchObject({ format: "json" });
-        return new Response(JSON.stringify({ process: { process_id: "job-1" } }), { status: 200 });
+        return new Response(JSON.stringify({ process_id: "job-1" }), { status: 200 });
       }
       if (url === `${BASE_URL}/processes/job-1`) {
         pollCalls++;
@@ -254,7 +254,7 @@ describe("createExportApiSourceProvider", () => {
     const zipped = zipSync({ "en.json": strToU8(JSON.stringify({ Greeting: "Hi" })) });
     const fetchImpl = vi.fn(async (input: string | URL) => {
       const url = String(input);
-      if (url === `${BASE_URL}/custom-export`) return new Response(JSON.stringify({ process: { process_id: "job-1" } }), { status: 200 });
+      if (url === `${BASE_URL}/custom-export`) return new Response(JSON.stringify({ process_id: "job-1" }), { status: 200 });
       if (url === `${BASE_URL}/processes/job-1`) {
         return new Response(
           JSON.stringify({ process: { status: "finished", details: { download_url: `${BASE_URL}/bundle.zip` } } }),

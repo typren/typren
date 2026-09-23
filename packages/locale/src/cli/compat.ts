@@ -48,13 +48,23 @@ export function resolveCompatCredentials(flags: Record<string, string | boolean>
 /**
  * Maps resolved credentials onto the export-api config shape (`{ type:
  * "export-api", preset: "lokalise", projectId, token }`, `ExportApiSourceConfig`
- * from ../build) with the real token in memory, never a `${VAR}` placeholder:
- * compat already has the literal secret in hand (from --token or config.yml),
- * so there's nothing left to interpolate. Split out as its own pure function
- * so the shape is directly assertable in tests, independent of resolveProvider.
+ * from ../build). The provider deliberately rejects literal token values (a
+ * secret must never sit in a committed config file), but compat legitimately
+ * holds the literal in memory, read from the vendor's own config.yml. Bridge
+ * the two policies through the process environment: stash the literal under a
+ * compat-owned env var and hand the provider a `${VAR}` reference to it. The
+ * secret never touches disk or logs, and the provider's policy stays intact.
  */
+export const COMPAT_TOKEN_ENV_VAR = "TYPREN_LOCALE_COMPAT_TOKEN";
+
 export function buildExportApiSourceConfig(credentials: { token: string; projectId: string }): ExportApiSourceConfig {
-  return { type: "export-api", preset: "lokalise", projectId: credentials.projectId, token: credentials.token };
+  process.env[COMPAT_TOKEN_ENV_VAR] = credentials.token;
+  return {
+    type: "export-api",
+    preset: "lokalise",
+    projectId: credentials.projectId,
+    token: `\${${COMPAT_TOKEN_ENV_VAR}}`,
+  };
 }
 
 export interface CompatDownloadOptions {
