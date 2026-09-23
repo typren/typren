@@ -16,12 +16,19 @@ export const exportApiPresets: Record<string, ExportApiPreset> = {
     create: {
       method: "POST",
       path: "/projects/{projectId}/files/async-download",
+      // The last three mirror the lokalise2 CLI's defaults, which differ from
+      // the raw API's: without disable_references: 0 a LINKED translation
+      // exports its own stale local value instead of the referenced key's
+      // current one (verified against a live project).
       body: {
         format: "json",
         placeholder_format: "icu",
         original_filenames: false,
         bundle_structure: "%LANG_ISO%.json",
         export_empty_as: "skip",
+        replace_breaks: true,
+        include_description: true,
+        disable_references: 0,
       },
     },
     // Response shapes differ between the two endpoints (verified against the
@@ -29,7 +36,7 @@ export const exportApiPresets: Record<string, ExportApiPreset> = {
     // while the POLL response nests everything under a `process` wrapper.
     poll: {
       idPath: "process_id",
-      path: "/processes/{processId}",
+      path: "/projects/{projectId}/processes/{processId}",
       statusPath: "process.status",
       doneValues: ["finished"],
       urlPath: "process.details.download_url",

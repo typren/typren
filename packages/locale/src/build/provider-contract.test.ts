@@ -152,7 +152,7 @@ describe("createExportApiSourceProvider", () => {
         expect(JSON.parse(init?.body as string)).toMatchObject({ format: "json" });
         return new Response(JSON.stringify({ process_id: "job-1" }), { status: 200 });
       }
-      if (url === `${BASE_URL}/processes/job-1`) {
+      if (url === `${BASE_URL}/projects/proj-1/processes/job-1`) {
         pollCalls++;
         const status = pollCalls < 2 ? "queued" : "finished";
         return new Response(
@@ -255,7 +255,7 @@ describe("createExportApiSourceProvider", () => {
     const fetchImpl = vi.fn(async (input: string | URL) => {
       const url = String(input);
       if (url === `${BASE_URL}/custom-export`) return new Response(JSON.stringify({ process_id: "job-1" }), { status: 200 });
-      if (url === `${BASE_URL}/processes/job-1`) {
+      if (url === `${BASE_URL}/projects/proj-1/processes/job-1`) {
         return new Response(
           JSON.stringify({ process: { status: "finished", details: { download_url: `${BASE_URL}/bundle.zip` } } }),
           { status: 200 },
