@@ -160,7 +160,15 @@ export interface LoadMessagesOptions {
   lang: string;
   buildVersion: string;
   bakedCatalog: Catalog;
-  bakedHash: string;
+  /**
+   * Content hash of `bakedCatalog`. Optional: when omitted, it is computed
+   * internally with `hashCatalog`, inside the same fail-to-baked guard as
+   * everything else, so an environment without `crypto.subtle` (for example
+   * an insecure origin) resolves to `bakedCatalog` via `onError` instead of
+   * throwing. Passing the build-time constant skips re-hashing the whole
+   * baked catalog on every poll and is the recommended production setting.
+   */
+  bakedHash?: string;
   manifestUrl: string;
   /** Builds the URL for the full catalog at a given content hash. */
   catalogUrl: (hash: string) => string;
@@ -200,7 +208,8 @@ async function defaultFetch(url: string): Promise<unknown> {
  *     Keying by buildVersion means a stale build's cache entry can never be
  *     read by a newer build, since that build uses a different key, so it
  *     can never leak mismatched content forward across a deploy.
- *  4. Else if R equals bakedHash, return baked as-is (no catalog fetch at all).
+ *  4. Else if R equals bakedHash (passed in, or computed here when omitted),
+ *     return baked as-is (no catalog fetch at all).
  *  5. Else, when `deltaUrl` is set, try the precomputed additive delta
  *     first: fetch it, apply its `changed` keys onto baked with
  *     `allowRemove:false`, and verify the merge hashes to the delta's
@@ -255,14 +264,19 @@ export async function loadMessages(options: LoadMessagesOptions): Promise<Catalo
       }
     }
 
-    if (remoteHash === bakedHash) {
+    // Computed only past the memo and cache paths, which never need it, so
+    // repeat polls stay hash-free. When the environment lacks `crypto.subtle`
+    // this throws into the outer fail-to-baked catch below.
+    const resolvedBakedHash = bakedHash ?? (await hashCatalog(bakedCatalog));
+
+    if (remoteHash === resolvedBakedHash) {
       memoSet(memoKey, bakedCatalog);
       return bakedCatalog;
     }
 
     if (deltaUrl) {
       try {
-        const rawDelta = await fetchImpl(deltaUrl(bakedHash, remoteHash));
+        const rawDelta = await fetchImpl(deltaUrl(resolvedBakedHash, remoteHash));
         if (isFetchedDelta(rawDelta)) {
           const additiveMerged = merge(bakedCatalog, { changed: rawDelta.changed, removed: [] }, { allowRemove: false });
           const additiveMergedHash = await hashCatalog(additiveMerged);

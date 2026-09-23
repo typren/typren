@@ -81,14 +81,51 @@ Four subpath entries, split by what each one needs to run in:
 | `@typren/locale/ota` | the runtime client (`loadMessages`) and a framework-agnostic `injectInto` helper — browser/edge-safe |
 | `@typren/locale/vue` | injectors that merge an OTA result into a running Vue i18n store |
 
-Vue is the only framework adapter today, in two flavors: one for the in-house
-`vue-composable`-style store (replaces the whole `i18n` definition behind a
-`shallowRef` so identity-gated reactivity picks it up), and one for official
-`vue-i18n` (`setLocaleMessage`, which is reactive on its own). Both are
-additive and fail-safe the same way the client underneath them is — a locale
-whose messages aren't loaded yet, or an OTA call that reports no change, just
+Vue is the only framework adapter today, in three flavors: one for the
+in-house `vue-composable`-style store (replaces the whole `i18n` definition
+behind a `shallowRef` so identity-gated reactivity picks it up), one for
+official `vue-i18n` (`setLocaleMessage`, which is reactive on its own), and
+one for a `vue-composable` RESULT instance (below). All are additive and
+fail-safe the same way the client underneath them is — a locale whose
+messages aren't loaded yet, or an OTA call that reports no change, just
 leaves the store untouched. i18next and React adapters are planned, same
 shape, not built yet.
+
+### The vue-composable instance path
+
+`createVueComposableOtaClient(getInstance, options)` is for apps whose store
+exposes the object `useI18n`/`buildI18n` *returns* (active `locale`, the
+`fallback` locale name, the resolved `i18n` tree, `addLocale`) rather than
+the definition. The factory owns per-locale application; call
+`apply(locale)` once at boot and again on every locale change:
+
+- The baked catalog always comes from `options.bakedCatalogFor(locale)`,
+  never from the instance's rendered tree: mid-switch that tree is still the
+  previous locale's content, and merging onto it would poison both the merge
+  and the localStorage cache entry.
+- An optional `transform(catalog, locale)` rewrites the merged result before
+  injection, for consumers whose build pipeline normalizes baked catalogs
+  (say `{{var}}` to `{var}` placeholder rewrites) and needs OTA content to
+  match.
+- Injection is `addLocale`, except for the fallback locale, where
+  vue-composable's resolver keeps re-serving a `fallback` ref populated once
+  from the definition, making `addLocale` a silent rendering no-op. The
+  client captures the object behind that frozen ref whenever the instance is
+  observed serving its fallback locale and applies fallback updates by deep
+  in-place mutation of it, falling back to `addLocale` until the tree is
+  capturable.
+- A monotonic generation guards injection: a stale `apply` resolving after a
+  newer one never injects. `loadMessages`' own cache write happens before
+  that guard, but it is keyed by `{app, lang, buildVersion}` and built from
+  `bakedCatalogFor`'s locale-correct catalog, so a stale apply can never
+  contaminate another locale's cache.
+
+`loadMessages` itself now also accepts an omitted `bakedHash`: the hash is
+computed internally, inside the same fail-to-baked guard, so an environment
+without `crypto.subtle` (an insecure origin) degrades to baked via `onError`
+instead of throwing. Passing the build-time constant is still the
+recommended production setting, since it skips re-hashing the baked catalog
+on every poll.
 
 ## Provider port
 

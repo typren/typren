@@ -644,6 +644,90 @@ describe("loadMessages", () => {
   });
 });
 
+describe("loadMessages with omitted bakedHash", () => {
+  it("computes the baked hash internally and still resolves the update", async () => {
+    const baked: Catalog = { Greeting: { Hello: "Hi {name}" } };
+    const remote: Catalog = { Greeting: { Hello: "Hello {name}" }, Farewell: "Bye" };
+    const remoteHash = await hashCatalog(remote);
+
+    const fetchImpl = async (url: string) => {
+      if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
+      if (url === catalogUrl(remoteHash)) return remote;
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+
+    const result = await loadMessages({
+      app: APP,
+      lang: LANG,
+      buildVersion: BUILD_VERSION,
+      bakedCatalog: baked,
+      manifestUrl: MANIFEST_URL,
+      catalogUrl,
+      fetchImpl,
+      storage: memoryStorage(),
+    });
+
+    expect(result).toEqual(remote);
+  });
+
+  it("no-change path works without a caller-supplied hash", async () => {
+    const baked: Catalog = { Greeting: { Hello: "Hi {name}" } };
+    const bakedHash = await hashCatalog(baked);
+
+    const fetchImpl = async (url: string) => {
+      if (url === MANIFEST_URL) return manifestWithHash(bakedHash);
+      throw new Error(`unexpected fetch: ${url}`); // catalog must never be requested
+    };
+
+    const result = await loadMessages({
+      app: APP,
+      lang: LANG,
+      buildVersion: BUILD_VERSION,
+      bakedCatalog: baked,
+      manifestUrl: MANIFEST_URL,
+      catalogUrl,
+      fetchImpl,
+      storage: memoryStorage(),
+    });
+
+    expect(result).toBe(baked);
+  });
+
+  it("crypto.subtle-less environment resolves to baked via onError, never throws", async () => {
+    const baked: Catalog = { Greeting: { Hello: "Hi {name}" } };
+    const remote: Catalog = { Greeting: { Hello: "Hello {name}" } };
+    const remoteHash = await hashCatalog(remote);
+
+    const fetchImpl = async (url: string) => {
+      if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
+      return remote;
+    };
+
+    const errors: unknown[] = [];
+    // Insecure origins expose `crypto` without `subtle`; the internal hash
+    // computation must fail into the outer fail-to-baked guard.
+    const realCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, "crypto", { value: {}, configurable: true });
+    try {
+      const result = await loadMessages({
+        app: APP,
+        lang: LANG,
+        buildVersion: BUILD_VERSION,
+        bakedCatalog: baked,
+        manifestUrl: MANIFEST_URL,
+        catalogUrl,
+        fetchImpl,
+        storage: memoryStorage(),
+        onError: (e) => errors.push(e),
+      });
+      expect(result).toBe(baked);
+      expect(errors).toHaveLength(1);
+    } finally {
+      Object.defineProperty(globalThis, "crypto", { value: realCrypto, configurable: true });
+    }
+  });
+});
+
 describe("injectInto", () => {
   it("calls the setter with a new object reference", () => {
     const catalog: Catalog = { A: "a" };
