@@ -1,5 +1,11 @@
 # @typren/locale
 
+## 0.2.0
+
+### Minor Changes
+
+- 5da81c0: vue-composable instance OTA client: correct fallback-locale refresh, locale-true baked catalogs, transform hook, in-flight guard; loadMessages bakedHash now optional and internally guarded.
+
 ## 0.1.1
 
 ### Patch Changes
