@@ -46,11 +46,23 @@ infra you already have.
    The map file is `.json` (an array of `{ "from": "/old", "to": "/new" }`)
    or `.mjs`/`.js` (default or named `REDIRECTS` export of the same shape).
    Targets are on-site paths (canonicalized to the trailing-slash form,
-   except file objects like `/report.pdf`) or absolute http(s) URLs (passed
-   through verbatim). A `from` declared by both sources fails the sync
-   loudly. **A site with no typren content at all syncs from the map alone**,
-   so any static site fronted by CloudFront can use this function + store +
-   sync without adopting the rest of typren.
+   except file objects like `/report.pdf`; queries and fragments ride along)
+   or absolute http(s) URLs (passed through verbatim). Validation fails loud
+   on: a `from` declared by both sources, a self-redirect (a browser-cached
+   301 loop), a map `from` that shadows a live page's path, and any
+   protocol-relative, backslash or control-character value (the off-site and
+   header-injection lookalikes). An empty desired state refuses to delete
+   every live key unless you pass `--allow-empty`. **A site with no typren
+   content at all syncs from the map alone** — the store + sync work for any
+   CloudFront site.
+
+   **Site shapes.** The canonical function serves the trailing-slash,
+   directory-index static-export shape on an S3 REST origin (`/about/` →
+   `about/index.html`, bare `/about` → 301 to `/about/`). A bare-URL-canonical
+   site (Next's `trailingSlash: false`, Hugo `uglyURLs`, plain `.html` files)
+   should NOT attach this function — bring your own viewer-request function
+   for that shape and sync with `--trailing-slash false`, which emits map
+   targets verbatim instead of slash-canonicalized.
 
    Computes puts (new/changed keys) and deletes (live keys no longer wanted),
    no-ops when nothing changed, and chunks a larger changeset at the KVS
@@ -78,6 +90,43 @@ infra you already have.
    rewrite 404'd every page but `/`). Bootstrap refuses to replace a
    *different* function unless you pass `--force`, after you've read what it
    does.
+
+## Trust boundaries
+
+- **An `.mjs`/`.js` map file is code and runs when loaded.** A CI job that
+  executes `sync-redirects --map something.mjs` on freshly merged, lightly
+  reviewed changes is executing those changes with the job's AWS
+  credentials. Use the `.json` form there, or require review on map changes.
+  Markdown content gets no such power: the scan refuses gray-matter's
+  `javascript` front-matter engine outright, so a content file can never
+  execute in the sync process.
+- **`cloudfront-keyvaluestore:UpdateKeys` is a sensitive permission.**
+  Whoever holds it controls where this site's redirects point. The edge
+  function refuses the worst classes written around this CLI (protocol-
+  relative, backslash, control characters), but scoping that IAM action
+  tightly is the real control.
+- **Browsers cache 301s indefinitely.** A wrong redirect that shipped is
+  sticky in visitors' browsers even after the store is fixed — `--dry-run`
+  before syncing to production is cheap insurance.
+
+## Scope and operational notes
+
+- **Exact-path matches only.** The KeyValueStore is an exact-key lookup: no
+  wildcards or splats (`/blog/*`). Migrating a `_redirects`-style wildcard
+  file means enumerating the real paths.
+- **Bootstrap touches the default cache behavior only**, and identifies "its"
+  function by name. Distributions with extra cache behaviors (an `/assets/*`
+  or `/api/*` behavior) need the function attached to those behaviors via
+  your own IaC, or requests they match skip redirects AND the index rewrite.
+- **Error pages are distribution config, not this package**: an S3 REST
+  origin returns XML `AccessDenied` for a missing page (403 without
+  `s3:ListBucket`) — set `CustomErrorResponses` for 403/404 → your `/404.html`
+  in your IaC.
+- **A partially failed multi-batch sync is benign**: puts land before
+  deletes, and re-running converges.
+- **Dotted page slugs** (`/docs/v1.2`) read as file objects to the
+  slash-canonicalization heuristic; give such a page an explicit
+  trailing-slash target in the map.
 
 ## Cache-control & invalidation
 
