@@ -38,5 +38,19 @@ export function readConfigFile(path: string): ReadConfigFileResult {
     return { ok: false, error: `${path} must be a { app: string, source: object } build config` };
   }
 
-  return { ok: true, raw, envVarNames: collectEnvVarNames(raw), resolve: () => resolveConfigEnv(raw as BuildConfig) };
+  return { ok: true, raw, envVarNames: collectEnvVarNames(raw), resolve: () => resolveWithoutToken(raw as BuildConfig) };
+}
+
+/**
+ * Resolves `${VAR}` references everywhere EXCEPT `source.token`: the provider
+ * resolves the token itself and rejects a literal-looking value so a secret
+ * never lands in a committed config. Interpolating it here would hand the
+ * provider an already-resolved literal, tripping that gate on every valid
+ * `${TOKEN_VAR}` config.
+ */
+function resolveWithoutToken(raw: BuildConfig): BuildConfig {
+  const rawToken = (raw.source as { token?: unknown }).token;
+  const resolved = resolveConfigEnv(raw);
+  if (typeof rawToken === "string") (resolved.source as { token?: string }).token = rawToken;
+  return resolved;
 }
