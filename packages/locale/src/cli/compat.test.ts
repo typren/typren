@@ -87,8 +87,9 @@ describe("buildExportApiSourceConfig", () => {
       type: "export-api",
       preset: "lokalise",
       projectId: "42",
-      token: SECRET_TOKEN,
+      token: "${TYPREN_LOCALE_COMPAT_TOKEN}",
     });
+    expect(process.env.TYPREN_LOCALE_COMPAT_TOKEN).toBe(SECRET_TOKEN);
   });
 });
 
@@ -174,7 +175,9 @@ describe("token never appears in output", () => {
     if (!credentials.ok) return;
 
     const source = buildExportApiSourceConfig(credentials);
-    expect(source.token).toBe(SECRET_TOKEN); // the object legitimately carries it in memory
+    // The config carries only an env reference; the literal lives in the env bridge.
+    expect(source.token).toBe("${TYPREN_LOCALE_COMPAT_TOKEN}");
+    expect(process.env.TYPREN_LOCALE_COMPAT_TOKEN).toBe(SECRET_TOKEN);
 
     const provider = stubProvider({ en: { Greeting: "Hi" } });
     const result = await runCompatDownload({ flags: { "unzip-to": outDir }, provider });
