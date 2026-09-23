@@ -78,6 +78,10 @@ jobs:
       # environment), so npm exchanges the id-token above for a short-lived
       # publish credential itself. Provenance attestation is automatic under
       # trusted publishing, no --provenance flag needed.
+      # `changeset publish` runs `npm publish` from each package dir, which
+      # fires the packages' prepublishOnly build guards. If this ever moves to
+      # tarball publishing (`changeset pack` + `npm publish <tarball>`), npm
+      # skips lifecycle scripts and those guards go silently inert in CI.
       - name: Publish to npm
         run: bunx changeset publish
 

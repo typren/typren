@@ -1,6 +1,6 @@
 {
   "name": "@typren/core",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Framework-agnostic core of Typren: content adapters, draft/publish store, auth-gated actions, i18n, media, SEO/AIO. No UI, see @typren/editor.",
   "keywords": [
     "cms",
@@ -70,6 +70,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

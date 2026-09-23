@@ -1,6 +1,6 @@
 {
   "name": "@typren/editor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Typren's editor UI: the pluggable React admin shell for pages, blocks and fields.",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,
@@ -25,6 +25,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
