@@ -372,6 +372,14 @@ describe("review", () => {
     expect(result.briefs[0].file).toBe("src/content/resources/first-post.md");
   });
 
+  it("refuses javascript front-matter instead of eval()ing it", () => {
+    fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+    // gray-matter's default `javascript` engine would eval() this block;
+    // review runs on writer-supplied markdown, so it must throw, not execute.
+    fs.writeFileSync(path.join(dir, "content/evil.md"), "---javascript\n({ slices: [] })\n---\nbody");
+    expect(() => review(dir, { slug: "evil" })).toThrow(/javascript front-matter is not supported/);
+  });
+
   it("reports a clear error naming the resolved paths when the slug isn't found anywhere", () => {
     const result = review(dir, { slug: "missing" });
     expect(result.ok).toBe(false);
