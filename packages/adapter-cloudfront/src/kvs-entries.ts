@@ -19,7 +19,11 @@ export function toKvsEntries(entries: RedirectEntry[]): KvsPair[] {
     // `trailingSlash: true` static export whose canonical page URLs all end in
     // "/". Emitting the slash form makes the edge redirect land directly on
     // the canonical URL in one 301, instead of a second bare-to-slash hop.
-    const value = to === "/" ? to : `${to}/`;
+    // Only on-site PAGE paths get that treatment: an external URL from a map
+    // file is someone else's canonical form and passes through verbatim, and
+    // an on-site file target (extension in the last segment) is an object,
+    // not a directory.
+    const value = canonicalTarget(to);
     if (Buffer.byteLength(from) > KVS_MAX_KEY_BYTES) {
       throw new Error(`typren: redirect "from" for "${slug}" exceeds the CloudFront KVS ${KVS_MAX_KEY_BYTES}-byte key limit: ${from}`);
     }
@@ -28,4 +32,12 @@ export function toKvsEntries(entries: RedirectEntry[]): KvsPair[] {
     }
     return { key: from, value };
   });
+}
+
+function canonicalTarget(to: string): string {
+  if (!to.startsWith("/")) return to; // external URL, verbatim
+  if (to === "/" || to.endsWith("/")) return to;
+  const lastSegment = to.slice(to.lastIndexOf("/") + 1);
+  if (lastSegment.includes(".")) return to; // a file object, not a page
+  return `${to}/`;
 }

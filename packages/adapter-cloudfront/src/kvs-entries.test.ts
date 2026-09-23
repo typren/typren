@@ -13,6 +13,24 @@ describe("toKvsEntries", () => {
     expect(toKvsEntries(entries)).toEqual([{ key: "/old-home", value: "/" }]);
   });
 
+  it("passes external URL targets through verbatim, no slash appended", () => {
+    const entries: RedirectEntry[] = [
+      { from: "/press", to: "https://example.com/story", slug: "map:m.json" },
+    ];
+    expect(toKvsEntries(entries)).toEqual([{ key: "/press", value: "https://example.com/story" }]);
+  });
+
+  it("leaves on-site file targets and already-slashed targets untouched", () => {
+    const entries: RedirectEntry[] = [
+      { from: "/old-report", to: "/docs/report.pdf", slug: "map:m.json" },
+      { from: "/old-hub", to: "/hub/", slug: "map:m.json" },
+    ];
+    expect(toKvsEntries(entries)).toEqual([
+      { key: "/old-report", value: "/docs/report.pdf" },
+      { key: "/old-hub", value: "/hub/" },
+    ]);
+  });
+
   it("throws when a key exceeds the KVS byte limit", () => {
     const from = `/${"a".repeat(KVS_MAX_KEY_BYTES)}`;
     const entries: RedirectEntry[] = [{ from, to: "/new", slug: "new" }];

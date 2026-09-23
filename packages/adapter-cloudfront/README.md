@@ -30,13 +30,27 @@ infra you already have.
    the index rewrite and canonicalization keep the site serving. See
    `redirects.function.test.ts`.
 
-2. **`typren-cloudfront sync-redirects`** — idempotent diff-sync of
-   `@typren/core`'s `redirects()` into a named KeyValueStore:
+2. **`typren-cloudfront sync-redirects`** — idempotent diff-sync of this
+   site's redirects into a named KeyValueStore, from two mergeable sources:
+   `@typren/core`'s `redirects()` (page frontmatter `aliases:`) and an
+   optional `--map` file for everything a real site accumulates that isn't a
+   property of a page that exists — legacy platform URLs, removed pages,
+   paths that moved off-site entirely:
 
    ```bash
    npx typren-cloudfront sync-redirects --store my-site-redirects
+   npx typren-cloudfront sync-redirects --store my-site-redirects --map redirects.config.mjs
    npx typren-cloudfront sync-redirects --store my-site-redirects --dry-run
    ```
+
+   The map file is `.json` (an array of `{ "from": "/old", "to": "/new" }`)
+   or `.mjs`/`.js` (default or named `REDIRECTS` export of the same shape).
+   Targets are on-site paths (canonicalized to the trailing-slash form,
+   except file objects like `/report.pdf`) or absolute http(s) URLs (passed
+   through verbatim). A `from` declared by both sources fails the sync
+   loudly. **A site with no typren content at all syncs from the map alone**,
+   so any static site fronted by CloudFront can use this function + store +
+   sync without adopting the rest of typren.
 
    Computes puts (new/changed keys) and deletes (live keys no longer wanted),
    no-ops when nothing changed, and chunks a larger changeset at the KVS

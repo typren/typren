@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildRedirects } from "@typren/core";
 import { scanContentStore } from "./content-scan";
+import { loadRedirectMap, mergeRedirectEntries } from "./map-source";
 import { toKvsEntries } from "./kvs-entries";
 import { syncRedirects, type SyncResult } from "./sync";
 import { bootstrapDistribution, type BootstrapResult } from "./bootstrap";
@@ -22,6 +23,11 @@ export type SyncRedirectsCliOptions = {
   storeName?: string;
   homeSlug?: string;
   dryRun?: boolean;
+  /** Host-supplied redirect map file (.json, .mjs or .js exporting
+   *  `{ from, to }[]`), merged with the content scan's frontmatter aliases.
+   *  With no typren content dir at all, the map alone drives the sync, which
+   *  is what a non-typren CloudFront site uses. */
+  map?: string;
 };
 
 export type SyncRedirectsCliResult = { ok: true; result: SyncResult } | { ok: false; error: string };
@@ -34,7 +40,10 @@ export async function runSyncRedirects(cwd: string, opts: SyncRedirectsCliOption
   try {
     const contentDir = opts.contentDir ? path.resolve(cwd, opts.contentDir) : detectContentDir(cwd);
     const store = scanContentStore(contentDir);
-    const entries = buildRedirects(store, { homeSlug: opts.homeSlug });
+    const fromContent = buildRedirects(store, { homeSlug: opts.homeSlug });
+    const entries = opts.map
+      ? mergeRedirectEntries(fromContent, await loadRedirectMap(cwd, opts.map))
+      : fromContent;
     const want = new Map(toKvsEntries(entries).map(({ key, value }) => [key, value]));
     const result = await syncRedirects(client, opts.storeName ?? DEFAULT_STORE_NAME, want, { dryRun: opts.dryRun });
     return { ok: true, result };
@@ -119,14 +128,18 @@ function printHelp(): void {
   console.log(`typren-cloudfront: CloudFront host adapter for typren
 
 Usage:
-  npx typren-cloudfront sync-redirects [--content-dir <path>] [--store <name>] [--home-slug <slug>] [--dry-run]
+  npx typren-cloudfront sync-redirects [--content-dir <path>] [--map <file>] [--store <name>] [--home-slug <slug>] [--dry-run]
   npx typren-cloudfront bootstrap --distribution-id <id> [--store <name>] [--function-name <name>] [--force]
   npx typren-cloudfront --help
 
-  sync-redirects   Diff-sync this site's page-declared aliases (@typren/core's
-                   redirects()) into the named CloudFront KeyValueStore
-                   (default "${DEFAULT_STORE_NAME}"). Idempotent; --dry-run
-                   prints the diff without writing.
+  sync-redirects   Diff-sync this site's redirects into the named CloudFront
+                   KeyValueStore (default "${DEFAULT_STORE_NAME}"). Two
+                   sources, merged: page-declared aliases (@typren/core's
+                   redirects()) and an optional --map file (.json/.mjs/.js
+                   exporting { from, to }[]; targets may be on-site paths or
+                   absolute http(s) URLs). A site with no typren content dir
+                   syncs from the map alone. Idempotent; --dry-run prints the
+                   diff without writing.
 
   bootstrap        One-time, guarded setup on an EXISTING distribution: create
                    the KeyValueStore if needed, publish the canonical
@@ -164,6 +177,7 @@ export async function main(argv: string[] = process.argv.slice(2), clients: Main
       storeName: typeof flags.store === "string" ? flags.store : undefined,
       homeSlug: typeof flags["home-slug"] === "string" ? flags["home-slug"] : undefined,
       dryRun: flags["dry-run"] === true,
+      map: typeof flags.map === "string" ? flags.map : undefined,
     };
     const result = await runSyncRedirects(process.cwd(), opts, kvsClient);
     printSyncResult(result, opts);

@@ -38,6 +38,41 @@ describe("runSyncRedirects", () => {
     expect(client.describeStore).toHaveBeenCalledWith("my-store");
   });
 
+  it("syncs from a --map file alone when there is no typren content", async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "typren-content-"));
+    writeFileSync(
+      path.join(dir, "redirects.json"),
+      JSON.stringify([
+        { from: "/legacy", to: "/hub" },
+        { from: "/press", to: "https://example.com/story" },
+      ])
+    );
+
+    const client = fakeKvsClient();
+    const result = await runSyncRedirects(dir, { contentDir: dir, map: "redirects.json" }, client);
+
+    expect(result).toEqual({
+      ok: true,
+      result: {
+        puts: [
+          { key: "/legacy", value: "/hub/" },
+          { key: "/press", value: "https://example.com/story" },
+        ],
+        deletes: [],
+        applied: true,
+      },
+    });
+  });
+
+  it("merges frontmatter aliases with the map and refuses a cross-source duplicate", async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "typren-content-"));
+    writeFileSync(path.join(dir, "about.md"), '---\nslices: []\naliases: ["/old-about"]\n---\n');
+    writeFileSync(path.join(dir, "redirects.json"), JSON.stringify([{ from: "/old-about", to: "/elsewhere" }]));
+
+    const result = await runSyncRedirects(dir, { contentDir: dir, map: "redirects.json" }, fakeKvsClient());
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining("declared by both") });
+  });
+
   it("defaults the store name", async () => {
     dir = mkdtempSync(path.join(tmpdir(), "typren-content-"));
     const client = fakeKvsClient();
