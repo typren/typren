@@ -3,6 +3,18 @@ import path from "node:path";
 import matter from "gray-matter";
 import type { ContentStore } from "@typren/core";
 
+// gray-matter's default engine set includes `javascript`, which eval()s the
+// front-matter block when a file opens with `---javascript`. Here that would
+// be code execution inside the process holding AWS credentials, triggered by
+// a markdown file, the pipeline's untrusted-writer input. Content is data:
+// refuse the engine outright.
+const SAFE_ENGINES = {
+  javascript: (): never => {
+    throw new Error("typren-cloudfront: javascript front-matter is not supported");
+  },
+};
+const parseMatter = (raw: string) => matter(raw, { engines: SAFE_ENGINES });
+
 /**
  * Minimal read-only `ContentStore` built by scanning a content directory's
  * flat `*.md` files directly, rather than importing the host's `cms.config.ts`
@@ -21,7 +33,7 @@ export function scanContentStore(contentDir: string): ContentStore {
         .readdirSync(contentDir, { withFileTypes: true })
         .filter((e) => e.isFile() && e.name.endsWith(".md"))
         .map((e) => e.name.replace(/\.md$/, ""))
-        .filter((slug: string) => Array.isArray(matter(fs.readFileSync(path.join(contentDir, `${slug}.md`), "utf8")).data.slices))
+        .filter((slug: string) => Array.isArray(parseMatter(fs.readFileSync(path.join(contentDir, `${slug}.md`), "utf8")).data.slices))
     : [];
 
   const notSupported = (op: string) => (): never => {
@@ -31,7 +43,7 @@ export function scanContentStore(contentDir: string): ContentStore {
   return {
     listPages: () => slugs.map((slug) => ({ slug, title: slug, hasDraft: false, locales: ["default"] })),
     getPublished: (slug: string) => {
-      const { data } = matter(fs.readFileSync(path.join(contentDir, `${slug}.md`), "utf8"));
+      const { data } = parseMatter(fs.readFileSync(path.join(contentDir, `${slug}.md`), "utf8"));
       // The `slices` key is left in `meta` here (unlike packages/cli's parsePage,
       // which splits it out for its own diffing needs), buildRedirects only
       // ever reads `meta.aliases`, so there's nothing to gain from stripping it.

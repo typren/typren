@@ -5,6 +5,16 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import matter from "gray-matter";
+
+// gray-matter ships a `javascript` front-matter engine that eval()s the block
+// when a file opens with `---javascript`. `typren review` runs on freshly
+// merged, writer-supplied markdown: content is data, never code. Refuse it.
+const SAFE_ENGINES = {
+  javascript: (): never => {
+    throw new Error("typren: javascript front-matter is not supported");
+  },
+};
+const parseMatter = (raw: string) => matter(raw, { engines: SAFE_ENGINES });
 import { buildTemplates, TYPREN_BOOTSTRAP_MARKER, TYPREN_REWRITE_MARKER } from "@typren/core/templates/init";
 import { createFsSettingsAdapter, resolveI18n, type SiteSettingsBootstrap, type Slice } from "@typren/core";
 import { firstRunNotice, isEnabled, readCliVersion, record, setEnabled } from "./telemetry";
@@ -189,7 +199,7 @@ export type ReviewResult = { ok: true; briefs: ReviewBrief[] } | { ok: false; er
  *  disk, needed here because "before" content comes from `git show`, not
  *  a path. Not worth instantiating a whole ContentAdapter for a blob string. */
 function parsePage(raw: string): { meta: Record<string, unknown>; slices: Slice[]; hasFrontmatter: boolean } {
-  const { data } = matter(raw);
+  const { data } = parseMatter(raw);
   const { slices, ...meta } = data as Record<string, unknown> & { slices?: unknown };
   return { meta, slices: Array.isArray(slices) ? (slices as Slice[]) : [], hasFrontmatter: Object.keys(data).length > 0 };
 }
@@ -289,7 +299,7 @@ function listCmsPageSlugs(cwd: string, paths: ReviewPaths): string[] {
     .map((e) => e.name.replace(/\.md$/, ""))
     .filter((slug) => {
       const raw = readTextSafe(path.join(dir, `${slug}.md`));
-      return raw !== null && Array.isArray(matter(raw).data.slices);
+      return raw !== null && Array.isArray(parseMatter(raw).data.slices);
     });
 }
 

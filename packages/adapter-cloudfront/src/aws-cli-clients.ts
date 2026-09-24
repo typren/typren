@@ -18,7 +18,20 @@ import path from "node:path";
 import type { CloudFrontClient, KvsClient, KvsPair } from "./types";
 
 function aws<T>(...cmd: string[]): T {
-  return JSON.parse(execFileSync("aws", [...cmd, "--output", "json"], { encoding: "utf8" })) as T;
+  try {
+    // maxBuffer above the default 1 MiB: a well-populated store's list-keys
+    // response can exceed it, and ENOBUFS reads like a mystery crash.
+    return JSON.parse(execFileSync("aws", [...cmd, "--output", "json"], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 })) as T;
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException & { stderr?: string };
+    if (err.code === "ENOENT") {
+      throw new Error("typren-cloudfront: the `aws` CLI was not found on PATH. Install AWS CLI v2 and configure credentials (AWS_PROFILE / SSO / env vars are all honored).", { cause: e });
+    }
+    if (typeof err.stderr === "string" && err.stderr.includes("invalid choice")) {
+      throw new Error(`typren-cloudfront: this AWS CLI does not know "${cmd[0]}": the cloudfront-keyvaluestore commands need AWS CLI v2.`, { cause: e });
+    }
+    throw e;
+  }
 }
 
 /** Writes `content` to a fresh temp file for the lifetime of `fn`, for the
@@ -51,9 +64,13 @@ export function createAwsCliKvsClient(): KvsClient {
       return { arn: KeyValueStore.ARN, status: KeyValueStore.Status };
     },
     async listKeys(arn) {
+      // ETag BEFORE the listing: fetched after, a write landing between the
+      // two calls pairs a fresh etag with a stale listing, and the CAS chain
+      // then silently clobbers the concurrent run's changes (lost update).
+      // This order makes the same race fail loud instead: stale etag, 412.
+      const { ETag } = aws<{ ETag: string }>("cloudfront-keyvaluestore", "describe-key-value-store", "--kvs-arn", arn);
       const list = aws<{ Items?: { Key: string; Value: string }[] }>("cloudfront-keyvaluestore", "list-keys", "--kvs-arn", arn);
       const items: KvsPair[] = (list.Items ?? []).map((i) => ({ key: i.Key, value: i.Value }));
-      const { ETag } = aws<{ ETag: string }>("cloudfront-keyvaluestore", "describe-key-value-store", "--kvs-arn", arn);
       return { items, etag: ETag };
     },
     async updateKeys(arn, etag, puts, deletes) {

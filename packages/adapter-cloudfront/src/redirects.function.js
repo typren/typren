@@ -31,12 +31,30 @@ const kvs = cf.kvs();
 // Extensionless routes Next.js's static export emits for its file-convention
 // metadata APIs (opengraph-image, twitter-image, icon, apple-icon). These are
 // real S3 objects, not directories, and must never be redirected or rewritten.
+// Matched against the LAST path segment, not the exact URI: Next emits these
+// per-route (`/blog/opengraph-image`), and a root-only exact match would 301
+// the nested ones into the index rewrite and a 404.
 var PASSTHROUGH = {
-  "/opengraph-image": true,
-  "/twitter-image": true,
-  "/icon": true,
-  "/apple-icon": true,
+  "opengraph-image": true,
+  "twitter-image": true,
+  "icon": true,
+  "apple-icon": true,
 };
+
+// A redirect target arrives from the KeyValueStore. This CLI's sync validates
+// what it writes, but anyone with UpdateKeys can write anything: refuse to
+// serve a target that is protocol-relative ("//host" resolves off-site), uses
+// backslash (URL parsers read "\" as "/"), or carries control characters
+// (header injection). Falling through serves the request instead.
+function unsafeTarget(target) {
+  if (target.charAt(0) === "/" && target.charAt(1) === "/") return true;
+  if (target.indexOf("\\") !== -1) return true;
+  for (var i = 0; i < target.length; i++) {
+    var code = target.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
 
 async function handler(event) {
   var request = event.request;
@@ -53,7 +71,7 @@ async function handler(event) {
   } catch (e) {
     target = null;
   }
-  if (target) {
+  if (target && !unsafeTarget(target)) {
     return redirect(target, request.querystring);
   }
 
@@ -70,7 +88,13 @@ async function handler(event) {
   // resolves a "//host/path" Location as protocol-relative, which would turn
   // this canonicalization into an open redirect. Such a uri falls through to
   // the origin (and 404s there) instead.
-  if (uri.charAt(1) !== "/" && !PASSTHROUGH[uri] && uri.substring(uri.lastIndexOf("/")).indexOf(".") === -1) {
+  var lastSegment = uri.substring(uri.lastIndexOf("/") + 1);
+  if (
+    uri.charAt(1) !== "/" &&
+    uri.indexOf("/.well-known/") !== 0 &&
+    !PASSTHROUGH[lastSegment] &&
+    lastSegment.indexOf(".") === -1
+  ) {
     return redirect(uri + "/", request.querystring);
   }
 
