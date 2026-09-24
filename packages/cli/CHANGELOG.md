@@ -1,5 +1,14 @@
 # typren
 
+## 0.3.2
+
+### Patch Changes
+
+- b345415: `typren review` refuses gray-matter's `javascript` front-matter engine, which
+  eval()s the front-matter block: review runs on writer-supplied markdown, and
+  content is data, never code.
+- @typren/core@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes
