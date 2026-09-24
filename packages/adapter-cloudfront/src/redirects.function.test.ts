@@ -80,6 +80,25 @@ describe("redirects.function.js", () => {
 
   // A broken store must lose ONLY the redirect lookups. The index rewrite
   // and bare-slash canonicalization keep the site serving.
+  it("refuses to serve a hostile KVS target: protocol-relative, backslash, control chars", async () => {
+    // Anyone with UpdateKeys controls these values; the function is the last
+    // line of defense. Each falls through to normal handling instead of
+    // emitting a Location off-site or with injected header content.
+    expect(await run("/a", { "/a": "//evil.example/" })).toMatchObject({
+      statusCode: 301,
+      headers: { location: { value: "/a/" } }, // fell through to bare-form canonicalization
+    });
+    expect(await run("/b/", { "/b": "/x\\evil" })).toMatchObject({ uri: "/b/index.html" });
+    expect(await run("/c/", { "/c": "/x\r\nSet-Cookie: pwned" })).toMatchObject({ uri: "/c/index.html" });
+  });
+
+  it("passes nested Next metadata routes and /.well-known/ through untouched", async () => {
+    expect(await run("/blog/opengraph-image")).toMatchObject({ uri: "/blog/opengraph-image" });
+    expect(await run("/.well-known/apple-app-site-association")).toMatchObject({
+      uri: "/.well-known/apple-app-site-association",
+    });
+  });
+
   it("still rewrites when the KVS is unavailable", async () => {
     const down = () => Promise.reject(new Error("store unavailable"));
     expect(await run("/about/", {}, down)).toMatchObject({ uri: "/about/index.html" });

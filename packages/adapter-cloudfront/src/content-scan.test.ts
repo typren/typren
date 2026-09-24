@@ -21,6 +21,15 @@ describe("scanContentStore", () => {
     expect(store.getPublished("about").meta.aliases).toEqual(["/old-about"]);
   });
 
+  it("refuses javascript front-matter instead of eval()ing it", () => {
+    dir = mkdtempSync(path.join(tmpdir(), "typren-content-"));
+    // gray-matter's default `javascript` engine would eval() this block inside
+    // the process holding AWS credentials; the scan must throw, not execute.
+    writeFileSync(path.join(dir, "evil.md"), "---javascript\n({ slices: [] })\n---\nbody");
+
+    expect(() => scanContentStore(dir as string)).toThrow(/javascript front-matter is not supported/);
+  });
+
   it("returns an empty store for a missing content directory", () => {
     const store = scanContentStore(path.join(tmpdir(), "typren-does-not-exist"));
     expect(store.listPages()).toEqual([]);

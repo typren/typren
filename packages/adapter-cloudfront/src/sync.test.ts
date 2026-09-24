@@ -97,6 +97,21 @@ describe("syncRedirects", () => {
     expect(store.size).toBe(120);
   });
 
+  it("refuses to delete every live key when the desired state is empty", async () => {
+    const { client, store } = fakeKvsClient({ "/a": "/x", "/b": "/y" });
+    await expect(syncRedirects(client, "store", new Map())).rejects.toThrow(/refusing to delete all 2 live/);
+    expect(store.size).toBe(2); // nothing was written
+
+    // dry-run still reports the would-be wipe without the guard tripping
+    const dry = await syncRedirects(client, "store", new Map(), { dryRun: true });
+    expect(dry).toMatchObject({ deletes: ["/a", "/b"], applied: false });
+
+    // the explicit escape hatch really does unpublish everything
+    const wiped = await syncRedirects(client, "store", new Map(), { allowEmpty: true });
+    expect(wiped.applied).toBe(true);
+    expect(store.size).toBe(0);
+  });
+
   it("propagates a client error instead of silently swallowing it", async () => {
     const client: KvsClient = {
       describeStore: vi.fn().mockRejectedValue(new Error("boom")),
