@@ -40,6 +40,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
+    "@typren/contract-tests": "workspace:*",
     "typescript": "^6.0.3"
   },
   "repository": {

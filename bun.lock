@@ -42,12 +42,13 @@
       },
       "devDependencies": {
         "@types/node": "^26.6.4",
+        "@typren/contract-tests": "workspace:*",
         "typescript": "^6.0.3",
       },
     },
     "packages/cli": {
       "name": "typren",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "bin": {
         "typren": "./dist/cli.js",
       },
@@ -71,7 +72,7 @@
     },
     "packages/core": {
       "name": "@typren/core",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "dompurify": "^3.4.16",
         "gray-matter": "^4.0.3",
@@ -108,7 +109,7 @@
     },
     "packages/editor": {
       "name": "@typren/editor",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "@typren/core": "workspace:*",
         "class-variance-authority": "^0.7.1",
@@ -141,7 +142,7 @@
     },
     "packages/locale": {
       "name": "@typren/locale",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "bin": {
         "typren-locale": "./dist/cli/index.js",
       },
