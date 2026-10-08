@@ -79,6 +79,13 @@ export function createStaticHostRoutingContractSuite(name: string, run: StaticHo
       await expect(run({ path: "/about", storeDown: true })).resolves.toEqual({ status: 301, location: "/about/" });
     });
 
+    // The slash form is rewritten, never redirected, and the rewrite must stay
+    // on this host: an implementation that resolves "//evil.example/index.html"
+    // against the request URL lands on evil.example instead.
+    it("rewrites //evil.example/ as a path on this host", async () => {
+      await expect(run({ path: "//evil.example/" })).resolves.toEqual({ serve: "//evil.example/index.html" });
+    });
+
     it.each(["//evil.example", "//evil.example/x", "///evil.example"])(
       "never 301s %s into a protocol-relative location",
       async (path) => {

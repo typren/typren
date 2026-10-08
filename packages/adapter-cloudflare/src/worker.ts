@@ -36,10 +36,13 @@ export default {
       return new Response(null, { status: decision.status, headers: { Location: decision.location } });
     }
     if (decision.kind === "rewrite") {
-      // Serve the canonical object path (the directory-index rewrite)
-      // instead of the request path; `request` as the second Request()
-      // argument carries method/headers/body along unchanged.
-      return env.ASSETS.fetch(new Request(new URL(decision.path, request.url), request));
+      // Serve the canonical object path instead of the request path;
+      // `request` as the second Request() argument carries method/headers/
+      // body along unchanged. Set `pathname` rather than resolving the path
+      // against the request URL: a rewritten "//host/index.html" would
+      // resolve protocol-relative, onto another host.
+      url.pathname = decision.path;
+      return env.ASSETS.fetch(new Request(url, request));
     }
     return env.ASSETS.fetch(request);
   },
