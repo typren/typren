@@ -2,7 +2,7 @@
 // `trailingSlash: true`): directory-index rewrite, bare->slash
 // canonicalization, and a redirect-store lookup, in that semantic order.
 // PURE: no node/browser globals, no imports from elsewhere in this package,
-// so a Worker bundle (wave 2's Cloudflare adapter) can import it directly.
+// so `@typren/adapter-cloudflare`'s Worker can import it directly.
 // `@typren/adapter-cloudfront`'s hand-written `redirects.function.js` cannot
 // import this (cloudfront-js has no bundler) and instead mirrors it by hand,
 // held to the same semantics by `@typren/contract-tests`'
