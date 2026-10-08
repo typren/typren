@@ -85,19 +85,28 @@ jobs:
       - name: Publish to npm
         run: bunx changeset publish
 
-      # `changeset publish` does NOT create git tags under @changesets/cli v3 —
-      # every release through 0.2.1 shipped tagless and had to be hand-tagged
-      # after the fact (earlier runs' "partial failure loses tags" theory was
-      # masking this). `changeset tag` creates the per-package tags for the
-      # versions currently in the tree; privatePackages.tag=false in
-      # .changeset/config.json keeps unpublished packages (the editor) out.
+      # changesets tags with `git tag <name> -m <name>`, an annotated tag, which
+      # needs a committer identity the runner doesn't have. @changesets/git
+      # returns false on that failure and the CLI ignores the result, so it
+      # still prints "Created git tags" while creating none. That is why every
+      # release through 0.3.3 shipped tagless with a green run: the push below
+      # found nothing new ("Everything up-to-date") and the Releases step found
+      # no tags at HEAD. privatePackages.tag=false in .changeset/config.json
+      # keeps unpublished packages (the editor) out.
       - name: Tag the published versions
-        run: bunx changeset tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bunx changeset tag
+          git tag --points-at HEAD
 
       # The tags above exist only on the runner; without this they die with it.
-      # Pushing them is what makes a published version findable in git.
+      # HUSKY=0 skips the pre-push hook: it reruns the full local gate, which
+      # the steps above already ran on this exact checkout.
       - name: Push the release tags
         run: git push origin --tags
+        env:
+          HUSKY: "0"
 
       # Best effort, and deliberately not gated on: the CHANGELOG.md files in
       # each package are the authoritative record. A missing GitHub Release is
