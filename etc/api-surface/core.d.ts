@@ -1540,6 +1540,12 @@ export type StaticHostDecision = {
 /** Looks up a redirect target for an exact, trailing-slash-normalized key.
  *  A throw/rejection (store down) and a null/undefined/empty result both
  *  mean "no redirect here" to the caller. */
+export type StaticHostOptions = {
+    /** The export's URL shape, i.e. Next's `trailingSlash`. Default `true`:
+     *  `/about/` serves `about/index.html`. `false` is Next's default export:
+     *  `/about` serves `about.html`. */
+    trailingSlash?: boolean;
+};
 export type RedirectLookup = (key: string) => Promise<string | null | undefined> | string | null | undefined;
 export declare const STATIC_HOST_PASSTHROUGH: ReadonlySet<string>;
 /** A redirect target arrives from a store an operator with write access can
@@ -1555,7 +1561,7 @@ export declare function isUnsafeRedirectTarget(target: string): boolean;
  * CloudFront function, which rebuilds it from the runtime's parsed
  * querystring object, there is nothing to reassemble here.
  */
-export declare function resolveStaticHostRequest(path: string, query: string, lookup: RedirectLookup): Promise<StaticHostDecision>;
+export declare function resolveStaticHostRequest(path: string, query: string, lookup: RedirectLookup, opts?: StaticHostOptions): Promise<StaticHostDecision>;
 
 // ---- dist/store.d.ts ----
 import type { ContentAdapter, LocalizedPage, PageContent, PageInfo } from "./types.js";
