@@ -1,5 +1,12 @@
 # @typren/editor
 
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [7e13dc1]
+  - @typren/core@0.4.0
+
 ## 0.3.3
 
 ### Patch Changes
