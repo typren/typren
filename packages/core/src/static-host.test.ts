@@ -1,23 +1,28 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { createStaticHostRoutingContractSuite } from "@typren/contract-tests";
+import { createBareUrlStaticHostRoutingContractSuite, createStaticHostRoutingContractSuite, type StaticHostRunner } from "@typren/contract-tests";
 import { describe, expect, it } from "vitest";
 import { resolveStaticHostRequest } from "./static-host";
 
 /** Adapts the suite's { path, query, redirects, storeDown } request shape to
  *  resolveStaticHostRequest's decision, and the decision back to the suite's
  *  { status, location } / { serve } outcome. */
-createStaticHostRoutingContractSuite("core resolveStaticHostRequest", async ({ path, query = "", redirects = {}, storeDown }) => {
-  const lookup = (key: string) => {
-    if (storeDown) throw new Error("store unavailable");
-    return redirects[key];
+function runner(trailingSlash: boolean): StaticHostRunner {
+  return async ({ path, query = "", redirects = {}, storeDown }) => {
+    const lookup = (key: string) => {
+      if (storeDown) throw new Error("store unavailable");
+      return redirects[key];
+    };
+    const decision = await resolveStaticHostRequest(path, query, lookup, { trailingSlash });
+    if (decision.kind === "redirect") return { status: decision.status, location: decision.location };
+    if (decision.kind === "rewrite") return { serve: decision.path };
+    return { serve: path };
   };
-  const decision = await resolveStaticHostRequest(path, query, lookup);
-  if (decision.kind === "redirect") return { status: decision.status, location: decision.location };
-  if (decision.kind === "rewrite") return { serve: decision.path };
-  return { serve: path };
-});
+}
+
+createStaticHostRoutingContractSuite("core resolveStaticHostRequest", runner(true));
+createBareUrlStaticHostRoutingContractSuite("core resolveStaticHostRequest", runner(false));
 
 describe("resolveStaticHostRequest (unsupported by the generic suite)", () => {
   it("treats a lookup returning undefined as no redirect", async () => {

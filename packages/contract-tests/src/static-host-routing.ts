@@ -112,3 +112,69 @@ export function createStaticHostRoutingContractSuite(name: string, run: StaticHo
     });
   });
 }
+
+/**
+ * The same contract for an export built with Next's default bare URLs
+ * (`trailingSlash: false`: `/about` is `about.html`, only the root is
+ * `index.html`). Implementations that support that shape run this suite as
+ * well; the CloudFront function implements the trailing-slash shape only.
+ */
+export function createBareUrlStaticHostRoutingContractSuite(name: string, run: StaticHostRunner): void {
+  describe(`static-host routing, bare URLs (${name})`, () => {
+    it("301s a path found in the redirect store, slash form or not", async () => {
+      await expect(run({ path: "/old-path", redirects: { "/old-path": "/new-path" } })).resolves.toEqual({
+        status: 301,
+        location: "/new-path",
+      });
+      await expect(run({ path: "/old-path/", redirects: { "/old-path": "/new-path" } })).resolves.toEqual({
+        status: 301,
+        location: "/new-path",
+      });
+    });
+
+    it.each([
+      ["/", "/index.html"],
+      ["/pricing", "/pricing.html"],
+      ["/resources/docs/seo", "/resources/docs/seo.html"],
+    ])("rewrites %s to %s", async (path, serve) => {
+      await expect(run({ path })).resolves.toEqual({ serve });
+    });
+
+    it.each([
+      ["/pricing/", "/pricing"],
+      ["/resources/docs/", "/resources/docs"],
+    ])("301s the slash form %s to %s", async (path, location) => {
+      await expect(run({ path })).resolves.toEqual({ status: 301, location });
+    });
+
+    it("preserves the query string on the slash-form 301", async () => {
+      await expect(run({ path: "/pricing/", query: "utm_source=newsletter&flag" })).resolves.toEqual({
+        status: 301,
+        location: "/pricing?utm_source=newsletter&flag",
+      });
+    });
+
+    it.each(["/robots.txt", "/r/hero.json", "/_next/static/chunk.js", "/blog/opengraph-image", "/.well-known/security.txt", "/.well-known/x/"])(
+      "leaves %s untouched",
+      async (path) => {
+        await expect(run({ path })).resolves.toEqual({ serve: path });
+      }
+    );
+
+    it("still rewrites and canonicalizes when the store is down", async () => {
+      await expect(run({ path: "/pricing", storeDown: true })).resolves.toEqual({ serve: "/pricing.html" });
+      await expect(run({ path: "/pricing/", storeDown: true })).resolves.toEqual({ status: 301, location: "/pricing" });
+    });
+
+    it.each(["//evil.example", "//evil.example/", "///evil.example/x/"])(
+      "never 301s %s into a protocol-relative location",
+      async (path) => {
+        await expect(run({ path })).resolves.toEqual({ serve: path });
+      }
+    );
+
+    it("refuses a hostile store target and falls through to the rewrite", async () => {
+      await expect(run({ path: "/a", redirects: { "/a": "//evil.example/" } })).resolves.toEqual({ serve: "/a.html" });
+    });
+  });
+}

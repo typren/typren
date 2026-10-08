@@ -7,6 +7,7 @@ export {
 } from "./preview-bridge";
 export {
   createStaticHostRoutingContractSuite,
+  createBareUrlStaticHostRoutingContractSuite,
   type StaticHostOutcome,
   type StaticHostRunner,
 } from "./static-host-routing";

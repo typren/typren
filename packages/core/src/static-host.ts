@@ -1,12 +1,14 @@
-// Host-agnostic routing for a static-export site (`output: "export"` +
-// `trailingSlash: true`): directory-index rewrite, bare->slash
-// canonicalization, and a redirect-store lookup, in that semantic order.
+// Host-agnostic routing for a static-export site (`output: "export"`): a
+// redirect-store lookup, then the URL shape the export was built with:
+// `trailingSlash: true` (directory-index rewrite, bare->slash 301) or Next's
+// default bare URLs (`.html` rewrite, slash->bare 301).
 // PURE: no node/browser globals, no imports from elsewhere in this package,
 // so `@typren/adapter-cloudflare`'s Worker can import it directly.
 // `@typren/adapter-cloudfront`'s hand-written `redirects.function.js` cannot
 // import this (cloudfront-js has no bundler) and instead mirrors it by hand,
 // held to the same semantics by `@typren/contract-tests`'
-// `createStaticHostRoutingContractSuite` run against both.
+// `createStaticHostRoutingContractSuite` run against both. The CloudFront
+// function implements the trailing-slash shape only.
 
 export type StaticHostDecision =
   | { kind: "redirect"; status: 301; location: string }
@@ -16,6 +18,13 @@ export type StaticHostDecision =
 /** Looks up a redirect target for an exact, trailing-slash-normalized key.
  *  A throw/rejection (store down) and a null/undefined/empty result both
  *  mean "no redirect here" to the caller. */
+export type StaticHostOptions = {
+  /** The export's URL shape, i.e. Next's `trailingSlash`. Default `true`:
+   *  `/about/` serves `about/index.html`. `false` is Next's default export:
+   *  `/about` serves `about.html`. */
+  trailingSlash?: boolean;
+};
+
 export type RedirectLookup = (key: string) => Promise<string | null | undefined> | string | null | undefined;
 
 // Extensionless routes Next.js's static export emits for its file-convention
@@ -61,7 +70,8 @@ function withQuery(location: string, query: string): string {
 export async function resolveStaticHostRequest(
   path: string,
   query: string,
-  lookup: RedirectLookup
+  lookup: RedirectLookup,
+  opts: StaticHostOptions = {}
 ): Promise<StaticHostDecision> {
   const key = path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 
@@ -77,6 +87,8 @@ export async function resolveStaticHostRequest(
     return { kind: "redirect", status: 301, location: withQuery(target, query) };
   }
 
+  if (opts.trailingSlash === false) return bareUrlDecision(path, query);
+
   // The canonical form is the trailing slash (`trailingSlash: true`). The S3
   // (or equivalent object-store) origin has no index-document behaviour, so
   // this rewrite must run even when the redirect store is down.
@@ -84,21 +96,39 @@ export async function resolveStaticHostRequest(
     return { kind: "rewrite", path: path + "index.html" };
   }
 
-  // Bare page form (`/about`): 301 to the canonical slash form. Never emit a
-  // path whose second character is another "/" as a Location: that resolves
-  // as a protocol-relative URL, turning this canonicalization into an open
-  // redirect, so such a path falls through to "pass" (and 404s at origin)
-  // instead. Real extensionless objects (PASSTHROUGH, `/.well-known/…`) also
-  // fall through untouched.
-  const lastSegment = path.slice(path.lastIndexOf("/") + 1);
-  if (
-    path.charAt(1) !== "/" &&
-    path.indexOf("/.well-known/") !== 0 &&
-    !STATIC_HOST_PASSTHROUGH.has(lastSegment) &&
-    lastSegment.indexOf(".") === -1
-  ) {
+  // Bare page form (`/about`): 301 to the canonical slash form. Real
+  // extensionless objects fall through untouched (see isPagePath).
+  if (isPagePath(path)) {
     return { kind: "redirect", status: 301, location: withQuery(path + "/", query) };
   }
 
   return { kind: "pass" };
+}
+
+// Next's default export (`trailingSlash: false`) writes `/about` as
+// `about.html` and only the root as `index.html`, so the bare form is
+// canonical: serve it from its `.html` object, 301 the slash form onto it.
+function bareUrlDecision(path: string, query: string): StaticHostDecision {
+  if (path === "/") return { kind: "rewrite", path: "/index.html" };
+  if (path.endsWith("/")) {
+    const bare = path.slice(0, -1);
+    return isPagePath(bare) ? { kind: "redirect", status: 301, location: withQuery(bare, query) } : { kind: "pass" };
+  }
+  return isPagePath(path) ? { kind: "rewrite", path: path + ".html" } : { kind: "pass" };
+}
+
+// Whether a path names a page (as opposed to a real object) that may be
+// canonicalized or rewritten. Never a path whose second character is another
+// "/": emitted as a Location it resolves as protocol-relative, turning
+// canonicalization into an open redirect, so it falls through to "pass" (and
+// 404s at origin) instead. Real extensionless objects (PASSTHROUGH,
+// `/.well-known/…`) and anything with a dot in its last segment are objects.
+function isPagePath(path: string): boolean {
+  const lastSegment = path.slice(path.lastIndexOf("/") + 1);
+  return (
+    path.charAt(1) !== "/" &&
+    path.indexOf("/.well-known/") !== 0 &&
+    !STATIC_HOST_PASSTHROUGH.has(lastSegment) &&
+    lastSegment.indexOf(".") === -1
+  );
 }
