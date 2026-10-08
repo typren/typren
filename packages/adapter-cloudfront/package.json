@@ -35,8 +35,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@typren/core": "^0.3.2",
-    "gray-matter": "^4.0.3"
+    "@typren/core": "^0.3.3"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

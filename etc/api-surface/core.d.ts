@@ -641,6 +641,8 @@ export { resolveSections, DEFAULT_SECTIONS, SECTION_API_VERSION, type Section, t
 export { createSettingsStore, createFsSettingsAdapter, type SiteSettings, type SiteSettingsRuntime, type SiteSettingsBootstrap, type SettingsAdapter, type SettingsStore, } from "./settings.js";
 export { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection.js";
 export { buildRedirects, type RedirectEntry, type BuildRedirectsOptions, type PageRedirectMeta } from "./redirects.js";
+export { scanContentStore, loadRedirectMap, mergeRedirectEntries, toRedirectPairs, type RedirectMapEntry, type ToRedirectPairsOptions, } from "./redirect-sources.js";
+export { resolveStaticHostRequest, isUnsafeRedirectTarget, STATIC_HOST_PASSTHROUGH, type StaticHostDecision, type RedirectLookup, } from "./static-host.js";
 
 // ---- dist/localize.d.ts ----
 import type { PageContent } from "./types.js";
@@ -964,6 +966,81 @@ export declare function previewPathFor(adminRoute: string): string;
 export declare function typrenProxyRewrite(url: URL | string, opts?: {
     configFile?: string;
 }): string | null;
+
+// ---- dist/redirect-sources.d.ts ----
+import type { ContentStore } from "./store.js";
+import type { RedirectEntry } from "./redirects.js";
+/**
+ * Minimal read-only `ContentStore` built by scanning a content directory's
+ * flat `*.md` files directly, rather than importing a host's `cms.config.ts`
+ * (which imports "server-only" and throws outside a React Server Component
+ * build, the same constraint `typren review`'s `listCmsPageSlugs`/`parsePage`
+ * in packages/cli work around, mirrored here). Only `listPages`/`getPublished`
+ * are real; `buildRedirects` (this module's only caller) needs nothing else.
+ *
+ * ponytail: default-locale, flat-file layout only, same scope `typren review`
+ * already covers. No draft/i18n/collection support: a redirects sync doesn't
+ * need it, and buildRedirects itself is single-locale (see redirects.ts).
+ */
+export declare function scanContentStore(contentDir: string): ContentStore;
+/** One entry in a host-supplied redirect map file: an incoming on-site path
+ *  and where it should 301 to (an on-site path or an absolute http(s) URL). */
+export type RedirectMapEntry = {
+    from: string;
+    to: string;
+};
+/**
+ * Loads a host-supplied redirect map file into validated `RedirectEntry[]`,
+ * the same shape `buildRedirects` emits, so both sources merge into one
+ * sync. This is what makes a host's redirect sync useful beyond a typren
+ * site: frontmatter aliases describe pages that exist in a content store,
+ * while a map file carries everything else a real site accumulates (legacy
+ * platform URLs, removed pages, paths that moved off-site entirely).
+ *
+ * Formats, by extension:
+ *   - `.json`: an array of `{ "from": "/old", "to": "/new-or-https-url" }`
+ *   - `.mjs`/`.js`: a module whose default export (or a named `REDIRECTS` /
+ *     `redirects` export) is that same array. A config module may compute its
+ *     entries; the JSON form exists for hosts that would rather not execute
+ *     code from the map.
+ *
+ * Validation (fail loud, never silently drop, matching buildRedirects):
+ * `from` must be an absolute on-site path; `to` must be an absolute on-site
+ * path or an absolute http(s) URL; duplicate `from`s (after trailing-slash
+ * normalization) throw. Entry `slug`s carry the map file's name so a merge
+ * collision names its source.
+ */
+export declare function loadRedirectMap(cwd: string, file: string): Promise<RedirectEntry[]>;
+/**
+ * Merges content-derived entries with map-file entries, refusing a `from`
+ * claimed by both sources (a silent override in either direction would make
+ * one source's edit mysteriously not take effect) and a map `from` that
+ * shadows a live page's canonical path (which would 301 a real page away;
+ * the same guard buildRedirects applies to frontmatter aliases, which the
+ * map path would otherwise bypass). `pagePaths` are the canonical public
+ * paths of the scanned pages; pass nothing when there is no content store to
+ * shadow.
+ */
+export declare function mergeRedirectEntries(content: RedirectEntry[], map: RedirectEntry[], pagePaths?: string[]): RedirectEntry[];
+export type ToRedirectPairsOptions = {
+    /** Append the canonical trailing slash to on-site page targets (the
+     *  `trailingSlash: true` static-export shape, and the default). A site
+     *  whose canonical URLs are the bare form passes `false` and targets are
+     *  emitted verbatim. */
+    appendSlash?: boolean;
+};
+/**
+ * Converts validated `RedirectEntry[]` into the key/value pairs a host's
+ * redirect store wants: the `from` percent-encoded (the form an edge sees a
+ * request path in) and the `to` canonicalized to the site's trailing-slash
+ * convention. Host-agnostic; a vendor-specific byte-limit check (CloudFront's
+ * KVS, say) belongs at the emitter that knows about it, not here (see
+ * `@typren/adapter-cloudfront`'s `toKvsEntries`, a thin wrapper around this).
+ */
+export declare function toRedirectPairs(entries: RedirectEntry[], opts?: ToRedirectPairsOptions): {
+    key: string;
+    value: string;
+}[];
 
 // ---- dist/redirects.d.ts ----
 import type { ContentStore } from "./store.js";
@@ -1448,6 +1525,37 @@ export interface SettingsStore {
     bootstrap: SettingsAdapter;
 }
 export declare function createSettingsStore(config: CmsConfig): SettingsStore;
+
+// ---- dist/static-host.d.ts ----
+export type StaticHostDecision = {
+    kind: "redirect";
+    status: 301;
+    location: string;
+} | {
+    kind: "rewrite";
+    path: string;
+} | {
+    kind: "pass";
+};
+/** Looks up a redirect target for an exact, trailing-slash-normalized key.
+ *  A throw/rejection (store down) and a null/undefined/empty result both
+ *  mean "no redirect here" to the caller. */
+export type RedirectLookup = (key: string) => Promise<string | null | undefined> | string | null | undefined;
+export declare const STATIC_HOST_PASSTHROUGH: ReadonlySet<string>;
+/** A redirect target arrives from a store an operator with write access can
+ *  edit directly. Refuse to serve a target that is protocol-relative
+ *  ("//host" resolves off-site), uses backslash (URL parsers read "\" as "/"),
+ *  or carries control characters (header injection). Falling through serves
+ *  the request instead. */
+export declare function isUnsafeRedirectTarget(target: string): boolean;
+/**
+ * `path` is the request path exactly as received (CloudFront `uri` / URL
+ * `pathname`, percent-encoded). `query` is the raw query string without a
+ * leading "?", `""` when there is none, passed through verbatim: unlike the
+ * CloudFront function, which rebuilds it from the runtime's parsed
+ * querystring object, there is nothing to reassemble here.
+ */
+export declare function resolveStaticHostRequest(path: string, query: string, lookup: RedirectLookup): Promise<StaticHostDecision>;
 
 // ---- dist/store.d.ts ----
 import type { ContentAdapter, LocalizedPage, PageContent, PageInfo } from "./types.js";
