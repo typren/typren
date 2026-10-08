@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createStaticHostRoutingContractSuite, type StaticHostOutcome, type StaticHostRunner } from "@typren/contract-tests";
+import {
+  createBareUrlStaticHostRoutingContractSuite,
+  createStaticHostRoutingContractSuite,
+  type StaticHostOutcome,
+  type StaticHostRunner,
+} from "@typren/contract-tests";
 import worker from "./worker";
 import type { Env } from "./types";
 
@@ -12,7 +17,7 @@ const workerSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)
  *  (200, no body, so a test reads the outcome off `requested` instead of the
  *  response), and `REDIRECTS.get` mirrors the real binding's contract
  *  (rejects when the store is down, returns the map's value or null). */
-function fakeEnv(redirects: Record<string, string> = {}, storeDown = false): { env: Env; requested: Request[] } {
+function fakeEnv(redirects: Record<string, string> = {}, storeDown = false, vars: Partial<Env> = {}): { env: Env; requested: Request[] } {
   const requested: Request[] = [];
   const env: Env = {
     ASSETS: {
@@ -27,26 +32,48 @@ function fakeEnv(redirects: Record<string, string> = {}, storeDown = false): { e
         return redirects[key] ?? null;
       },
     },
+    ...vars,
   };
   return { env, requested };
 }
 
-const run: StaticHostRunner = async ({ path, query = "", redirects = {}, storeDown }): Promise<StaticHostOutcome> => {
-  const { env, requested } = fakeEnv(redirects, storeDown);
-  const request = new Request(`https://example.com${path}${query ? `?${query}` : ""}`);
-  const response = await worker.fetch(request, env);
-  if (response.status === 301) {
-    return { status: 301, location: response.headers.get("Location")! };
-  }
-  const served = requested.at(-1);
-  if (!served) throw new Error("ASSETS.fetch was never called");
-  return { serve: new URL(served.url).pathname };
-};
+function runWith(vars: Partial<Env>): StaticHostRunner {
+  return async ({ path, query = "", redirects = {}, storeDown }): Promise<StaticHostOutcome> => {
+    const { env, requested } = fakeEnv(redirects, storeDown, vars);
+    const request = new Request(`https://example.com${path}${query ? `?${query}` : ""}`);
+    const response = await worker.fetch(request, env);
+    if (response.status === 301) {
+      return { status: 301, location: response.headers.get("Location")! };
+    }
+    const served = requested.at(-1);
+    if (!served) throw new Error("ASSETS.fetch was never called");
+    return { serve: new URL(served.url).pathname };
+  };
+}
+const run = runWith({});
 
 // Holds the Worker to the same semantics as @typren/core's
 // resolveStaticHostRequest and @typren/adapter-cloudfront's hand-written
 // redirects.function.js; see createStaticHostRoutingContractSuite for cases.
 createStaticHostRoutingContractSuite("cloudflare worker", run);
+createBareUrlStaticHostRoutingContractSuite("cloudflare worker", runWith({ TYPREN_TRAILING_SLASH: "false" }));
+
+describe("canonical host", () => {
+  it("301s any other hostname to TYPREN_CANONICAL_HOST, keeping path and query", async () => {
+    const { env, requested } = fakeEnv({}, false, { TYPREN_CANONICAL_HOST: "www.example.com" });
+    const response = await worker.fetch(new Request("https://example.com/pricing?utm=x"), env);
+    expect(response.status).toBe(301);
+    expect(response.headers.get("Location")).toBe("https://www.example.com/pricing?utm=x");
+    expect(requested).toHaveLength(0);
+  });
+
+  it("routes normally on the canonical hostname", async () => {
+    const { env, requested } = fakeEnv({}, false, { TYPREN_CANONICAL_HOST: "example.com", TYPREN_TRAILING_SLASH: "false" });
+    const response = await worker.fetch(new Request("https://example.com/pricing"), env);
+    expect(response.status).toBe(200);
+    expect(new URL(requested[0].url).pathname).toBe("/pricing.html");
+  });
+});
 
 describe("worker.ts (extra cases the contract suite doesn't cover)", () => {
   it("serves when the REDIRECTS binding is absent entirely (deployed before bootstrap)", async () => {

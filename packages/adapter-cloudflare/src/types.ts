@@ -9,6 +9,11 @@
 export type Env = {
   ASSETS: { fetch(request: Request): Promise<Response> };
   REDIRECTS?: { get(key: string): Promise<string | null> };
+  /** wrangler `vars`, written by `typren-cloudflare init`. "false" serves
+   *  Next's default bare-URL export (`/about` -> `about.html`). */
+  TYPREN_TRAILING_SLASH?: string;
+  /** When set, any other hostname 301s to this one (e.g. apex -> www). */
+  TYPREN_CANONICAL_HOST?: string;
 };
 
 /** The data-plane operations `sync.ts` needs against a Workers KV namespace.
