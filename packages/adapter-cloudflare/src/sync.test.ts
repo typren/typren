@@ -26,24 +26,31 @@ function fakeKvClient(seed: Record<string, string> = {}) {
 }
 
 describe("syncRedirects", () => {
-  it("reports no puts/deletes and the full unchanged count when already in sync", async () => {
+  it("re-puts the wanted map and deletes nothing when already in sync", async () => {
     const { client, putManyCalls, deleteManyCalls } = fakeKvClient({ "/old": "/new" });
     const result = await syncRedirects(client, new Map([["/old", "/new"]]));
-    expect(result).toEqual({ put: [], deleted: [], unchanged: 1 });
+    expect(result).toEqual({ puts: [{ key: "/old", value: "/new" }], deletes: [], applied: true });
     // Still re-puts the wanted pair under the hood (KV put is idempotent,
     // see sync.ts's ponytail note); only the SET of keys is diffed.
     expect(putManyCalls).toEqual([[{ key: "/old", value: "/new" }]]);
     expect(deleteManyCalls).toHaveLength(0);
   });
 
-  it("computes put for new keys and deletes for keys no longer wanted", async () => {
+  it("puts every wanted pair and deletes keys no longer wanted", async () => {
     const { client, store } = fakeKvClient({ "/stale": "/x", "/kept": "/y" });
     const want = new Map([
       ["/kept", "/y"],
       ["/fresh", "/z"],
     ]);
     const result = await syncRedirects(client, want);
-    expect(result).toEqual({ put: ["/fresh"], deleted: ["/stale"], unchanged: 1 });
+    expect(result).toEqual({
+      puts: [
+        { key: "/kept", value: "/y" },
+        { key: "/fresh", value: "/z" },
+      ],
+      deletes: ["/stale"],
+      applied: true,
+    });
     expect([...store.entries()]).toEqual(expect.arrayContaining([["/kept", "/y"], ["/fresh", "/z"]]));
     expect(store.has("/stale")).toBe(false);
   });
@@ -51,7 +58,7 @@ describe("syncRedirects", () => {
   it("dry-run computes the diff without writing", async () => {
     const { client, store, putManyCalls, deleteManyCalls } = fakeKvClient({ "/stale": "/x" });
     const result = await syncRedirects(client, new Map([["/fresh", "/y"]]), { dryRun: true });
-    expect(result).toEqual({ put: ["/fresh"], deleted: ["/stale"], unchanged: 0 });
+    expect(result).toEqual({ puts: [{ key: "/fresh", value: "/y" }], deletes: ["/stale"], applied: false });
     expect(putManyCalls).toHaveLength(0);
     expect(deleteManyCalls).toHaveLength(0);
     expect(store.has("/stale")).toBe(true); // untouched
@@ -64,18 +71,18 @@ describe("syncRedirects", () => {
 
     // dry-run still reports the would-be wipe without the guard tripping
     const dry = await syncRedirects(client, new Map(), { dryRun: true });
-    expect(dry).toEqual({ put: [], deleted: ["/a", "/b"], unchanged: 0 });
+    expect(dry).toEqual({ puts: [], deletes: ["/a", "/b"], applied: false });
 
     // the explicit escape hatch really does unpublish everything
     const wiped = await syncRedirects(client, new Map(), { allowEmpty: true });
-    expect(wiped).toEqual({ put: [], deleted: ["/a", "/b"], unchanged: 0 });
+    expect(wiped).toEqual({ puts: [], deletes: ["/a", "/b"], applied: true });
     expect(store.size).toBe(0);
   });
 
   it("no-ops cleanly when both the store and the desired state are empty", async () => {
     const { client, putManyCalls, deleteManyCalls } = fakeKvClient({});
     const result = await syncRedirects(client, new Map());
-    expect(result).toEqual({ put: [], deleted: [], unchanged: 0 });
+    expect(result).toEqual({ puts: [], deletes: [], applied: false });
     expect(putManyCalls).toHaveLength(0);
     expect(deleteManyCalls).toHaveLength(0);
   });

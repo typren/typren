@@ -13,4 +13,4 @@ export { createWranglerKvClient, runWrangler, createRedirectsNamespace, deploy, 
 // Host-agnostic redirect sourcing lives in @typren/core; re-exported here so
 // this package's CLI/tests can import everything from one place.
 export { scanContentStore, loadRedirectMap, mergeRedirectEntries, type RedirectMapEntry } from "@typren/core";
-export type { KvClient, Env } from "./types";
+export type { KvClient, KvPair, Env } from "./types";

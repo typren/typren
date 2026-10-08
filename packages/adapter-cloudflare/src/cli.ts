@@ -157,15 +157,15 @@ function printSyncResult(result: SyncRedirectsCliResult, opts: { dryRun?: boolea
     process.exitCode = 1;
     return;
   }
-  const { put, deleted, unchanged } = result.result;
-  for (const key of put) console.log(`  put    ${key}`);
-  for (const key of deleted) console.log(`  delete ${key}`);
-  if (put.length === 0 && deleted.length === 0) {
-    console.log(`typren-cloudflare sync-redirects: already in sync (${unchanged} unchanged).`);
-  } else if (opts.dryRun) {
-    console.log(`typren-cloudflare sync-redirects: dry run — ${put.length} put(s), ${deleted.length} delete(s) not applied.`);
+  const { puts, deletes, applied } = result.result;
+  for (const p of puts) console.log(`  put    ${p.key} -> ${p.value}`);
+  for (const d of deletes) console.log(`  delete ${d}`);
+  if (opts.dryRun) {
+    console.log(`typren-cloudflare sync-redirects: dry run — ${puts.length} put(s), ${deletes.length} delete(s) not applied.`);
+  } else if (applied) {
+    console.log(`typren-cloudflare sync-redirects: applied ${puts.length} put(s), ${deletes.length} delete(s).`);
   } else {
-    console.log(`typren-cloudflare sync-redirects: applied ${put.length} put(s), ${deleted.length} delete(s), ${unchanged} unchanged.`);
+    console.log("typren-cloudflare sync-redirects: already in sync.");
   }
 }
 
@@ -177,7 +177,7 @@ function printBootstrapResult(result: BootstrapCliResult): void {
   }
   console.log(
     `typren-cloudflare bootstrap: ${result.createdNamespace ? "created" : "reused"} the REDIRECTS KV namespace, ` +
-      `synced ${result.sync.put.length} put(s)/${result.sync.deleted.length} delete(s), deployed.`
+      `synced ${result.sync.puts.length} put(s)/${result.sync.deletes.length} delete(s), deployed.`
   );
 }
 

@@ -73,14 +73,14 @@ describe("runSyncRedirects", () => {
     writeFileSync(path.join(dir, "about.md"), '---\nslices: []\naliases: ["/old-about"]\n---\n');
     const client = fakeKvClient();
     const result = await runSyncRedirects(dir, { contentDir: dir }, client);
-    expect(result).toEqual({ ok: true, result: { put: ["/old-about"], deleted: [], unchanged: 0 } });
+    expect(result).toEqual({ ok: true, result: { puts: [{ key: "/old-about", value: "/about/" }], deletes: [], applied: true } });
   });
 
   it("syncs from a --map file alone when there is no typren content", async () => {
     dir = tmpDir();
     writeFileSync(path.join(dir, "redirects.json"), JSON.stringify([{ from: "/legacy", to: "/hub" }]));
     const result = await runSyncRedirects(dir, { contentDir: dir, map: "redirects.json" }, fakeKvClient());
-    expect(result).toEqual({ ok: true, result: { put: ["/legacy"], deleted: [], unchanged: 0 } });
+    expect(result).toEqual({ ok: true, result: { puts: [{ key: "/legacy", value: "/hub/" }], deletes: [], applied: true } });
   });
 
   it("merges frontmatter aliases with the map and refuses a cross-source duplicate", async () => {
@@ -95,7 +95,7 @@ describe("runSyncRedirects", () => {
     dir = tmpDir();
     writeFileSync(path.join(dir, "redirects.json"), JSON.stringify([{ from: "/legacy", to: "/hub" }]));
     const result = await runSyncRedirects(dir, { contentDir: dir, map: "redirects.json", trailingSlash: false }, fakeKvClient());
-    expect(result).toMatchObject({ ok: true, result: { put: ["/legacy"] } });
+    expect(result).toMatchObject({ ok: true, result: { puts: [{ key: "/legacy", value: "/hub" }] } });
   });
 
   it("dry-run reports the diff without writing", async () => {
@@ -103,7 +103,7 @@ describe("runSyncRedirects", () => {
     writeFileSync(path.join(dir, "about.md"), '---\nslices: []\naliases: ["/old-about"]\n---\n');
     const client = fakeKvClient();
     const result = await runSyncRedirects(dir, { contentDir: dir, dryRun: true }, client);
-    expect(result).toEqual({ ok: true, result: { put: ["/old-about"], deleted: [], unchanged: 0 } });
+    expect(result).toEqual({ ok: true, result: { puts: [{ key: "/old-about", value: "/about/" }], deletes: [], applied: false } });
     expect(client.putMany).not.toHaveBeenCalled();
   });
 

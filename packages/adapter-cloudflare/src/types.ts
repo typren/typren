@@ -18,8 +18,10 @@ export type Env = {
  *  shelling out to `wrangler kv`. No `get`/value-read method: sync.ts
  *  re-puts every wanted pair rather than diffing values, see its own doc
  *  comment for why. */
+export type KvPair = { key: string; value: string };
+
 export interface KvClient {
   listKeys(): Promise<string[]>;
-  putMany(pairs: { key: string; value: string }[]): Promise<void>;
+  putMany(pairs: KvPair[]): Promise<void>;
   deleteMany(keys: string[]): Promise<void>;
 }
