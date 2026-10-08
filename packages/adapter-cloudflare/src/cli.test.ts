@@ -262,6 +262,21 @@ describe("main", () => {
     }
   });
 
+  it("prints each put and delete, then the applied summary", async () => {
+    const dir = tmpDir();
+    writeFileSync(path.join(dir, "about.md"), '---\nslices: []\naliases: ["/old-about"]\n---\n');
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await main(["sync-redirects", "--content-dir", dir], { kv: fakeKvClient({ "/stale": "/x" }) });
+      expect(log).toHaveBeenCalledWith("  put    /old-about -> /about/");
+      expect(log).toHaveBeenCalledWith("  delete /stale");
+      expect(log).toHaveBeenCalledWith("typren-cloudflare sync-redirects: applied 1 put(s), 1 delete(s).");
+    } finally {
+      log.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("reports already-in-sync", async () => {
     const dir = tmpDir();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
