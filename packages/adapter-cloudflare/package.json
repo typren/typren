@@ -1,0 +1,58 @@
+{
+  "name": "@typren/adapter-cloudflare",
+  "version": "0.0.0",
+  "description": "Cloudflare Workers + Static Assets host adapter for typren: a Worker (directory-index rewrite + bare→slash canonicalization + KV-backed redirect lookup, fail-open) and a `typren-cloudflare` CLI that inits the wrangler config, bootstraps the KV namespace, and diff-syncs @typren/core's redirects() into it. Not IaC: it never creates a zone or account.",
+  "keywords": [
+    "cms",
+    "typren",
+    "cloudflare",
+    "workers",
+    "redirects"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "private": false,
+  "type": "module",
+  "sideEffects": false,
+  "bin": {
+    "typren-cloudflare": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "default": "./dist/worker.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "prepublishOnly": "npm run build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@typren/core": "^0.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@typren/contract-tests": "workspace:*",
+    "typescript": "^6.0.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/typren/typren.git",
+    "directory": "packages/adapter-cloudflare"
+  },
+  "bugs": {
+    "url": "https://github.com/typren/typren/issues"
+  },
+  "homepage": "https://typren.com"
+}
