@@ -5,3 +5,8 @@ export {
   type BridgeMessage,
   type InitPreviewBridge,
 } from "./preview-bridge";
+export {
+  createStaticHostRoutingContractSuite,
+  type StaticHostOutcome,
+  type StaticHostRunner,
+} from "./static-host-routing";
