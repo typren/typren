@@ -14,7 +14,7 @@ differentiated layer on top of a Cloudflare account you already have.
 
 ```bash
 npm i -D @typren/adapter-cloudflare wrangler
-npx typren-cloudflare init --name my-site --domain example.com
+npx typren-cloudflare init --name my-site --domain example.com --domain www.example.com --canonical-host www.example.com
 next build
 npx typren-cloudflare bootstrap
 ```
@@ -47,6 +47,21 @@ If the `REDIRECTS` KV binding is missing entirely (a site deployed before
 `bootstrap` has run), the lookup degrades to "no redirect" and the site still
 serves — only the redirect feature is unavailable until `bootstrap` runs.
 
+## URL shape, canonical host, account
+
+`init` options, all written into `wrangler.jsonc`:
+
+- `--trailing-slash false` for Next's default export (`trailingSlash` unset):
+  `/pricing` serves `pricing.html` and `/pricing/` 301s to `/pricing`. The
+  default is the `trailingSlash: true` shape (`/pricing/` serves
+  `pricing/index.html`, `/pricing` 301s to `/pricing/`). It becomes the
+  Worker's `TYPREN_TRAILING_SLASH` var, and `sync-redirects`/`bootstrap`
+  follow it unless you pass the flag explicitly.
+- `--canonical-host www.example.com` 301s every other hostname (typically the
+  apex) to this one, path and query kept, before any routing.
+- `--account-id <id>` pins the account. Needed when your wrangler login can
+  see several accounts, since a non-interactive deploy can't pick one.
+
 ## Redirects
 
 Two mergeable sources, same as `@typren/adapter-cloudfront`:
@@ -61,8 +76,7 @@ npx typren-cloudflare sync-redirects --map redirects.config.mjs
 npx typren-cloudflare sync-redirects --dry-run
 ```
 
-A bare-URL-canonical site (Next's `trailingSlash: false`) should pass
-`--trailing-slash false`, which emits map targets verbatim instead of
+On a bare-URL site (see above) map targets are emitted verbatim instead of
 slash-canonicalized. An empty desired state refuses to delete every live key
 unless you pass `--allow-empty`.
 
@@ -100,7 +114,9 @@ style function deploy or invalidation needed.
 `bootstrap`'s `wrangler deploy` then provisions the DNS record and
 certificate. The zone must already be active on the same Cloudflare account,
 and the hostname must have no existing conflicting DNS record (a wildcard
-domain is not supported here, pass a bare hostname per `--domain`).
+domain is not supported here, pass a bare hostname per `--domain`). Pair
+apex and `www` domains with `--canonical-host` so only one of them serves
+pages.
 
 ## Scope and operational notes
 

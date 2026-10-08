@@ -38,6 +38,35 @@ describe("renderWranglerConfig", () => {
     ]);
   });
 
+  it("pins the account and writes bare-URL / canonical-host vars when asked", () => {
+    const parsed = JSON.parse(
+      stripComments(
+        renderWranglerConfig({
+          name: "my-site",
+          compatibilityDate: "2026-01-01",
+          accountId: "abf15ad296286bbdffe4acf07b54c39a",
+          trailingSlash: false,
+          canonicalHost: "www.example.com",
+          domains: ["example.com"],
+        })
+      )
+    );
+    expect(parsed.account_id).toBe("abf15ad296286bbdffe4acf07b54c39a");
+    expect(parsed.vars).toEqual({ TYPREN_TRAILING_SLASH: "false", TYPREN_CANONICAL_HOST: "www.example.com" });
+    expect(parsed.routes).toEqual([{ pattern: "example.com", custom_domain: true }]);
+  });
+
+  it("writes no vars for the default trailing-slash shape", () => {
+    expect(JSON.parse(stripComments(renderWranglerConfig({ name: "my-site", compatibilityDate: "2026-01-01" }))).vars).toBeUndefined();
+  });
+
+  it.each([
+    [{ accountId: "not-an-account" }, "not a valid Cloudflare account id"],
+    [{ canonicalHost: "https://www.example.com" }, "not a valid custom domain"],
+  ])("rejects %o", (extra, message) => {
+    expect(() => renderWranglerConfig({ name: "my-site", compatibilityDate: "2026-01-01", ...extra })).toThrow(message);
+  });
+
   it("honors a custom assetsDir", () => {
     const config = renderWranglerConfig({ name: "my-site", compatibilityDate: "2026-01-01", assetsDir: "./dist" });
     expect(JSON.parse(stripComments(config)).assets.directory).toBe("./dist");

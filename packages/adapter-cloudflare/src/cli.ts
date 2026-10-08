@@ -11,6 +11,14 @@ import type { KvClient } from "./types";
 
 const CONFIG_FILENAMES = ["wrangler.jsonc", "wrangler.json", "wrangler.toml"];
 
+/** Whether the wrangler config in `cwd` declares a bare-URL export (init's
+ *  `--trailing-slash false`), so sync-redirects/bootstrap emit matching
+ *  redirect targets without the flag being repeated on every run. */
+function configDeclaresBareUrls(cwd: string): boolean {
+  const file = CONFIG_FILENAMES.map((f) => path.join(cwd, f)).find((f) => fs.existsSync(f));
+  return file !== undefined && /"TYPREN_TRAILING_SLASH"\s*:\s*"false"/.test(fs.readFileSync(file, "utf8"));
+}
+
 /** Same src/-vs-root auto-detect `typren review` / adapter-cloudfront use. */
 function detectContentDir(cwd: string): string {
   return fs.existsSync(path.join(cwd, "src")) ? path.join(cwd, "src", "content") : path.join(cwd, "content");
@@ -20,6 +28,9 @@ export type InitCliOptions = {
   name?: string;
   assetsDir?: string;
   domains?: string[];
+  accountId?: string;
+  trailingSlash?: boolean;
+  canonicalHost?: string;
   force?: boolean;
 };
 export type InitCliResult = { ok: true } | { ok: false; error: string };
@@ -40,6 +51,9 @@ export function runInit(cwd: string, opts: InitCliOptions): InitCliResult {
       name: opts.name,
       assetsDir: opts.assetsDir,
       domains: opts.domains,
+      accountId: opts.accountId,
+      trailingSlash: opts.trailingSlash,
+      canonicalHost: opts.canonicalHost,
       compatibilityDate: new Date().toISOString().slice(0, 10),
     });
     fs.writeFileSync(path.join(cwd, "wrangler.jsonc"), config);
@@ -217,7 +231,8 @@ function printHelp(): void {
   console.log(`typren-cloudflare: Cloudflare Workers + Static Assets host adapter for typren
 
 Usage:
-  npx typren-cloudflare init --name <worker-name> [--assets-dir ./out] [--domain <host>]... [--force]
+  npx typren-cloudflare init --name <worker-name> [--assets-dir ./out] [--domain <host>]... [--canonical-host <host>]
+                         [--trailing-slash false] [--account-id <id>] [--force]
   npx typren-cloudflare bootstrap [--content-dir <path>] [--map <file>] [--home-slug <slug>] [--assets-dir ./out] [--trailing-slash false]
   npx typren-cloudflare sync-redirects [--content-dir <path>] [--map <file>] [--home-slug <slug>] [--trailing-slash false] [--allow-empty] [--dry-run]
   npx typren-cloudflare --help
@@ -225,6 +240,10 @@ Usage:
   init             Write wrangler.jsonc in the current directory. Refuses to
                     overwrite an existing wrangler config unless --force.
                     --domain is repeatable; each becomes a custom-domain route.
+                    --canonical-host 301s every other hostname to this one.
+                    --trailing-slash false for Next's default bare-URL export
+                    (bootstrap and sync-redirects then default to it too).
+                    --account-id pins the account for multi-account logins.
 
   bootstrap        One-time, idempotent setup: creates the REDIRECTS KV
                     namespace if the config doesn't already have it, syncs
@@ -267,6 +286,11 @@ export async function main(argv: string[] = process.argv.slice(2), clients: Main
   // (`--map --dry-run`): silently discarding it would run WITHOUT the map,
   // and with the empty-state delete guard off that's how a whole redirect
   // map gets wiped. Fail loud instead.
+  // An explicit --trailing-slash wins; otherwise follow what init wrote.
+  const trailingSlashFor = (cwd: string): boolean => {
+    const value = stringFlag("trailing-slash");
+    return value === undefined ? !configDeclaresBareUrls(cwd) : value !== "false";
+  };
   const stringFlag = (name: string): string | undefined => {
     const value = flags[name];
     if (value === true) {
@@ -289,6 +313,9 @@ export async function main(argv: string[] = process.argv.slice(2), clients: Main
       name: stringFlag("name"),
       assetsDir: stringFlag("assets-dir"),
       domains,
+      accountId: stringFlag("account-id"),
+      trailingSlash: stringFlag("trailing-slash") !== "false",
+      canonicalHost: stringFlag("canonical-host"),
       force: flags.force === true,
     };
     if (process.exitCode === 1) return;
@@ -302,7 +329,7 @@ export async function main(argv: string[] = process.argv.slice(2), clients: Main
       homeSlug: stringFlag("home-slug"),
       dryRun: flags["dry-run"] === true,
       map: stringFlag("map"),
-      trailingSlash: stringFlag("trailing-slash") !== "false",
+      trailingSlash: trailingSlashFor(process.cwd()),
       allowEmpty: flags["allow-empty"] === true,
     };
     if (process.exitCode === 1) return;
@@ -316,7 +343,7 @@ export async function main(argv: string[] = process.argv.slice(2), clients: Main
     contentDir: stringFlag("content-dir"),
     homeSlug: stringFlag("home-slug"),
     map: stringFlag("map"),
-    trailingSlash: stringFlag("trailing-slash") !== "false",
+    trailingSlash: trailingSlashFor(process.cwd()),
     assetsDir: stringFlag("assets-dir"),
   };
   if (process.exitCode === 1) return;

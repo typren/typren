@@ -8,11 +8,23 @@ const NAME_PATTERN = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 // instead, out of scope for `init`'s simple case.
 const DOMAIN_PATTERN = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i;
 
+// A Cloudflare account id: 32 lowercase hex characters.
+const ACCOUNT_ID_PATTERN = /^[0-9a-f]{32}$/;
+
 export type RenderWranglerConfigOptions = {
   name: string;
   assetsDir?: string;
   domains?: string[];
   compatibilityDate: string;
+  /** Pins the account, so a login with access to several accounts can't
+   *  deploy to the wrong one (and non-interactive runs don't stop to ask). */
+  accountId?: string;
+  /** Next's `trailingSlash`. `false` (Next's default export) is written as
+   *  the Worker's `TYPREN_TRAILING_SLASH` var. */
+  trailingSlash?: boolean;
+  /** Written as `TYPREN_CANONICAL_HOST`: the Worker 301s any other hostname
+   *  (e.g. the apex) to this one. */
+  canonicalHost?: string;
 };
 
 function validateName(name: string): void {
@@ -43,9 +55,19 @@ function validateDomain(domain: string): void {
  * "404-page"` serves the static export's own `404.html`.
  */
 export function renderWranglerConfig(opts: RenderWranglerConfigOptions): string {
-  const { name, assetsDir = "./out", domains = [], compatibilityDate } = opts;
+  const { name, assetsDir = "./out", domains = [], compatibilityDate, accountId, trailingSlash = true, canonicalHost } = opts;
   validateName(name);
   for (const domain of domains) validateDomain(domain);
+  if (canonicalHost !== undefined) validateDomain(canonicalHost);
+  if (accountId !== undefined && !ACCOUNT_ID_PATTERN.test(accountId)) {
+    throw new Error(`typren-cloudflare: "${accountId}" is not a valid Cloudflare account id (32 lowercase hex characters)`);
+  }
+
+  const vars: Record<string, string> = {};
+  if (!trailingSlash) vars.TYPREN_TRAILING_SLASH = "false";
+  if (canonicalHost) vars.TYPREN_CANONICAL_HOST = canonicalHost;
+  const accountLine = accountId ? `\n  "account_id": ${JSON.stringify(accountId)},` : "";
+  const varsLine = Object.keys(vars).length > 0 ? `,\n  "vars": ${JSON.stringify(vars)}` : "";
 
   const routesLine =
     domains.length > 0
@@ -53,7 +75,7 @@ export function renderWranglerConfig(opts: RenderWranglerConfigOptions): string 
       : `\n  // , "routes": [{ "pattern": "example.com", "custom_domain": true }, ...]  only when domains given`;
 
   return `{
-  "name": ${JSON.stringify(name)},
+  "name": ${JSON.stringify(name)},${accountLine}
   "main": "node_modules/@typren/adapter-cloudflare/dist/worker.js",
   "compatibility_date": ${JSON.stringify(compatibilityDate)},
   "assets": {
@@ -62,7 +84,7 @@ export function renderWranglerConfig(opts: RenderWranglerConfigOptions): string 
     "html_handling": "none",
     "not_found_handling": "404-page",
     "run_worker_first": ["/*", "!/_next/*"]
-  }${routesLine}
+  }${varsLine}${routesLine}
 }
 `;
 }

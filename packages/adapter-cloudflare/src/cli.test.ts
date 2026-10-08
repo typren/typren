@@ -55,6 +55,17 @@ describe("runInit", () => {
     expect(readFileSync(path.join(dir, "wrangler.jsonc"), "utf8")).toContain('"name": "my-site"');
   });
 
+  it("writes account, bare-URL and canonical-host settings", () => {
+    dir = tmpDir();
+    expect(
+      runInit(dir, { name: "my-site", accountId: "abf15ad296286bbdffe4acf07b54c39a", trailingSlash: false, canonicalHost: "www.example.com" })
+    ).toEqual({ ok: true });
+    const config = readFileSync(path.join(dir, "wrangler.jsonc"), "utf8");
+    expect(config).toContain('"account_id": "abf15ad296286bbdffe4acf07b54c39a"');
+    expect(config).toContain('"TYPREN_TRAILING_SLASH":"false"');
+    expect(config).toContain('"TYPREN_CANONICAL_HOST":"www.example.com"');
+  });
+
   it("surfaces a validation error from renderWranglerConfig", () => {
     dir = tmpDir();
     expect(runInit(dir, { name: "Not Valid" })).toEqual({ ok: false, error: expect.stringContaining("not a valid Worker name") });
@@ -272,6 +283,24 @@ describe("main", () => {
       expect(log).toHaveBeenCalledWith("  delete /stale");
       expect(log).toHaveBeenCalledWith("typren-cloudflare sync-redirects: applied 1 put(s), 1 delete(s).");
     } finally {
+      log.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("defaults sync-redirects to the bare-URL shape init wrote, and lets the flag override it", async () => {
+    const dir = tmpDir();
+    runInit(dir, { name: "my-site", trailingSlash: false });
+    writeFileSync(path.join(dir, "redirects.json"), JSON.stringify([{ from: "/legacy", to: "/hub" }]));
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(dir);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await main(["sync-redirects", "--content-dir", dir, "--map", "redirects.json"], { kv: fakeKvClient() });
+      expect(log).toHaveBeenCalledWith("  put    /legacy -> /hub");
+      await main(["sync-redirects", "--content-dir", dir, "--map", "redirects.json", "--trailing-slash", "true"], { kv: fakeKvClient() });
+      expect(log).toHaveBeenCalledWith("  put    /legacy -> /hub/");
+    } finally {
+      cwd.mockRestore();
       log.mockRestore();
       rmSync(dir, { recursive: true, force: true });
     }
