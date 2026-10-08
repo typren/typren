@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi, afterEach } from "vitest";
@@ -36,6 +36,16 @@ describe("runSyncRedirects", () => {
 
     expect(result).toEqual({ ok: true, result: { puts: [{ key: "/old-about", value: "/about/" }], deletes: [], applied: true } });
     expect(client.describeStore).toHaveBeenCalledWith("my-store");
+  });
+
+  it("auto-detects src/content when the site has a src/ dir and no --content-dir", async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "typren-site-"));
+    mkdirSync(path.join(dir, "src", "content"), { recursive: true });
+    writeFileSync(path.join(dir, "src", "content", "about.md"), '---\nslices: []\naliases: ["/old-about"]\n---\n');
+
+    const result = await runSyncRedirects(dir, { storeName: "my-store" }, fakeKvsClient());
+
+    expect(result).toMatchObject({ ok: true, result: { puts: [{ key: "/old-about", value: "/about/" }] } });
   });
 
   it("syncs from a --map file alone when there is no typren content", async () => {

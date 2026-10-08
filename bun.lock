@@ -30,6 +30,21 @@
       "name": "@typren/studio",
       "version": "0.1.0",
     },
+    "packages/adapter-cloudflare": {
+      "name": "@typren/adapter-cloudflare",
+      "version": "0.0.0",
+      "bin": {
+        "typren-cloudflare": "./dist/cli.js",
+      },
+      "dependencies": {
+        "@typren/core": "^0.3.3",
+      },
+      "devDependencies": {
+        "@types/node": "^26.6.4",
+        "@typren/contract-tests": "workspace:*",
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/adapter-cloudfront": {
       "name": "@typren/adapter-cloudfront",
       "version": "0.3.0",
@@ -37,17 +52,17 @@
         "typren-cloudfront": "./dist/cli.js",
       },
       "dependencies": {
-        "@typren/core": "^0.3.2",
-        "gray-matter": "^4.0.3",
+        "@typren/core": "^0.3.3",
       },
       "devDependencies": {
         "@types/node": "^26.6.4",
+        "@typren/contract-tests": "workspace:*",
         "typescript": "^6.0.3",
       },
     },
     "packages/cli": {
       "name": "typren",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "bin": {
         "typren": "./dist/cli.js",
       },
@@ -71,7 +86,7 @@
     },
     "packages/core": {
       "name": "@typren/core",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "dompurify": "^3.4.16",
         "gray-matter": "^4.0.3",
@@ -108,7 +123,7 @@
     },
     "packages/editor": {
       "name": "@typren/editor",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "dependencies": {
         "@typren/core": "workspace:*",
         "class-variance-authority": "^0.7.1",
@@ -141,7 +156,7 @@
     },
     "packages/locale": {
       "name": "@typren/locale",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "bin": {
         "typren-locale": "./dist/cli/index.js",
       },
@@ -513,6 +528,8 @@
     "@typescript-eslint/utils": ["@typescript-eslint/utils@8.71.0", "", { "dependencies": { "@eslint-community/eslint-utils": "^4.9.1", "@typescript-eslint/scope-manager": "8.71.0", "@typescript-eslint/types": "8.71.0", "@typescript-eslint/typescript-estree": "8.71.0" }, "peerDependencies": { "eslint": "^8.57.0 || ^9.0.0 || ^10.0.0", "typescript": ">=4.8.4 <6.1.0" } }, "sha512-pKR/tEMVrXZG23UFKUn5BQf3zfmfk7KQceI2cGzywZ5nxM5Eu3hEJU1utjWzydtzBbcJAQhHN8iPCxobHpPcZQ=="],
 
     "@typescript-eslint/visitor-keys": ["@typescript-eslint/visitor-keys@8.71.0", "", { "dependencies": { "@typescript-eslint/types": "8.71.0", "eslint-visitor-keys": "^5.0.0" } }, "sha512-8eQ9R218XORK+KLosnf4bu/QsUXvUyVwTbArg7/0NMB1Pu87OJKvj4nhFblkYE8gQV73mW1dx1ptlPCkwRGa7A=="],
+
+    "@typren/adapter-cloudflare": ["@typren/adapter-cloudflare@workspace:packages/adapter-cloudflare"],
 
     "@typren/adapter-cloudfront": ["@typren/adapter-cloudfront@workspace:packages/adapter-cloudfront"],
 

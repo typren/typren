@@ -26,6 +26,10 @@
       "types": "./dist/proxy.d.ts",
       "default": "./dist/proxy.js"
     },
+    "./static-host": {
+      "types": "./dist/static-host.d.ts",
+      "default": "./dist/static-host.js"
+    },
     "./api": {
       "types": "./dist/api/index.d.ts",
       "default": "./dist/api/index.js"

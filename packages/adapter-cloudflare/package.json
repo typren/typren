@@ -1,25 +1,29 @@
 {
-  "name": "@typren/adapter-cloudfront",
-  "version": "0.3.0",
-  "description": "CloudFront host adapter for typren: the canonical viewer-request function (directory-index rewrite + bare→slash canonicalization + KVS-backed redirect lookup, fail-open) and a `typren-cloudfront sync-redirects` CLI that diff-syncs @typren/core's redirects() into a CloudFront KeyValueStore. Not IaC: it never creates a bucket or distribution.",
+  "name": "@typren/adapter-cloudflare",
+  "version": "0.0.0",
+  "description": "Cloudflare Workers + Static Assets host adapter for typren: a Worker (directory-index rewrite + bare→slash canonicalization + KV-backed redirect lookup, fail-open) and a `typren-cloudflare` CLI that inits the wrangler config, bootstraps the KV namespace, and diff-syncs @typren/core's redirects() into it. Not IaC: it never creates a zone or account.",
   "keywords": [
     "cms",
     "typren",
-    "cloudfront",
-    "redirects",
-    "aws"
+    "cloudflare",
+    "workers",
+    "redirects"
   ],
   "license": "SEE LICENSE IN LICENSE",
   "private": false,
   "type": "module",
   "sideEffects": false,
   "bin": {
-    "typren-cloudfront": "./dist/cli.js"
+    "typren-cloudflare": "./dist/cli.js"
   },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "default": "./dist/worker.js"
     }
   },
   "publishConfig": {
@@ -45,7 +49,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/typren/typren.git",
-    "directory": "packages/adapter-cloudfront"
+    "directory": "packages/adapter-cloudflare"
   },
   "bugs": {
     "url": "https://github.com/typren/typren/issues"

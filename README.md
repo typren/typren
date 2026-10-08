@@ -32,6 +32,7 @@ your site still builds.
 | [`typren`](packages/cli) | the CLI: scaffolding, content review |
 | [`@typren/editor`](packages/editor) | the editor UI (React), in progress and not yet published |
 | [`@typren/adapter-cloudfront`](packages/adapter-cloudfront) | CloudFront host adapter: the canonical viewer-request function + a `sync-redirects` CLI for `redirects()` |
+| [`@typren/adapter-cloudflare`](packages/adapter-cloudflare) | Cloudflare Workers + Static Assets host adapter: the canonical Worker + an `init`/`bootstrap`/`sync-redirects` CLI for `redirects()` |
 
 ## Architecture
 

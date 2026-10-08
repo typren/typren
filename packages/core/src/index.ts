@@ -98,3 +98,18 @@ export {
 } from "./settings";
 export { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection";
 export { buildRedirects, type RedirectEntry, type BuildRedirectsOptions, type PageRedirectMeta } from "./redirects";
+export {
+  scanContentStore,
+  loadRedirectMap,
+  mergeRedirectEntries,
+  toRedirectPairs,
+  type RedirectMapEntry,
+  type ToRedirectPairsOptions,
+} from "./redirect-sources";
+export {
+  resolveStaticHostRequest,
+  isUnsafeRedirectTarget,
+  STATIC_HOST_PASSTHROUGH,
+  type StaticHostDecision,
+  type RedirectLookup,
+} from "./static-host";

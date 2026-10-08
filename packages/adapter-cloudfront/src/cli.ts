@@ -2,9 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { buildRedirects } from "@typren/core";
-import { scanContentStore } from "./content-scan";
-import { loadRedirectMap, mergeRedirectEntries } from "./map-source";
+import { buildRedirects, scanContentStore, loadRedirectMap, mergeRedirectEntries } from "@typren/core";
 import { toKvsEntries } from "./kvs-entries";
 import { syncRedirects, type SyncResult } from "./sync";
 import { bootstrapDistribution, type BootstrapResult } from "./bootstrap";
