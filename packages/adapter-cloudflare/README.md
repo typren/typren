@@ -142,3 +142,8 @@ default) shells out to `wrangler kv` rather than adding a Cloudflare SDK as a
 dependency, same approach as `@typren/adapter-cloudfront`'s
 `createAwsCliKvsClient()`; swap in your own client behind the same interface
 if you need something else.
+
+## License
+
+Apache-2.0 — see [LICENSE](./LICENSE). It depends on `@typren/core`, which is
+under the [Functional Source License](https://github.com/typren/typren/blob/main/LICENSE).

@@ -75,4 +75,8 @@ use, modify and self-host for anything except a competing hosted version of
 Typren. Each release converts to plain Apache 2.0 two years after it ships, no
 action needed on your part when that happens.
 
+Packages that are useful to sites not built on Typren are plain Apache 2.0
+instead, each with its own LICENSE: `@typren/locale`,
+`@typren/adapter-cloudfront` and `@typren/adapter-cloudflare`.
+
 Contributions require a CLA. See [CONTRIBUTING.md](CONTRIBUTING.md#contributor-licence-agreement).
