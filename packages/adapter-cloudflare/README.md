@@ -131,6 +131,12 @@ pages.
   `CLOUDFLARE_API_TOKEN` both work), via `npx`, so authentication is
   whatever `wrangler` already has configured. No AWS/Cloudflare SDK is a
   dependency of this package.
+- **`main` assumes the package sits in the site's own `node_modules`.** In a
+  monorepo whose package manager hoists it to the workspace root, point
+  `main` in `wrangler.jsonc` at the hoisted path (for example
+  `../../node_modules/@typren/adapter-cloudflare/dist/worker.js`).
+- **The CLI runs `npx` directly**, so on Windows (where it is `npx.cmd`) run
+  the commands from WSL, or run the equivalent `wrangler` commands by hand.
 
 ## Testing without a real Cloudflare account
 
