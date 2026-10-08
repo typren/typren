@@ -1,6 +1,6 @@
 {
   "name": "typren",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Scaffolder CLI for Typren: `typren init`, `typren apply-settings`, `typren review`.",
   "license": "SEE LICENSE IN LICENSE",
   "private": false,
@@ -20,11 +20,11 @@
     "check:scaffold": "node scripts/check-scaffold.mjs"
   },
   "dependencies": {
-    "@typren/core": "^0.3.2",
+    "@typren/core": "^0.3.3",
     "gray-matter": "^4.0.3"
   },
   "devDependencies": {
-    "@types/node": "^26.5.0",
+    "@types/node": "^26.6.4",
     "typescript": "^6.0.3"
   },
   "repository": {

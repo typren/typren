@@ -1,5 +1,11 @@
 # @typren/locale
 
+## 0.2.1
+
+### Patch Changes
+
+- 91b93d8: Fix `pull`, `bake` and `doctor` rejecting every export-api config that references its token as `${VAR}`: the config loader no longer interpolates `source.token` before the provider's literal-token check.
+
 ## 0.2.0
 
 ### Minor Changes

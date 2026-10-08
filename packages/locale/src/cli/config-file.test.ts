@@ -61,4 +61,29 @@ describe("readConfigFile", () => {
       delete process.env.LOCALE_SOURCE_DIR;
     }
   });
+
+  it("resolve() leaves source.token as a ${VAR} reference for the provider's own gate", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        app: "demo",
+        source: { type: "export-api", baseUrl: "https://tms.example/${TMS_REGION}", projectId: "p1", token: "${TMS_TOKEN}" },
+      }),
+    );
+    const result = readConfigFile(file);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    process.env.TMS_REGION = "eu";
+    process.env.TMS_TOKEN = "sk-secret";
+    try {
+      const resolved = result.resolve();
+      expect((resolved.source as { baseUrl?: string }).baseUrl).toBe("https://tms.example/eu");
+      expect((resolved.source as { token?: string }).token).toBe("${TMS_TOKEN}");
+    } finally {
+      delete process.env.TMS_REGION;
+      delete process.env.TMS_TOKEN;
+    }
+  });
 });

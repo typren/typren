@@ -1,5 +1,11 @@
 # @typren/core
 
+## 0.3.3
+
+### Patch Changes
+
+- aa2ebce: Bump runtime dependencies: dompurify 3.4.16, js-yaml 5.4.2, jsdom 30.1.1, sharp 0.35.5.
+
 ## 0.3.2
 
 No changes in this release.
