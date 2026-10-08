@@ -157,3 +157,8 @@ account needed. `createAwsCliKvsClient()`/`createAwsCliCloudFrontClient()`
 (the CLI's default) shell out to the `aws` CLI rather than adding the AWS SDK
 as a dependency — swap in your own client behind the same interface if you
 need something else.
+
+## License
+
+Apache-2.0 — see [LICENSE](./LICENSE). It depends on `@typren/core`, which is
+under the [Functional Source License](https://github.com/typren/typren/blob/main/LICENSE).

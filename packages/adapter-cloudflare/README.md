@@ -131,6 +131,12 @@ pages.
   `CLOUDFLARE_API_TOKEN` both work), via `npx`, so authentication is
   whatever `wrangler` already has configured. No AWS/Cloudflare SDK is a
   dependency of this package.
+- **`main` assumes the package sits in the site's own `node_modules`.** In a
+  monorepo whose package manager hoists it to the workspace root, point
+  `main` in `wrangler.jsonc` at the hoisted path (for example
+  `../../node_modules/@typren/adapter-cloudflare/dist/worker.js`).
+- **The CLI runs `npx` directly**, so on Windows (where it is `npx.cmd`) run
+  the commands from WSL, or run the equivalent `wrangler` commands by hand.
 
 ## Testing without a real Cloudflare account
 
@@ -142,3 +148,8 @@ default) shells out to `wrangler kv` rather than adding a Cloudflare SDK as a
 dependency, same approach as `@typren/adapter-cloudfront`'s
 `createAwsCliKvsClient()`; swap in your own client behind the same interface
 if you need something else.
+
+## License
+
+Apache-2.0 — see [LICENSE](./LICENSE). It depends on `@typren/core`, which is
+under the [Functional Source License](https://github.com/typren/typren/blob/main/LICENSE).
