@@ -1,5 +1,15 @@
 # @typren/core
 
+## 0.4.0
+
+### Minor Changes
+
+- 7e13dc1: Add `@typren/core/static-host` (`resolveStaticHostRequest`), covering both
+  static-export URL shapes: `trailingSlash: true` (the default) and Next's default
+  bare URLs via `{ trailingSlash: false }`. Add host-agnostic redirect sourcing
+  (`scanContentStore`, `loadRedirectMap`, `mergeRedirectEntries`,
+  `toRedirectPairs`).
+
 ## 0.3.3
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @typren/adapter-cloudfront
 
+## 0.3.1
+
+### Patch Changes
+
+- 7e13dc1: Redirect sourcing (`scanContentStore`, `loadRedirectMap`,
+  `mergeRedirectEntries`) now comes from `@typren/core`; this package's public
+  API is unchanged.
+- 5041c29: Relicensed to Apache-2.0 and the LICENSE file is now included in the package
+  (it previously pointed at a LICENSE it did not ship).
+- Updated dependencies [7e13dc1]
+  - @typren/core@0.4.0
+
 ## 0.3.0
 
 ### Minor Changes

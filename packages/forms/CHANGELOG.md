@@ -1,5 +1,11 @@
 # @typren/forms
 
+## 0.1.2
+
+### Patch Changes
+
+- 5041c29: Include the LICENSE file (Functional Source License) in the published package.
+
 ## 0.1.1
 
 ### Patch Changes
