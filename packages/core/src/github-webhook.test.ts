@@ -78,6 +78,19 @@ describe("createGithubWebhookHandler: event/ref routing", () => {
     expect((await handler(req)).status).toBe(202);
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("400s a validly-signed body that isn't valid JSON", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const text = "{not json";
+    const req = new Request("https://example.com/hook", {
+      method: "POST",
+      body: text,
+      headers: { "x-github-event": "push", "x-hub-signature-256": await sign(SECRET, text) },
+    });
+    expect((await handler(req)).status).toBe(400);
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });
 
 describe("createGithubWebhookHandler: content filtering", () => {
@@ -98,6 +111,21 @@ describe("createGithubWebhookHandler: content filtering", () => {
     await handler(req);
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ paths: ["content/fr/about.md"], slugs: ["about"], locales: ["fr"] })
+    );
+  });
+
+  it("ignores a path nested deeper than locale/slug.md (e.g. a collection dir), but still invalidates", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest(
+      push("refs/heads/main", [{ modified: ["content/products/widget/variants/a.md", "content/about.md"] }])
+    );
+    await handler(req);
+    // The deep path isn't a Pages slug, so it contributes no slug/locale, but
+    // it's still a real content change: full stays false and the shallow
+    // path is still reported.
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ slugs: ["about"], locales: [], full: false })
     );
   });
 
@@ -259,6 +287,29 @@ describe("createGithubWebhookHandler: delivery dedupe", () => {
       expect((await handler(req)).status).toBe(200);
     }
     expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("evicts the oldest delivery id once past the LRU cap, so it can be seen again", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const body = push("refs/heads/main", [{ modified: ["content/about.md"] }]);
+    const text = JSON.stringify(body);
+    const sig = await sign(SECRET, text);
+    const send = (id: string) =>
+      handler(
+        new Request("https://example.com/hook", {
+          method: "POST",
+          body: text,
+          headers: { "x-github-event": "push", "x-github-delivery": id, "x-hub-signature-256": sig },
+        })
+      );
+
+    expect((await send("id-0")).status).toBe(200);
+    // Push 1000 MORE distinct ids: "id-0" is now the oldest of 1001 seen,
+    // past the 1000-entry cap, so it must have been evicted.
+    for (let i = 1; i <= 1000; i++) await send(`id-${i}`);
+    expect((await send("id-0")).status).toBe(200); // processed again, not 202
+    expect(onChange).toHaveBeenCalledTimes(1002);
   });
 });
 

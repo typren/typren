@@ -500,4 +500,48 @@ describe("createFetchNotionClient transport", () => {
     const page = await createFetchNotionClient("secret_notion_token", fetchImpl).retrievePage("missing");
     expect(page).toBeNull();
   });
+
+  it("encodes the page id in the retrievePage URL", async () => {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ id: "p1", archived: false, properties: {} }), { status: 200 });
+    }) as unknown as typeof fetch;
+    await createFetchNotionClient("secret_notion_token", fetchImpl).retrievePage("has space/slash");
+    expect(calls[0]).toBe("https://api.notion.com/v1/pages/has%20space%2Fslash");
+  });
+
+  it("queryDatabase pages through has_more/next_cursor", async () => {
+    const pageOne = { id: "p1", archived: false, properties: {} };
+    const pageTwo = { id: "p2", archived: false, properties: {} };
+    const fetchImpl = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse((init?.body as string) ?? "{}") as { start_cursor?: string };
+      if (!body.start_cursor) return new Response(JSON.stringify({ results: [pageOne], has_more: true, next_cursor: "c2" }));
+      return new Response(JSON.stringify({ results: [pageTwo], has_more: false }));
+    }) as unknown as typeof fetch;
+    const pages = await createFetchNotionClient("secret_notion_token", fetchImpl).queryDatabase("db1");
+    expect(pages.map((p) => p.id)).toEqual(["p1", "p2"]);
+  });
+
+  it("createPage/updatePage/archivePage round-trip through the real transport", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/pages") && init?.method === "POST") {
+        return new Response(JSON.stringify({ id: "new-page", archived: false, properties: {} }));
+      }
+      return new Response(JSON.stringify({ id: "new-page", archived: false, properties: {} }));
+    }) as unknown as typeof fetch;
+    const client = createFetchNotionClient("secret_notion_token", fetchImpl);
+    const created = await client.createPage("db1", { Name: { title: [] } });
+    expect(created.id).toBe("new-page");
+    await client.updatePage("new-page", { Name: { title: [] } });
+    await client.archivePage("new-page");
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("throws a descriptive error for a non-ok response", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ message: "nope" }), { status: 500 })) as unknown as typeof fetch;
+    await expect(createFetchNotionClient("secret_notion_token", fetchImpl).queryDatabase("db1")).rejects.toThrow(
+      /notion API POST/
+    );
+  });
 });

@@ -472,6 +472,56 @@ describe("createGithubAdapter: draftBranch", () => {
 
     expect(files.get("content/_drafts/about.md")?.content).toBe("draft content"); // on "main", not a new branch
   });
+
+  it("throws a clear error when the published branch's HEAD can't be resolved to create the draft branch", async () => {
+    const { fetchImpl: realFetch } = makeFakeGithub();
+    const brokenFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (String(input).includes("/git/ref/heads/")) return new Response("boom", { status: 500 });
+      return realFetch(input, init);
+    });
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: brokenFetch as unknown as typeof fetch,
+      draftBranch: "my-drafts",
+    });
+    await expect(adapter.writeDraftRaw("about", "v1")).rejects.toThrow(/could not resolve HEAD/);
+  });
+
+  it("throws a clear error when the draft branch ref can't be created", async () => {
+    const { fetchImpl: realFetch } = makeFakeGithub();
+    const brokenFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/git/refs") && init?.method === "POST") return new Response("boom", { status: 500 });
+      return realFetch(input, init);
+    });
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: brokenFetch as unknown as typeof fetch,
+      draftBranch: "my-drafts",
+    });
+    await expect(adapter.writeDraftRaw("about", "v1")).rejects.toThrow(/could not create draft branch/);
+  });
+});
+
+describe("createGithubAdapter: delete failure", () => {
+  it("throws a clear error when a delete fails for a reason other than CAS/404", async () => {
+    const { fetchImpl: realFetch } = makeFakeGithub();
+    const brokenFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") return new Response("server error", { status: 500 });
+      return realFetch(input, init);
+    });
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: brokenFetch as unknown as typeof fetch,
+    });
+    await adapter.writeRaw("about", "content");
+    await expect(adapter.deletePublished("about")).rejects.toThrow(/GitHub delete of/);
+  });
 });
 
 describe("createGithubAdapter contract", () => {
