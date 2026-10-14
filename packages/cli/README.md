@@ -122,6 +122,41 @@ npx typren telemetry on     # opt back in
 It is also disabled by `DO_NOT_TRACK=1`, by `TYPREN_TELEMETRY=0`, and
 automatically whenever `CI` is set.
 
+### `typren migrate`
+
+```bash
+npx typren migrate
+npx typren migrate --from 0.4.0 --to 0.5.0
+npx typren migrate --json
+npx typren migrate --remote
+```
+
+After upgrading `@typren/core`, run this and follow it until it exits `0`.
+It reads the migration notes bundled with the installed `@typren/core`
+(each one ships under that package's own `migrations/` directory), figures
+out which ones apply between the version your project was last committed
+against (`--from`, default: the `@typren/core` range in `git show
+HEAD:package.json`) and the one actually installed (`--to`, default), and
+for each one greps the project for the code patterns it says need updating.
+Exits non-zero while any match remains, `0` once the project is clean (or no
+note applies), and prints the note's own Fix/Verify steps either way.
+
+**Bundled vs. `--remote`: a real trust difference, not a style choice.** The
+default run only ever reads notes that shipped inside the `@typren/core`
+tarball your lockfile pinned: same provenance, same npm audit trail, as the
+code the notes describe. `--remote` additionally fetches
+`https://typren.com/migrations/index.json` for notes newer than what's
+installed, useful when a fix landed after your last `npm install` but before
+you've upgraded. Those are printed under a "REMOTE (unverified, not
+lockfile-pinned)" header: they didn't come from the package you audited, and
+nothing from them is ever executed. Remote notes are display-only: their
+detect patterns are not run (an untrusted regex could hang the CLI), and only
+bundled notes affect the exit code. Redirects off typren.com are refused.
+
+`--json` prints `{ from, to, notes: [{ package, version, title, matches:
+[{file, line, hint}], body, source: "bundled" | "remote" }] }` instead of the
+text report, for an agent or script driving the upgrade.
+
 ### `typren --version`
 
 Prints the installed CLI version. `typren --help` lists every command.

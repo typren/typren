@@ -2,5 +2,6 @@ node_modules/
 dist/
 coverage/
 .tmp-scaffold-check/
+packages/core/migrations/
 .DS_Store
 *.log
