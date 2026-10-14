@@ -75,6 +75,11 @@ function packMigrationNotes() {
   if (parsed.length === 0) return 0;
   mkdirSync(MIGRATIONS_OUT, { recursive: true });
   for (const { file } of parsed) copyFileSync(path.join(MIGRATIONS_SRC, file), path.join(MIGRATIONS_OUT, file));
+  // `typren migrate` (packages/cli/src/migrate.ts) reads this to warn a
+  // project upgrading from before this cutoff that older notes it might
+  // have needed were dropped by the slice above, not just "none applied".
+  const oldest = parsed[parsed.length - 1].version.join(".");
+  writeFileSync(path.join(MIGRATIONS_OUT, ".min-version"), oldest);
   return parsed.length;
 }
 const migrationsPacked = packMigrationNotes();

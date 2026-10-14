@@ -154,8 +154,17 @@ detect patterns are not run (an untrusted regex could hang the CLI), and only
 bundled notes affect the exit code. Redirects off typren.com are refused.
 
 `--json` prints `{ from, to, notes: [{ package, version, title, matches:
-[{file, line, hint}], body, source: "bundled" | "remote" }] }` instead of the
-text report, for an agent or script driving the upgrade.
+[{file, line, hint}], body, source: "bundled" | "remote" }], droppedNotesWarning?
+}` instead of the text report, for an agent or script driving the upgrade.
+
+**Upgrading from a long way back.** `@typren/core`'s published tarball only
+packs the newest handful of migration notes (old ones for versions nobody's
+still upgrading from would just bloat it). If your project's `--from`
+predates the oldest note this install still carries, `migrate` prints a
+`droppedNotesWarning` and exits non-zero even if nothing else matched: some
+notes you may have needed could be missing from this run. See
+[docs/migrations](../../docs/migrations) in the repo, or
+https://typren.com/migrations/, for the full history.
 
 ### `typren --version`
 

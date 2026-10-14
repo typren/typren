@@ -42,6 +42,11 @@ export interface MigrateResult {
   from: string;
   to: string;
   notes: MigrationNoteResult[];
+  /** Set when the installed @typren/core only packs notes from
+   *  `.min-version` onward (postbuild keeps the newest 5) and `from`
+   *  predates it: some notes this project might have needed were dropped
+   *  from the release, not just "none applied between from and to". */
+  droppedNotesWarning?: string;
 }
 
 export interface MigrateOptions {
@@ -53,7 +58,24 @@ export interface MigrateOptions {
   fetchImpl?: typeof fetch;
 }
 
-const IGNORE_DIRS = new Set(["node_modules", ".next", "dist", "out", ".git"]);
+const IGNORE_DIRS = new Set([
+  "node_modules",
+  ".next",
+  "dist",
+  "out",
+  ".git",
+  "coverage",
+  "build",
+  ".turbo",
+  ".vercel",
+  ".svelte-kit",
+  ".output",
+]);
+
+// A detect pattern only needs to see source-sized files; a file above this is
+// either generated/vendored or not something a hand-written migration fix
+// would touch, so it's skipped rather than read in full.
+const MAX_SCAN_FILE_BYTES = 1_000_000;
 
 // Origin is HARDCODED, never read from config/env: `--remote` must always
 // mean "this one site", not whatever an attacker-controlled env var points
@@ -120,16 +142,49 @@ function resolveInstalledCore(cwd: string): string {
   return require.resolve("@typren/core/package.json", { paths: [cwd] });
 }
 
-function parseNote(raw: string, source: MigrationNote["source"]): MigrationNote {
+const PACKAGE_NAME_RE = /^@?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/i;
+
+function isValidSemver(v: string): boolean {
+  return /^\d+\.\d+\.\d+/.test(v);
+}
+
+/** Strips ASCII control bytes other than \n and \t. A remote note's title
+ *  and body are untrusted and get written straight to a terminal (and, with
+ *  --json, round-tripped through a string); nothing it carries should be
+ *  able to inject a cursor-control or other escape sequence into that output. */
+function stripControlChars(s: string): string {
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what this strips
+  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+}
+
+/** Bundled notes come from this repo's own docs/migrations (trusted).
+ *  Remote notes (`--remote`) are untrusted input: a malformed package/version
+ *  is rejected outright (null, caller warns and drops it) rather than risking
+ *  a garbage entry in the selected set, and title/body are sanitized. */
+function parseNote(raw: string, source: MigrationNote["source"]): MigrationNote | null {
   const { data, content } = parseMatter(raw);
+  const pkg = String(data.package ?? "");
+  const version = String(data.version ?? "");
+  if (source === "remote" && (!PACKAGE_NAME_RE.test(pkg) || !isValidSemver(version))) return null;
+  const title = String(data.title ?? "");
+  const body = content.trim();
   return {
-    package: String(data.package),
-    version: String(data.version),
-    title: String(data.title),
+    package: pkg,
+    version,
+    title: source === "remote" ? stripControlChars(title) : title,
     detect: Array.isArray(data.detect) ? (data.detect as MigrationDetectPattern[]) : [],
-    body: content.trim(),
+    body: source === "remote" ? stripControlChars(body) : body,
     source,
   };
+}
+
+function readMinVersion(migrationsDir: string): string | null {
+  try {
+    const raw = fs.readFileSync(path.join(migrationsDir, ".min-version"), "utf8").trim();
+    return raw || null;
+  } catch {
+    return null;
+  }
 }
 
 function loadBundledNotes(migrationsDir: string): MigrationNote[] {
@@ -137,7 +192,8 @@ function loadBundledNotes(migrationsDir: string): MigrationNote[] {
   return fs
     .readdirSync(migrationsDir)
     .filter((f) => f.endsWith(".md"))
-    .map((f) => parseNote(fs.readFileSync(path.join(migrationsDir, f), "utf8"), "bundled"));
+    .map((f) => parseNote(fs.readFileSync(path.join(migrationsDir, f), "utf8"), "bundled"))
+    .filter((n): n is MigrationNote => n !== null);
 }
 
 function selectNotes(notes: MigrationNote[], from: string, to: string): MigrationNote[] {
@@ -182,6 +238,10 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(`^(?:${alternatives.join("|")})$`);
 }
 
+/** `entry.isFile()` only, never a symlink (even one pointing at a real
+ *  file): `withFileTypes` doesn't follow symlinks, so a symlink's
+ *  `isFile()`/`isDirectory()` are both false here, and it's silently
+ *  skipped rather than walked into or read. */
 function listFiles(root: string): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
@@ -189,38 +249,73 @@ function listFiles(root: string): string[] {
       if (IGNORE_DIRS.has(entry.name)) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else out.push(path.relative(root, full).split(path.sep).join("/"));
+      else if (entry.isFile()) out.push(path.relative(root, full).split(path.sep).join("/"));
     }
   };
   walk(root);
   return out;
 }
 
-/** Runs one note's `detect` patterns over the project. Patterns are data
- *  (regex sources, matched against file content), never executed as code:
- *  a bad pattern fails its own `new RegExp` and is skipped with a warning,
- *  it never takes the process down or runs anything on the note's behalf. */
-function detectMatches(note: MigrationNote, cwd: string, files: string[]): MigrationMatch[] {
-  const matches: MigrationMatch[] = [];
-  for (const d of note.detect) {
-    let fileRe: RegExp;
-    let lineRe: RegExp;
+interface CompiledPattern {
+  noteIndex: number;
+  fileRe: RegExp;
+  lineRe: RegExp;
+  hint: string;
+}
+
+function compileDetectPatterns(notes: MigrationNote[]): CompiledPattern[] {
+  const compiled: CompiledPattern[] = [];
+  notes.forEach((note, noteIndex) => {
+    for (const d of note.detect) {
+      try {
+        compiled.push({ noteIndex, fileRe: globToRegExp(d.glob), lineRe: new RegExp(d.pattern), hint: d.hint });
+      } catch (err) {
+        console.warn(`typren migrate: skipping unusable detect pattern in "${note.title}": ${(err as Error).message}`);
+      }
+    }
+  });
+  return compiled;
+}
+
+/** Runs every note's `detect` patterns over the project in a single pass:
+ *  one `readFileSync` per file (not once per pattern, and not once per note
+ *  that happens to match the same file), each file's lines then checked
+ *  against every pattern whose glob applies to it. Patterns are data (regex
+ *  sources, matched against file content), never executed as code: a bad
+ *  pattern fails its own `new RegExp` and is skipped with a warning, it
+ *  never takes the process down or runs anything on the note's behalf.
+ *  Returns one match array per note, same order/length as `notes`. */
+function detectAllMatches(notes: MigrationNote[], cwd: string, files: string[]): MigrationMatch[][] {
+  const compiled = compileDetectPatterns(notes);
+  const results: MigrationMatch[][] = notes.map(() => []);
+  if (compiled.length === 0) return results;
+
+  for (const relFile of files) {
+    const applicable = compiled.filter((c) => c.fileRe.test(relFile));
+    if (applicable.length === 0) continue;
+
+    const abs = path.join(cwd, relFile);
+    let size: number;
     try {
-      fileRe = globToRegExp(d.glob);
-      lineRe = new RegExp(d.pattern);
-    } catch (err) {
-      console.warn(`typren migrate: skipping unusable detect pattern in "${note.title}": ${(err as Error).message}`);
+      size = fs.statSync(abs).size;
+    } catch {
+      continue; // gone between listing and reading
+    }
+    if (size > MAX_SCAN_FILE_BYTES) continue;
+
+    let lines: string[];
+    try {
+      lines = fs.readFileSync(abs, "utf8").split("\n");
+    } catch {
       continue;
     }
-    for (const relFile of files) {
-      if (!fileRe.test(relFile)) continue;
-      const lines = fs.readFileSync(path.join(cwd, relFile), "utf8").split("\n");
+    for (const c of applicable) {
       lines.forEach((line, i) => {
-        if (lineRe.test(line)) matches.push({ file: relFile, line: i + 1, hint: d.hint });
+        if (c.lineRe.test(line)) results[c.noteIndex].push({ file: relFile, line: i + 1, hint: c.hint });
       });
     }
   }
-  return matches;
+  return results;
 }
 
 async function fetchCapped(url: string, fetchImpl: typeof fetch): Promise<string> {
@@ -231,9 +326,29 @@ async function fetchCapped(url: string, fetchImpl: typeof fetch): Promise<string
     // typren.com would otherwise be followed silently.
     const res = await fetchImpl(url, { signal: controller.signal, redirect: "error" });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    const text = await res.text();
-    if (Buffer.byteLength(text, "utf8") > REMOTE_MAX_BYTES) throw new Error("response exceeds 1 MB cap");
-    return text;
+    // Read the stream with a running byte count and abort past the cap,
+    // rather than buffering the whole body and checking its length after:
+    // a hostile or misbehaving server shouldn't get to make this CLI hold
+    // more than REMOTE_MAX_BYTES in memory just to find out it's too big.
+    if (!res.body) {
+      const text = await res.text();
+      if (Buffer.byteLength(text, "utf8") > REMOTE_MAX_BYTES) throw new Error("response exceeds 1 MB cap");
+      return text;
+    }
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > REMOTE_MAX_BYTES) {
+        await reader.cancel();
+        throw new Error("response exceeds 1 MB cap");
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString("utf8");
   } finally {
     clearTimeout(timeout);
   }
@@ -254,7 +369,12 @@ async function fetchRemoteNotes(fetchImpl: typeof fetch): Promise<MigrationNote[
         continue;
       }
       const raw = await fetchCapped(entry.url, fetchImpl);
-      notes.push(parseNote(raw, "remote"));
+      const note = parseNote(raw, "remote");
+      if (!note) {
+        console.warn(`typren migrate: ignoring a remote migration note with an invalid package/version: ${entry.url}`);
+        continue;
+      }
+      notes.push(note);
     }
     return notes;
   } catch (err) {
@@ -281,18 +401,28 @@ export async function migrate(opts: MigrateOptions = {}): Promise<MigrateResult>
   const bundled = selectNotes(loadBundledNotes(migrationsDir), from, to);
   const remote = opts.remote ? selectNotes(await fetchRemoteNotes(opts.fetchImpl ?? fetch), from, to) : [];
 
+  const minVersion = readMinVersion(migrationsDir);
+  const droppedNotesWarning =
+    minVersion && compareSemver(from, minVersion) < 0
+      ? `typren migrate: this install of @typren/core only packs migration notes from ${minVersion} onward ` +
+        `(the newest few are kept; older ones are dropped at release time). Your project is upgrading from ${from}, ` +
+        `which predates that cutoff, so notes it may have needed could be missing from this run. ` +
+        `See https://typren.com/migrations/ or docs/migrations in the typren repo for the full history.`
+      : undefined;
+
   const files = listFiles(cwd);
+  const allMatches = detectAllMatches(bundled, cwd, files);
   const results: MigrationNoteResult[] = [];
-  for (const note of bundled) {
+  bundled.forEach((note, i) => {
     results.push({
       package: note.package,
       version: note.version,
       title: note.title,
-      matches: detectMatches(note, cwd, files),
+      matches: allMatches[i],
       body: note.body,
       source: note.source,
     });
-  }
+  });
   for (const note of remote) {
     const bundledSame = bundled.find((b) => b.package === note.package && b.version === note.version);
     results.push({
@@ -309,7 +439,7 @@ export async function migrate(opts: MigrateOptions = {}): Promise<MigrateResult>
     });
   }
 
-  return { from, to, notes: results };
+  return { from, to, notes: results, droppedNotesWarning };
 }
 
 /** Same hand-rolled style as the rest of this CLI's argv handling. */
@@ -335,6 +465,8 @@ export function printMigrateReport(result: MigrateResult, opts: { json?: boolean
     console.log(JSON.stringify(result));
     return;
   }
+
+  if (result.droppedNotesWarning) console.error(`\n${result.droppedNotesWarning}\n`);
 
   if (result.notes.length === 0) {
     console.log(`typren migrate: no notes apply between ${result.from} and ${result.to}.`);

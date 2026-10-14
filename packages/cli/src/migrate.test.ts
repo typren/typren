@@ -138,15 +138,68 @@ describe("migrate: detect matches", () => {
     ]);
   });
 
-  it("ignores node_modules, .next, dist and out", async () => {
+  it("ignores node_modules, .next, dist, out, coverage, build, .turbo, .vercel, .svelte-kit and .output", async () => {
     installFakeCore(dir, "0.5.0");
-    for (const ignored of ["node_modules/some-lib", ".next/cache", "dist", "out"]) {
+    for (const ignored of [
+      "node_modules/some-lib",
+      ".next/cache",
+      "dist",
+      "out",
+      "coverage",
+      "build",
+      ".turbo",
+      ".vercel",
+      ".svelte-kit",
+      ".output",
+    ]) {
       fs.mkdirSync(path.join(dir, ignored), { recursive: true });
       fs.writeFileSync(path.join(dir, ignored, "evil.ts"), "cmsStore.getPublished(\"x\");");
     }
 
     const result = await migrate({ cwd: dir, from: "0.4.0" });
     expect(result.notes[0].matches).toHaveLength(0);
+  });
+
+  it("doesn't follow a symlink into or out of the scanned tree", async () => {
+    installFakeCore(dir, "0.5.0");
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "typren-migrate-outside-"));
+    fs.writeFileSync(path.join(outside, "secret.ts"), 'cmsStore.getPublished("x");');
+    try {
+      fs.symlinkSync(outside, path.join(dir, "link-to-outside"));
+      fs.writeFileSync(path.join(dir, "real.ts"), "const y = 1;");
+      fs.symlinkSync(path.join(dir, "real.ts"), path.join(dir, "link-to-real.ts"));
+
+      const result = await migrate({ cwd: dir, from: "0.4.0" });
+      expect(result.notes[0].matches).toEqual([]);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("skips a file over the 1 MB scan cap instead of reading it", async () => {
+    installFakeCore(dir, "0.5.0");
+    fs.writeFileSync(path.join(dir, "huge.ts"), 'cmsStore.getPublished("x");' + " ".repeat(1_000_001));
+
+    const result = await migrate({ cwd: dir, from: "0.4.0" });
+    expect(result.notes[0].matches).toEqual([]);
+  });
+
+  it("reads each file once even when multiple detect patterns/notes apply to it", async () => {
+    installFakeCore(dir, "0.5.0", []);
+    fs.writeFileSync(
+      path.join(dir, "node_modules", "@typren", "core", "migrations", "core-0.5.0.md"),
+      `---\npackage: "@typren/core"\nversion: "0.5.0"\ntitle: "two patterns"\ndetect:\n` +
+        `  - pattern: "cmsStore"\n    glob: "**/*.ts"\n    hint: "a"\n` +
+        `  - pattern: "getPublished"\n    glob: "**/*.ts"\n    hint: "b"\n---\nbody\n`
+    );
+    fs.writeFileSync(path.join(dir, "page.ts"), 'cmsStore.getPublished("x");');
+    const readSpy = vi.spyOn(fs, "readFileSync");
+
+    const result = await migrate({ cwd: dir, from: "0.4.0" });
+
+    expect(result.notes[0].matches).toHaveLength(2);
+    const pageReads = readSpy.mock.calls.filter((c) => String(c[0]).endsWith("page.ts"));
+    expect(pageReads).toHaveLength(1);
   });
 
   it("reports a clean note (no matches) as an empty array, not an omitted note", async () => {
@@ -176,6 +229,31 @@ describe("migrate: json shape", () => {
         },
       ],
     });
+  });
+});
+
+describe("migrate: dropped-notes warning (postbuild's keep-5 .min-version)", () => {
+  it("warns and signals when `from` predates the oldest packed note", async () => {
+    installFakeCore(dir, "0.5.0");
+    fs.writeFileSync(path.join(dir, "node_modules", "@typren", "core", "migrations", ".min-version"), "0.4.0");
+
+    const result = await migrate({ cwd: dir, from: "0.2.0" });
+    expect(result.droppedNotesWarning).toMatch(/0\.4\.0/);
+    expect(result.droppedNotesWarning).toMatch(/0\.2\.0/);
+  });
+
+  it("stays silent when `from` is at or after the oldest packed note", async () => {
+    installFakeCore(dir, "0.5.0");
+    fs.writeFileSync(path.join(dir, "node_modules", "@typren", "core", "migrations", ".min-version"), "0.4.0");
+
+    const result = await migrate({ cwd: dir, from: "0.4.0" });
+    expect(result.droppedNotesWarning).toBeUndefined();
+  });
+
+  it("stays silent with no .min-version file (e.g. an older @typren/core install)", async () => {
+    installFakeCore(dir, "0.5.0");
+    const result = await migrate({ cwd: dir, from: "0.1.0" });
+    expect(result.droppedNotesWarning).toBeUndefined();
   });
 });
 
@@ -226,6 +304,78 @@ describe("migrate: --remote", () => {
     const result = await migrate({ cwd: dir, from: "0.4.0", remote: true, fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(result.notes).toHaveLength(1);
     expect(result.notes[0].source).toBe("bundled");
+  });
+
+  it("drops a remote note with an invalid package name or non-semver version, with a warning, not a throw", async () => {
+    installFakeCore(dir, "0.5.0");
+    const badPackage = FIXTURE_NOTE.replace('package: "@typren/core"', 'package: "../../evil"').replace(
+      'version: "0.5.0"',
+      'version: "0.6.0"'
+    );
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === REMOTE_INDEX) return fakeResponse(JSON.stringify([{ package: "@typren/core", version: "0.6.0", url: REMOTE_NOTE }]));
+      if (url === REMOTE_NOTE) return fakeResponse(badPackage);
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await migrate({ cwd: dir, from: "0.4.0", to: "0.6.0", remote: true, fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect(result.notes.some((n) => n.source === "remote")).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid package/version"));
+  });
+
+  it("strips control characters from a remote note's title/body before they're printed", async () => {
+    installFakeCore(dir, "0.5.0");
+    const withControlChars = FIXTURE_NOTE.replace('version: "0.5.0"', 'version: "0.6.0"').replace(
+      "## What changed",
+      "## What changed\u0007\u001b[31m"
+    );
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === REMOTE_INDEX) return fakeResponse(JSON.stringify([{ package: "@typren/core", version: "0.6.0", url: REMOTE_NOTE }]));
+      if (url === REMOTE_NOTE) return fakeResponse(withControlChars);
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const result = await migrate({ cwd: dir, from: "0.4.0", to: "0.6.0", remote: true, fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    const remoteNote = result.notes.find((n) => n.source === "remote");
+    // eslint-disable-next-line no-control-regex -- asserting these control characters are gone
+    expect(remoteNote?.body).not.toMatch(/[\u0007\u001b]/);
+    expect(remoteNote?.body).toContain("## What changed");
+  });
+
+  it("aborts past the 1 MB cap while streaming, without buffering the whole response first", async () => {
+    installFakeCore(dir, "0.5.0");
+    const oversized = "x".repeat(1_000_001);
+    function streamingResponse(body: string): Response {
+      const bytes = new TextEncoder().encode(body);
+      let offset = 0;
+      const CHUNK = 65_536;
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (offset >= bytes.length) {
+            controller.close();
+            return;
+          }
+          const next = bytes.subarray(offset, offset + CHUNK);
+          offset += CHUNK;
+          controller.enqueue(next);
+        },
+      });
+      return { ok: true, status: 200, statusText: "OK", body: stream } as unknown as Response;
+    }
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === REMOTE_INDEX) return fakeResponse(JSON.stringify([{ package: "@typren/core", version: "0.6.0", url: REMOTE_NOTE }]));
+      if (url === REMOTE_NOTE) return streamingResponse(oversized);
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await migrate({ cwd: dir, from: "0.4.0", to: "0.6.0", remote: true, fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect(result.notes.some((n) => n.source === "remote")).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("1 MB cap"));
   });
 });
 

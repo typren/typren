@@ -8,7 +8,7 @@ import { buildTemplates, TYPREN_BOOTSTRAP_MARKER, TYPREN_REWRITE_MARKER } from "
 import { createFsSettingsAdapter, resolveI18n, type SiteSettingsBootstrap, type Slice } from "@typren/core";
 import { firstRunNotice, isEnabled, readCliVersion, record, setEnabled } from "./telemetry";
 import { parseMatter } from "./safe-matter";
-import { migrate, printMigrateReport, parseMigrateArgs } from "./migrate";
+import { envWithoutGit, migrate, printMigrateReport, parseMigrateArgs } from "./migrate";
 
 export type ScaffoldResult =
   | { ok: true; baseDir: string; created: string[]; skipped: string[] }
@@ -308,7 +308,7 @@ function findContentFile(cwd: string, slug: string, paths: ReviewPaths): string 
 
 function gitShow(cwd: string, ref: string, relFile: string): string | null {
   try {
-    return execFileSync("git", ["show", `${ref}:${relFile}`], { cwd, encoding: "utf8" });
+    return execFileSync("git", ["show", `${ref}:${relFile}`], { cwd, encoding: "utf8", env: envWithoutGit() });
   } catch {
     return null; // file didn't exist at `ref` (e.g. a new page), treated as empty "before"
   }
@@ -316,7 +316,7 @@ function gitShow(cwd: string, ref: string, relFile: string): string | null {
 
 function gitDiffRaw(cwd: string, base: string, relFile: string): string {
   try {
-    return execFileSync("git", ["diff", base, "--", relFile], { cwd, encoding: "utf8" });
+    return execFileSync("git", ["diff", base, "--", relFile], { cwd, encoding: "utf8", env: envWithoutGit() });
   } catch (e) {
     return `(unable to compute diff against "${base}": ${e instanceof Error ? e.message : String(e)})`;
   }
@@ -328,7 +328,7 @@ function gitChangedContentFiles(
   contentDir: string
 ): { ok: true; files: string[] } | { ok: false; error: string } {
   try {
-    const out = execFileSync("git", ["diff", "--name-only", base, "--", contentDir], { cwd, encoding: "utf8" });
+    const out = execFileSync("git", ["diff", "--name-only", base, "--", contentDir], { cwd, encoding: "utf8", env: envWithoutGit() });
     return { ok: true, files: out.split("\n").map((l) => l.trim()).filter((l) => l.endsWith(".md")) };
   } catch (e) {
     return {
@@ -709,22 +709,25 @@ export function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): PrResult
 
     const branchExists = (() => {
       try {
-        execFileSync("git", ["rev-parse", "--verify", branch], { cwd, stdio: "ignore" });
+        execFileSync("git", ["rev-parse", "--verify", branch], { cwd, stdio: "ignore", env: envWithoutGit() });
         return true;
       } catch {
         return false;
       }
     })();
-    execFileSync("git", branchExists ? ["checkout", branch] : ["checkout", "-b", branch, brief.baseRef], { cwd });
+    execFileSync("git", branchExists ? ["checkout", branch] : ["checkout", "-b", branch, brief.baseRef], {
+      cwd,
+      env: envWithoutGit(),
+    });
 
-    execFileSync("git", ["add", brief.file], { cwd });
+    execFileSync("git", ["add", brief.file], { cwd, env: envWithoutGit() });
     const notes: string[] = [];
-    if (execFileSync("git", ["diff", "--cached", "--name-only"], { cwd, encoding: "utf8" }).trim()) {
-      execFileSync("git", ["commit", "-m", `content: update ${brief.slug}`], { cwd });
+    if (execFileSync("git", ["diff", "--cached", "--name-only"], { cwd, encoding: "utf8", env: envWithoutGit() }).trim()) {
+      execFileSync("git", ["commit", "-m", `content: update ${brief.slug}`], { cwd, env: envWithoutGit() });
     } else {
       notes.push("no staged changes to commit, so the existing branch state is pushed.");
     }
-    execFileSync("git", ["push", "-u", "origin", branch], { cwd });
+    execFileSync("git", ["push", "-u", "origin", branch], { cwd, env: envWithoutGit() });
 
     ensureContentReviewLabel(cwd);
     const url = execFileSync(
@@ -1013,7 +1016,7 @@ async function runMigrateCommand(args: string[]): Promise<boolean> {
     const result = await migrate({ cwd: opts.cwd, from: opts.from, to: opts.to, remote: opts.remote });
     printMigrateReport(result, { json: opts.json });
     const anyMatches = result.notes.some((n) => n.matches.length > 0);
-    if (anyMatches) process.exitCode = 1;
+    if (anyMatches || result.droppedNotesWarning) process.exitCode = 1;
     return true;
   } catch (err) {
     console.error((err as Error).message);
