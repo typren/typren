@@ -8,6 +8,7 @@ const BASE_OPTS = {
   accessKeyId: "AKIAEXAMPLE",
   secretAccessKey: "super-secret-value",
   publicBaseUrl: "https://media.example.com",
+  prefix: "site/",
 };
 
 const preparedFile = (overrides: Partial<PreparedFile> = {}): PreparedFile => ({
@@ -29,6 +30,12 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("createS3MediaAdapter: option validation", () => {
+  it("rejects a missing prefix, which would expose the whole bucket", () => {
+    const noPrefix: Partial<typeof BASE_OPTS> = { ...BASE_OPTS };
+    delete noPrefix.prefix;
+    expect(() => createS3MediaAdapter(noPrefix as typeof BASE_OPTS)).toThrow(/prefix/);
+  });
+
   it("rejects a non-URL endpoint", () => {
     expect(() => createS3MediaAdapter({ ...BASE_OPTS, endpoint: "not-a-url" })).toThrow(/absolute URL/);
   });
@@ -98,7 +105,7 @@ describe("createS3MediaAdapter: upload", () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
     const adapter = createS3MediaAdapter(BASE_OPTS);
     const asset = await adapter.upload(preparedFile({ name: "noext", width: undefined, height: undefined }));
-    expect(asset.id).toMatch(/^noext-[0-9a-f]{8}$/);
+    expect(asset.id).toMatch(/^site\/noext-[0-9a-f]{8}$/);
   });
 
   it("sets a long immutable cache-control header, keys being immutable", async () => {
@@ -232,16 +239,16 @@ describe("createS3MediaAdapter: delete", () => {
   it("DELETEs the signed, path-style object URL", async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
     const adapter = createS3MediaAdapter(BASE_OPTS);
-    await adapter.delete("photo-a1b2c3d4.webp");
+    await adapter.delete("site/photo-a1b2c3d4.webp");
     const [req] = fetchMock.mock.calls[0] as [Request];
     expect(req.method).toBe("DELETE");
-    expect(req.url).toBe("https://abc123.r2.cloudflarestorage.com/my-bucket/photo-a1b2c3d4.webp");
+    expect(req.url).toBe("https://abc123.r2.cloudflarestorage.com/my-bucket/site/photo-a1b2c3d4.webp");
   });
 
   it("is idempotent: a 404 does not throw", async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 404 }));
     const adapter = createS3MediaAdapter(BASE_OPTS);
-    await expect(adapter.delete("already-gone.webp")).resolves.toBeUndefined();
+    await expect(adapter.delete("site/already-gone.webp")).resolves.toBeUndefined();
   });
 
   it("rejects a path-traversal id instead of making a request", async () => {
@@ -273,6 +280,6 @@ describe("createS3MediaAdapter: delete", () => {
   it("throws on a non-2xx, non-404 delete response", async () => {
     fetchMock.mockResolvedValue(new Response("forbidden", { status: 403 }));
     const adapter = createS3MediaAdapter(BASE_OPTS);
-    await expect(adapter.delete("photo.webp")).rejects.toThrow(/typren: S3 DeleteObject/);
+    await expect(adapter.delete("site/photo.webp")).rejects.toThrow(/typren: S3 DeleteObject/);
   });
 });

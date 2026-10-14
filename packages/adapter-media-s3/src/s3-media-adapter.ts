@@ -15,8 +15,9 @@ export type S3MediaAdapterOptions = {
   secretAccessKey: string;
   /** Public URL prefix assets are served under, e.g. a CDN domain fronting the bucket. */
   publicBaseUrl: string;
-  /** Key prefix every object is stored/listed under, e.g. "media/". */
-  prefix?: string;
+  /** Key prefix every object is stored/listed under, e.g. "media/". Required: with no prefix the
+   *  adapter would list, and let authors delete, every object in the bucket. */
+  prefix: string;
 };
 
 // mime lookup for list(): ListObjectsV2 carries no Content-Type, only Key/Size/LastModified.
@@ -64,8 +65,8 @@ function validateOptions(opts: S3MediaAdapterOptions) {
     throw new Error("typren: adapter-media-s3 endpoint must be https:// (http:// only for localhost MinIO)");
   }
   if (!BUCKET_RE.test(opts.bucket)) throw new Error("typren: adapter-media-s3 bucket name is invalid");
-  if (opts.prefix !== undefined) {
-    if (!PREFIX_RE.test(opts.prefix) || opts.prefix.includes("..")) {
+  {
+    if (typeof opts.prefix !== "string" || !PREFIX_RE.test(opts.prefix) || opts.prefix.includes("..")) {
       throw new Error("typren: adapter-media-s3 prefix is invalid");
     }
     // A prefix lacking a trailing "/" is a key-collision risk in a shared
@@ -112,7 +113,7 @@ async function s3Error(op: string, res: Response, path: string): Promise<Error> 
  */
 export function createS3MediaAdapter(opts: S3MediaAdapterOptions): MediaAdapter {
   validateOptions(opts);
-  const { endpoint, bucket, region = "auto", accessKeyId, secretAccessKey, publicBaseUrl, prefix = "" } = opts;
+  const { endpoint, bucket, region = "auto", accessKeyId, secretAccessKey, publicBaseUrl, prefix } = opts;
   // ponytail: aws4fetch retries non-2xx responses up to 10x by default, which turns one
   // thrown error into an 11-request stall. Disabled here; add it back (aws4fetch's own
   // `retries`/`initRetryMs` options) if transient 5xx from a specific provider need it.

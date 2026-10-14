@@ -30,7 +30,7 @@ const mediaAdapter = createS3MediaAdapter({
   accessKeyId: process.env.S3_ACCESS_KEY_ID!,
   secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
   publicBaseUrl: "https://media.example.com",
-  prefix: "uploads/", // optional, but if set MUST end in "/" (see Known limits)
+  prefix: "uploads/", // required; must end in "/" (see Known limits)
 });
 ```
 
@@ -109,7 +109,7 @@ on just this bucket.
   stored SVG could run script with that origin's cookies/DOM (stored XSS). Serving
   media from a distinct domain (a CDN domain, R2.dev, Supabase's storage host) means
   a malicious SVG only ever executes in its own, cookie-less origin.
-- **`prefix`, if set, MUST end in `/`.** Construction throws otherwise. A prefix
+- **`prefix` is required and MUST end in `/`.** Construction throws otherwise. A prefix
   without a trailing slash is a shared-bucket collision risk: `"siteA"` also matches
   the key `"siteAB/x"` (plain `startsWith`), so one site's adapter could list or
   delete another's objects. `"siteA/"` can't.
