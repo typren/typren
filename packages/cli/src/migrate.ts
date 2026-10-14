@@ -125,14 +125,38 @@ function resolveInstalledCore(cwd: string): string {
   return require.resolve("@typren/core/package.json", { paths: [cwd] });
 }
 
-function parseNote(raw: string, source: MigrationNote["source"]): MigrationNote {
+const PACKAGE_NAME_RE = /^@?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/i;
+
+function isValidSemver(v: string): boolean {
+  return /^\d+\.\d+\.\d+/.test(v);
+}
+
+/** Strips ASCII control bytes other than \n and \t. A remote note's title
+ *  and body are untrusted and get written straight to a terminal (and, with
+ *  --json, round-tripped through a string); nothing it carries should be
+ *  able to inject a cursor-control or other escape sequence into that output. */
+function stripControlChars(s: string): string {
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what this strips
+  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+}
+
+/** Bundled notes come from this repo's own docs/migrations (trusted).
+ *  Remote notes (`--remote`) are untrusted input: a malformed package/version
+ *  is rejected outright (null, caller warns and drops it) rather than risking
+ *  a garbage entry in the selected set, and title/body are sanitized. */
+function parseNote(raw: string, source: MigrationNote["source"]): MigrationNote | null {
   const { data, content } = parseMatter(raw);
+  const pkg = String(data.package ?? "");
+  const version = String(data.version ?? "");
+  if (source === "remote" && (!PACKAGE_NAME_RE.test(pkg) || !isValidSemver(version))) return null;
+  const title = String(data.title ?? "");
+  const body = content.trim();
   return {
-    package: String(data.package),
-    version: String(data.version),
-    title: String(data.title),
+    package: pkg,
+    version,
+    title: source === "remote" ? stripControlChars(title) : title,
     detect: Array.isArray(data.detect) ? (data.detect as MigrationDetectPattern[]) : [],
-    body: content.trim(),
+    body: source === "remote" ? stripControlChars(body) : body,
     source,
   };
 }
@@ -151,7 +175,8 @@ function loadBundledNotes(migrationsDir: string): MigrationNote[] {
   return fs
     .readdirSync(migrationsDir)
     .filter((f) => f.endsWith(".md"))
-    .map((f) => parseNote(fs.readFileSync(path.join(migrationsDir, f), "utf8"), "bundled"));
+    .map((f) => parseNote(fs.readFileSync(path.join(migrationsDir, f), "utf8"), "bundled"))
+    .filter((n): n is MigrationNote => n !== null);
 }
 
 function selectNotes(notes: MigrationNote[], from: string, to: string): MigrationNote[] {
@@ -245,9 +270,29 @@ async function fetchCapped(url: string, fetchImpl: typeof fetch): Promise<string
     // typren.com would otherwise be followed silently.
     const res = await fetchImpl(url, { signal: controller.signal, redirect: "error" });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    const text = await res.text();
-    if (Buffer.byteLength(text, "utf8") > REMOTE_MAX_BYTES) throw new Error("response exceeds 1 MB cap");
-    return text;
+    // Read the stream with a running byte count and abort past the cap,
+    // rather than buffering the whole body and checking its length after:
+    // a hostile or misbehaving server shouldn't get to make this CLI hold
+    // more than REMOTE_MAX_BYTES in memory just to find out it's too big.
+    if (!res.body) {
+      const text = await res.text();
+      if (Buffer.byteLength(text, "utf8") > REMOTE_MAX_BYTES) throw new Error("response exceeds 1 MB cap");
+      return text;
+    }
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > REMOTE_MAX_BYTES) {
+        await reader.cancel();
+        throw new Error("response exceeds 1 MB cap");
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString("utf8");
   } finally {
     clearTimeout(timeout);
   }
@@ -268,7 +313,12 @@ async function fetchRemoteNotes(fetchImpl: typeof fetch): Promise<MigrationNote[
         continue;
       }
       const raw = await fetchCapped(entry.url, fetchImpl);
-      notes.push(parseNote(raw, "remote"));
+      const note = parseNote(raw, "remote");
+      if (!note) {
+        console.warn(`typren migrate: ignoring a remote migration note with an invalid package/version: ${entry.url}`);
+        continue;
+      }
+      notes.push(note);
     }
     return notes;
   } catch (err) {

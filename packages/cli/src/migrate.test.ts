@@ -252,6 +252,78 @@ describe("migrate: --remote", () => {
     expect(result.notes).toHaveLength(1);
     expect(result.notes[0].source).toBe("bundled");
   });
+
+  it("drops a remote note with an invalid package name or non-semver version, with a warning, not a throw", async () => {
+    installFakeCore(dir, "0.5.0");
+    const badPackage = FIXTURE_NOTE.replace('package: "@typren/core"', 'package: "../../evil"').replace(
+      'version: "0.5.0"',
+      'version: "0.6.0"'
+    );
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === REMOTE_INDEX) return fakeResponse(JSON.stringify([{ package: "@typren/core", version: "0.6.0", url: REMOTE_NOTE }]));
+      if (url === REMOTE_NOTE) return fakeResponse(badPackage);
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await migrate({ cwd: dir, from: "0.4.0", to: "0.6.0", remote: true, fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect(result.notes.some((n) => n.source === "remote")).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid package/version"));
+  });
+
+  it("strips control characters from a remote note's title/body before they're printed", async () => {
+    installFakeCore(dir, "0.5.0");
+    const withControlChars = FIXTURE_NOTE.replace('version: "0.5.0"', 'version: "0.6.0"').replace(
+      "## What changed",
+      "## What changed\u0007\u001b[31m"
+    );
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === REMOTE_INDEX) return fakeResponse(JSON.stringify([{ package: "@typren/core", version: "0.6.0", url: REMOTE_NOTE }]));
+      if (url === REMOTE_NOTE) return fakeResponse(withControlChars);
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const result = await migrate({ cwd: dir, from: "0.4.0", to: "0.6.0", remote: true, fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    const remoteNote = result.notes.find((n) => n.source === "remote");
+    // eslint-disable-next-line no-control-regex -- asserting these control characters are gone
+    expect(remoteNote?.body).not.toMatch(/[\u0007\u001b]/);
+    expect(remoteNote?.body).toContain("## What changed");
+  });
+
+  it("aborts past the 1 MB cap while streaming, without buffering the whole response first", async () => {
+    installFakeCore(dir, "0.5.0");
+    const oversized = "x".repeat(1_000_001);
+    function streamingResponse(body: string): Response {
+      const bytes = new TextEncoder().encode(body);
+      let offset = 0;
+      const CHUNK = 65_536;
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (offset >= bytes.length) {
+            controller.close();
+            return;
+          }
+          const next = bytes.subarray(offset, offset + CHUNK);
+          offset += CHUNK;
+          controller.enqueue(next);
+        },
+      });
+      return { ok: true, status: 200, statusText: "OK", body: stream } as unknown as Response;
+    }
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === REMOTE_INDEX) return fakeResponse(JSON.stringify([{ package: "@typren/core", version: "0.6.0", url: REMOTE_NOTE }]));
+      if (url === REMOTE_NOTE) return streamingResponse(oversized);
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await migrate({ cwd: dir, from: "0.4.0", to: "0.6.0", remote: true, fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect(result.notes.some((n) => n.source === "remote")).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("1 MB cap"));
+  });
 });
 
 describe("migrate: malformed input", () => {
