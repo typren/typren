@@ -223,6 +223,11 @@ export interface MigrateOptions {
     /** Test seam: a stand-in for the global `fetch`. */
     fetchImpl?: typeof fetch;
 }
+/** process.env minus GIT_* variables. Git exports GIT_DIR and friends to its
+ *  hooks, and an inherited GIT_DIR makes a git child process ignore `cwd` and
+ *  act on the hook's repository instead (a pre-push test run once rewrote the
+ *  real .git/config this way). */
+export declare function envWithoutGit(): NodeJS.ProcessEnv;
 /** Resolves the `@typren/core` range at HEAD, the version the project was
  *  last committed against, not whatever `node_modules` happens to hold right
  *  now. Returns null when there's no git history, no package.json there, or
