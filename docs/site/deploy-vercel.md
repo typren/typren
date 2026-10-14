@@ -40,14 +40,16 @@ if [ "$VERCEL_GIT_COMMIT_REF" = "typren-drafts" ]; then exit 0; else exit 1; fi
 Exit `0` skips the build; exit `1` lets it proceed. If you passed
 `draftBranch: null` to `createGithubAdapter` (the pre-0.5 layout, drafts
 living under `draftSubdir` on the same branch as published content), there is
-no separate branch and you can skip this step entirely.
+no separate branch to ignore, and every draft save lands on your production
+branch and triggers a production build. Keep the default `draftBranch` unless
+you have a reason not to.
 
 ## Auth and media
 
 Vercel doesn't constrain which `AuthAdapter` or media backend you use. See
 [Choosing an auth adapter](./choosing-auth.md) and
-[Media storage](./media-storage.md). `@typren/adapter-media-s3`'s `sharp`-based
-`processUpload` needs a Node runtime (Vercel's default Next.js runtime, not
+[Media storage](./media-storage.md). `@typren/core`'s `sharp`-based
+`processUpload`, which runs before any `MediaAdapter` stores a file, needs a Node runtime (Vercel's default Next.js runtime, not
 the Edge runtime) for the upload path specifically; `list()`/`delete()` and
 read-side rendering have no such constraint.
 
