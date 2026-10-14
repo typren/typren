@@ -143,6 +143,26 @@ goes through the Contents API's directory-listing endpoint, which caps at
 naming the Git Trees API (`/git/trees/<branch>?recursive=1`) as the upgrade
 path for a site with more pages than that.
 
+### Drafts live on their own branch
+
+`createGithubAdapter`'s `draftBranch` defaults to `"typren-drafts"`: every
+draft read/write/delete/`hasDraft` call targets that branch instead of
+`branch`, so saving a draft never lands a commit on the branch your host
+builds from (no triggered preview/production deploy, no draft noise in
+`branch`'s own history). The branch is created lazily, from `branch`'s
+current HEAD, the first time a draft is ever saved -- a site that never
+saves a draft never gets one.
+
+A host whose platform builds every branch (Vercel's per-branch previews, CF
+Pages' branch deploys) should tell it to skip `typren-drafts`: Vercel's
+[Ignored Build Step](https://vercel.com/docs/deployments/skip-deployments)
+(`if [ "$VERCEL_GIT_COMMIT_REF" = "typren-drafts" ]; then exit 0; else exit 1; fi`)
+or Cloudflare Pages' branch build controls.
+
+Pass `draftBranch: null` (or the same value as `branch`) to keep the
+pre-0.5 layout instead: drafts under `draftSubdir` on `branch` itself, no
+second branch.
+
 ## Adapters are interfaces, not requirements
 
 `ContentAdapter`, `MediaAdapter` and `AuthAdapter` are plain interfaces built
