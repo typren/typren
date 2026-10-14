@@ -35,7 +35,18 @@ export type NotionRawProperty = Record<string, unknown>;
 
 /** One Notion database row, trimmed to what this adapter needs. `properties`
  *  is keyed by Notion property name. */
-export type NotionPage = { id: string; archived: boolean; properties: Record<string, NotionRawProperty> };
+export type NotionPage = {
+  id: string;
+  archived: boolean;
+  properties: Record<string, NotionRawProperty>;
+  /** The database this row actually belongs to (Notion's `parent` field,
+   *  present on any page that is a database row). Checked against the
+   *  configured `databaseId` when a slug resolves straight to a page id (no
+   *  `slugProperty`): a page id is a bare opaque string a caller controls, so
+   *  nothing else stops it from naming a row in a DIFFERENT database this
+   *  adapter instance was never configured for. */
+  parent?: { database_id?: string };
+};
 
 /**
  * The seam between the adapter and Notion's HTTP API, mocked directly in
@@ -241,16 +252,33 @@ export function createNotionAdapter({
   const slugOf = (page: NotionPage): string =>
     slugDef ? String(readProp(page.properties[slugDef.name], slugDef.name, slugDef.type) ?? "") : page.id;
 
+  // A UUID with or without dashes: Notion page ids are always one of these
+  // two forms. Without a slugProperty the slug IS the page id passed straight
+  // to the client, so this is the only thing standing between a caller and
+  // an arbitrary string reaching the Notion API as a page id.
+  const PAGE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^[0-9a-f]{32}$/i;
+  const normalizeId = (id: string | undefined): string => (id ?? "").replace(/-/g, "").toLowerCase();
+
   const findBySlug = async (slug: string): Promise<NotionPage | null> => {
     if (!slugDef) {
+      if (!PAGE_ID_RE.test(slug)) return Promise.reject(new Error(`typren: "${slug}" is not a valid Notion page id`));
       const page = await client.retrievePage(slug);
-      return page && !page.archived ? page : null;
+      if (!page || page.archived) return null;
+      // A page id resolves to a row in SOME database, but not necessarily
+      // THIS adapter's -- treat a row from another database as not found
+      // rather than serving (or letting a write touch) a page this instance
+      // was never configured for.
+      if (normalizeId(page.parent?.database_id) !== normalizeId(databaseId)) return null;
+      return page;
     }
     // ponytail: no server-side filter (Notion's filter JSON shape is
     // property-type-specific, a lot of code for what's an internal lookup);
     // scan the full listing client-side instead. Fine for admin-table-sized
-    // databases; swap in a filtered query if a collection grows into the
-    // thousands of rows.
+    // databases; Notion's API is rate-limited to ~3 requests/second, so a
+    // caller hammering this (e.g. one lookup per slug in a loop) will start
+    // throttling well before the O(n) scan itself is the bottleneck. Swap in
+    // a filtered query, or memoize queryDatabase within one store operation,
+    // if a collection grows into the thousands of rows.
     const pages = await client.queryDatabase(databaseId);
     return pages.find((p) => !p.archived && slugOf(p) === slug) ?? null;
   };
@@ -423,6 +451,7 @@ function toNotionPage(json: Record<string, unknown>): NotionPage {
     id: json.id as string,
     archived: !!json.archived,
     properties: (json.properties as Record<string, NotionRawProperty>) ?? {},
+    parent: json.parent as { database_id?: string } | undefined,
   };
 }
 
@@ -477,7 +506,7 @@ export function createFetchNotionClient(token: string, fetchImpl: typeof fetch =
       return pages;
     },
     async retrievePage(pageId) {
-      const res = await fetchImpl(`${NOTION_API}/pages/${pageId}`, {
+      const res = await fetchImpl(`${NOTION_API}/pages/${encodeURIComponent(pageId)}`, {
         headers: { authorization: `Bearer ${token}`, "notion-version": NOTION_VERSION },
       });
       if (res.status === 404) return null;
