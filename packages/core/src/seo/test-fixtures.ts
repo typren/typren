@@ -6,19 +6,24 @@ type FixturePage = { slug: string; meta?: Record<string, unknown>; slices?: Slic
 /** Minimal in-memory ContentStore for the pure-function tests in this
  *  directory: no fs, no adapter. Only listPages/getPublished are real;
  *  the rest of the interface is stubbed since nothing under test calls it. */
-export function fakeStore(pages: FixturePage[]): ContentStore {
+export function fakeStore(pages: FixturePage[]): ContentStore & { listPagesCalls: number } {
   const byId = new Map<string, PageContent>(
     pages.map((p) => [p.slug, { meta: p.meta ?? {}, slices: p.slices ?? [], body: "" }])
   );
-  return {
-    listPages: async () =>
-      pages.map((p) => ({
+  const store = {
+    listPagesCalls: 0,
+    listPages: async () => {
+      store.listPagesCalls++;
+      return pages.map((p) => ({
         slug: p.slug,
         title: (p.meta?.title as string) ?? p.slug,
         hasDraft: false,
         locales: ["en"],
-      })),
-    getPublished: async (slug) => ({ ...byId.get(slug)!, locale: "en", isFallback: false }),
+      }));
+    },
+    exists: async (slug: string) => byId.has(slug),
+    listSlugs: async () => pages.map((p) => p.slug),
+    getPublished: async (slug: string) => ({ ...byId.get(slug)!, locale: "en", isFallback: false }),
     getDraft: async () => null,
     currentVersion: async () => null,
     saveDraft: async () => "",
@@ -31,4 +36,5 @@ export function fakeStore(pages: FixturePage[]): ContentStore {
     deletePage: async () => {},
     deleteTranslation: async () => {},
   };
+  return store;
 }

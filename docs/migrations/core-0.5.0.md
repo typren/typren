@@ -15,6 +15,9 @@ detect:
   - pattern: "notionRequestSync\\(|from\\s+[\"']node:child_process[\"']"
     glob: "**/*.{ts,tsx}"
     hint: "The Notion adapter's spawnSync bridge is gone; createFetchNotionClient now does a plain await fetch and takes an injectable fetchImpl, the same convention as createGithubAdapter."
+  - pattern: "createGithubAdapter\\("
+    glob: "**/*.{ts,tsx}"
+    hint: "draftBranch now defaults to \"typren-drafts\" instead of the same branch as published content. Pass draftBranch: null to keep the previous single-branch layout, or make sure your host's build config ignores the new branch."
 ---
 ## What changed
 
@@ -45,6 +48,23 @@ Three smaller breaking changes ride along with it:
   methods are now all async, and `createFetchNotionClient` does a plain
   `await fetch` with an injectable `fetchImpl` (same convention as
   `createGithubAdapter`), no child-process spawn per call.
+- **`createGithubAdapter` now defaults `draftBranch` to `"typren-drafts"`,
+  a behavior change, not just an added option.** Drafts used to live under
+  `draftSubdir` on the same branch as published content (`branch`); they now
+  live on a separate branch by default, created lazily from `branch`'s HEAD
+  on the first draft save. A host whose platform builds every branch
+  (Vercel previews, CF Pages branch deploys) needs that branch ignored (see
+  the package README's "Drafts live on their own branch"). Pass
+  `draftBranch: null` to keep the previous single-branch layout unchanged.
+- **`createSettingsStore` now throws at construction if `settingsContentAdapter`
+  is the same adapter instance as `adapter`, or if both have a filesystem
+  `root` and those roots are the same directory or one is nested inside the
+  other.** This was always a latent collision (a page literally named
+  "settings" and the settings doc silently fighting over the same storage,
+  whichever wrote last winning with no error either direction); a config
+  that happened to overlap now fails loudly at startup instead. Point
+  `settingsContentAdapter` at a distinct, non-overlapping directory (or a
+  separate instance of whatever non-fs backend you're already using).
 
 ## Fix
 
@@ -68,6 +88,13 @@ Three smaller breaking changes ride along with it:
    return promises; `createFetchNotionClient(token, fetchImpl?)` now takes an
    optional injectable `fetchImpl` for tests, the same shape
    `createGithubAdapter`'s `fetchImpl` option already has.
+6. If you use `createGithubAdapter` and want to keep drafts on `branch`
+   (the pre-0.5 layout), pass `draftBranch: null` explicitly. Otherwise, make
+   sure your host's build config ignores the new `typren-drafts` branch so a
+   draft save doesn't trigger an unwanted deploy.
+7. If `createSettingsStore` now throws at startup, your `settingsContentAdapter`
+   overlaps `adapter`'s storage. Point it at a distinct directory (or adapter
+   instance) that was never doubling as the Pages content location.
 
 ## Verify
 

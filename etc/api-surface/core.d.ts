@@ -697,6 +697,17 @@ export type GithubAdapterOptions = {
      *  policy this adapter doesn't implement. Point `branch` at a working
      *  branch and open the PR outside this adapter for that. */
     branch?: string;
+    /** Branch draft reads/writes/deletes/hasDraft target, instead of `branch`.
+     *  Default `"typren-drafts"`: an unpublished draft never lands a commit on
+     *  the branch a host builds from, so a draft save can't trigger (or
+     *  pollute) a production/preview deploy, and the draft history stays out
+     *  of `branch`'s own commit log. Pass `null`, or the same value as
+     *  `branch`, to keep the pre-this-option behavior of drafts living under
+     *  `draftSubdir` on `branch` itself. A host that builds every branch
+     *  (Vercel's per-branch previews, CF Pages branch deploys) should tell it
+     *  to ignore `typren-drafts` (Vercel's "Ignored Build Step", CF Pages'
+     *  branch build controls) -- see this package's README. */
+    draftBranch?: string | null;
     /** Repo-relative directory page files live under. Default "content". */
     contentDir?: string;
     /** Repo-relative media directory. No method here writes to it today (this
@@ -752,7 +763,7 @@ export type GithubAdapterOptions = {
  * `saveDraft` ponytail note asks for ("an atomic adapter ... moves the
  * compare into the adapter via an optional expectedVersion hook").
  */
-export declare function createGithubAdapter({ owner, repo, token, branch, contentDir, mediaDir, frontmatterKey, defaultLocale, locales, draftSubdir, fetchImpl, readInit, }: GithubAdapterOptions): ContentAdapter;
+export declare function createGithubAdapter({ owner, repo, token, branch, draftBranch, contentDir, mediaDir, frontmatterKey, defaultLocale, locales, draftSubdir, fetchImpl, readInit, }: GithubAdapterOptions): ContentAdapter;
 
 // ---- dist/github-webhook.d.ts ----
 /**
@@ -991,6 +1002,15 @@ export type NotionPage = {
     id: string;
     archived: boolean;
     properties: Record<string, NotionRawProperty>;
+    /** The database this row actually belongs to (Notion's `parent` field,
+     *  present on any page that is a database row). Checked against the
+     *  configured `databaseId` when a slug resolves straight to a page id (no
+     *  `slugProperty`): a page id is a bare opaque string a caller controls, so
+     *  nothing else stops it from naming a row in a DIFFERENT database this
+     *  adapter instance was never configured for. */
+    parent?: {
+        database_id?: string;
+    };
 };
 /**
  * The seam between the adapter and Notion's HTTP API, mocked directly in
@@ -1811,6 +1831,15 @@ export declare function slugify(text: string): string;
  *  fallback that the dumb per-locale adapter doesn't know about. */
 export interface ContentStore {
     listPages(locale?: string): Promise<PageInfo[]>;
+    /** Slugs of every page, cheap (adapter.listSlugs, no per-page read). Use
+     *  this instead of `listPages` for builders that only need the slug set
+     *  (sitemap, llms.txt, redirects), not each page's hasDraft/locales. */
+    listSlugs(locale?: string): Promise<string[]>;
+    /** Whether `slug` has published content for a locale. A cheap existence
+     *  check, unlike `listPages`, which fans out over every slug in the store;
+     *  callers that only need to know "does this one page exist" (e.g. the
+     *  markdown mirror route) should use this instead of scanning the list. */
+    exists(slug: string, locale?: string): Promise<boolean>;
     /** Published content for a locale, with default-locale fallback applied. */
     getPublished(slug: string, locale?: string): Promise<LocalizedPage>;
     getDraft(slug: string, locale?: string): Promise<PageContent | null>;
@@ -1997,12 +2026,23 @@ export interface ContentAdapter {
     exists(slug: string, locale?: string): Promise<boolean>;
     /** Raw published source (rejects if absent; callers gate with `exists`). */
     readRaw(slug: string, locale?: string): Promise<string>;
-    writeRaw(slug: string, raw: string, locale?: string): Promise<void>;
+    /** `opts.expectedVersion`, when given, asks the adapter to compare-and-swap:
+     *  the write only lands if the path's CURRENT version (see version.ts's
+     *  `versionOf`) still equals it, else reject with `ConflictError`, closing
+     *  the TOCTOU window a caller-side read-then-write check can't (see
+     *  store.ts's `saveDraft`). An adapter with no atomic primitive to hang
+     *  this on (markdown/Notion) may ignore `opts` and keep its existing
+     *  unconditional-overwrite behavior. */
+    writeRaw(slug: string, raw: string, locale?: string, opts?: {
+        expectedVersion?: string;
+    }): Promise<void>;
     /** Delete the published source (and let the store also drop any draft). */
     deletePublished(slug: string, locale?: string): Promise<void>;
     /** Raw draft source, or null when no draft is checked out. */
     readDraftRaw(slug: string, locale?: string): Promise<string | null>;
-    writeDraftRaw(slug: string, raw: string, locale?: string): Promise<void>;
+    writeDraftRaw(slug: string, raw: string, locale?: string, opts?: {
+        expectedVersion?: string;
+    }): Promise<void>;
     deleteDraft(slug: string, locale?: string): Promise<void>;
     hasDraft(slug: string, locale?: string): Promise<boolean>;
     /** Parse raw source into structured content, and back. Locale-agnostic: the

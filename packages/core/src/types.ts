@@ -138,12 +138,19 @@ export interface ContentAdapter {
   exists(slug: string, locale?: string): Promise<boolean>;
   /** Raw published source (rejects if absent; callers gate with `exists`). */
   readRaw(slug: string, locale?: string): Promise<string>;
-  writeRaw(slug: string, raw: string, locale?: string): Promise<void>;
+  /** `opts.expectedVersion`, when given, asks the adapter to compare-and-swap:
+   *  the write only lands if the path's CURRENT version (see version.ts's
+   *  `versionOf`) still equals it, else reject with `ConflictError`, closing
+   *  the TOCTOU window a caller-side read-then-write check can't (see
+   *  store.ts's `saveDraft`). An adapter with no atomic primitive to hang
+   *  this on (markdown/Notion) may ignore `opts` and keep its existing
+   *  unconditional-overwrite behavior. */
+  writeRaw(slug: string, raw: string, locale?: string, opts?: { expectedVersion?: string }): Promise<void>;
   /** Delete the published source (and let the store also drop any draft). */
   deletePublished(slug: string, locale?: string): Promise<void>;
   /** Raw draft source, or null when no draft is checked out. */
   readDraftRaw(slug: string, locale?: string): Promise<string | null>;
-  writeDraftRaw(slug: string, raw: string, locale?: string): Promise<void>;
+  writeDraftRaw(slug: string, raw: string, locale?: string, opts?: { expectedVersion?: string }): Promise<void>;
   deleteDraft(slug: string, locale?: string): Promise<void>;
   hasDraft(slug: string, locale?: string): Promise<boolean>;
   /** Parse raw source into structured content, and back. Locale-agnostic: the

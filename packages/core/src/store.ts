@@ -1,6 +1,12 @@
 import type { ContentAdapter, LocalizedPage, PageContent, PageInfo } from "./types";
 import { versionOf, ConflictError, SlugExistsError } from "./version";
 import { mergeLocalized } from "./localize";
+import { mapLimit } from "./concurrency";
+
+/** Fan-out concurrency cap for store/SEO operations that loop over every slug
+ *  (or slug x locale) in a site: bounds concurrent adapter calls against
+ *  GitHub/Notion rate limits and fs file-descriptor limits. */
+const FANOUT_LIMIT = 8;
 
 /** Normalize free text into a URL-safe slug: lowercase, alnum-and-dash only, no
  *  leading/trailing dashes. Shared by `createPage` (from a title) and
@@ -20,6 +26,15 @@ export function slugify(text: string): string {
  *  fallback that the dumb per-locale adapter doesn't know about. */
 export interface ContentStore {
   listPages(locale?: string): Promise<PageInfo[]>;
+  /** Slugs of every page, cheap (adapter.listSlugs, no per-page read). Use
+   *  this instead of `listPages` for builders that only need the slug set
+   *  (sitemap, llms.txt, redirects), not each page's hasDraft/locales. */
+  listSlugs(locale?: string): Promise<string[]>;
+  /** Whether `slug` has published content for a locale. A cheap existence
+   *  check, unlike `listPages`, which fans out over every slug in the store;
+   *  callers that only need to know "does this one page exist" (e.g. the
+   *  markdown mirror route) should use this instead of scanning the list. */
+  exists(slug: string, locale?: string): Promise<boolean>;
   /** Published content for a locale, with default-locale fallback applied. */
   getPublished(slug: string, locale?: string): Promise<LocalizedPage>;
   getDraft(slug: string, locale?: string): Promise<PageContent | null>;
@@ -82,21 +97,25 @@ export function createStore(
   return {
     async listPages(locale = defaultLocale) {
       // Canonical page set = the default locale's slugs (a translation is always
-      // of an existing default page). Independent reads, so fetched concurrently.
+      // of an existing default page). Independent reads, bounded to FANOUT_LIMIT
+      // concurrent adapter calls (unbounded Promise.all over every slug can open
+      // hundreds of requests against a rate-limited GitHub/Notion adapter).
       const slugs = await adapter.listSlugs(defaultLocale);
-      return Promise.all(
-        slugs.map(async (slug) => {
-          const [raw, hasDraft, pageLocales] = await Promise.all([
-            adapter.readRaw(slug, defaultLocale),
-            adapter.hasDraft(slug, locale),
-            adapter.listLocales(slug),
-          ]);
-          const meta = adapter.parse(raw).meta;
-          const title = typeof meta.title === "string" ? meta.title : slug;
-          return { slug, title, hasDraft, locales: pageLocales };
-        })
-      );
+      return mapLimit(slugs, FANOUT_LIMIT, async (slug) => {
+        const [raw, hasDraft, pageLocales] = await Promise.all([
+          adapter.readRaw(slug, defaultLocale),
+          adapter.hasDraft(slug, locale),
+          adapter.listLocales(slug),
+        ]);
+        const meta = adapter.parse(raw).meta;
+        const title = typeof meta.title === "string" ? meta.title : slug;
+        return { slug, title, hasDraft, locales: pageLocales };
+      });
     },
+
+    listSlugs: (locale) => adapter.listSlugs(locale ?? defaultLocale),
+
+    exists: (slug, locale = defaultLocale) => adapter.exists(slug, locale),
 
     async getPublished(slug, locale = defaultLocale): Promise<LocalizedPage> {
       const base = adapter.parse(await adapter.readRaw(slug, defaultLocale));
@@ -116,14 +135,18 @@ export function createStore(
     async saveDraft(slug, page, baseVersion, locale = defaultLocale) {
       if (baseVersion !== undefined) {
         // Draft-precedence: compare against what the editor actually loaded.
-        // ponytail: read-then-write has a TOCTOU window: fine for a single-node
-        // fs CMS. Upgrade path: an atomic adapter (git blob-sha / KV CAS) moves
-        // the compare into the adapter via an optional `expectedVersion` hook.
+        // ponytail: this pre-check is still a read-then-write with a TOCTOU
+        // window on its own (fine for a single-node fs CMS, which has nothing
+        // else to CAS against). For an atomic adapter, `baseVersion` is also
+        // passed through as `writeDraftRaw`'s `expectedVersion`, so the real
+        // compare-and-swap happens at write time against the adapter's own
+        // server-side check (e.g. github-adapter's cached blob sha), closing
+        // the window this pre-check alone can't.
         const cur = await readVersion(slug, locale);
         if (cur !== baseVersion) throw new ConflictError(slug, cur, baseVersion);
       }
       const raw = adapter.serialize(page);
-      await adapter.writeDraftRaw(slug, raw, locale);
+      await adapter.writeDraftRaw(slug, raw, locale, baseVersion !== undefined ? { expectedVersion: baseVersion } : undefined);
       const version = versionOf(raw);
       opts.onSaveDraft?.(slug, locale, version);
       return version;

@@ -84,17 +84,24 @@ GitHub at request time, as long as two things are wired up so a page doesn't
 re-fetch GitHub on every request and a publish is still fast to see:
 
 1. **Cache the adapter's reads** with `readInit`, so your host framework's
-   fetch cache (not this package) owns the caching:
+   fetch cache (not this package) owns the caching. `readInit` only ever
+   applies to a READ the adapter does on a caller's behalf (`readRaw`,
+   `listSlugs`, `exists`, ...); a write's own internal reads (the sha lookup
+   before a PUT, the `expectedVersion` re-GET) always bypass it, since CASing
+   a write against a cached read would defeat the whole point of CAS:
 
    ```ts
    import { createGithubAdapter } from "@typren/core";
 
-   // The SITE-RENDER instance: reads are cached and tagged.
+   // The SITE-RENDER instance: reads are cached and tagged. `cache:
+   // "force-cache"` opts into the platform's fetch cache at all (Next's
+   // default for a `fetch` call varies by context); `next.tags` is what
+   // the webhook/onPublish invalidation below targets.
    const siteAdapter = createGithubAdapter({
      owner: "acme",
      repo: "site",
      token: ghToken,
-     readInit: () => ({ next: { tags: ["typren-content"] } }), // Next's fetch-cache tag
+     readInit: () => ({ cache: "force-cache", next: { tags: ["typren-content"] } }),
    });
 
    // The EDITOR's own instance: NEVER set readInit here. Draft reads must
@@ -117,7 +124,15 @@ re-fetch GitHub on every request and a publish is still fast to see:
    const { POST } = { POST: createGithubWebhookHandler({
      secret: process.env.GITHUB_WEBHOOK_SECRET!,
      branch: "main",
-     onChange: async () => revalidateTag("typren-content"),
+     // `change.paths` is every path the push actually touched: a host that
+     // tags reads per-path/per-slug (rather than one site-wide tag) can
+     // invalidate just those instead of everything. Fall back to the
+     // one-tag example above if `change.full` is true (a force push or an
+     // unenumerable payload): there is nothing more specific to invalidate.
+     onChange: async (change) => {
+       if (change.full) return revalidateTag("typren-content");
+       for (const slug of change.slugs) revalidateTag(`typren-content:${slug}`);
+     },
    }) };
    export { POST };
    ```
@@ -127,7 +142,7 @@ re-fetch GitHub on every request and a publish is still fast to see:
    export const cmsConfig: CmsConfig = {
      // ...
      adapter: editorAdapter,
-     onPublish: async () => revalidateTag("typren-content"), // same tag, same cache
+     onPublish: async (slug) => revalidateTag(`typren-content:${slug}`), // same tag scheme, same cache
    };
    ```
 
@@ -142,6 +157,26 @@ goes through the Contents API's directory-listing endpoint, which caps at
 1000 entries; `createGithubAdapter`'s `listSlugs` has a `ponytail:` comment
 naming the Git Trees API (`/git/trees/<branch>?recursive=1`) as the upgrade
 path for a site with more pages than that.
+
+### Drafts live on their own branch
+
+`createGithubAdapter`'s `draftBranch` defaults to `"typren-drafts"`: every
+draft read/write/delete/`hasDraft` call targets that branch instead of
+`branch`, so saving a draft never lands a commit on the branch your host
+builds from (no triggered preview/production deploy, no draft noise in
+`branch`'s own history). The branch is created lazily, from `branch`'s
+current HEAD, the first time a draft is ever saved -- a site that never
+saves a draft never gets one.
+
+A host whose platform builds every branch (Vercel's per-branch previews, CF
+Pages' branch deploys) should tell it to skip `typren-drafts`: Vercel's
+[Ignored Build Step](https://vercel.com/docs/deployments/skip-deployments)
+(`if [ "$VERCEL_GIT_COMMIT_REF" = "typren-drafts" ]; then exit 0; else exit 1; fi`)
+or Cloudflare Pages' branch build controls.
+
+Pass `draftBranch: null` (or the same value as `branch`) to keep the
+pre-0.5 layout instead: drafts under `draftSubdir` on `branch` itself, no
+second branch.
 
 ## Adapters are interfaces, not requirements
 

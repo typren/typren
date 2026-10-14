@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { createContentAdapterContractSuite } from "@typren/contract-tests";
 import { createGithubAdapter, isAllowedRepoPath } from "./github-adapter";
-import { ConflictError } from "./version";
+import { createStore } from "./store";
+import { ConflictError, versionOf } from "./version";
 
 // --- a tiny in-memory fake of the GitHub Contents API, driving the adapter
 // through a real fetch-shaped function so tests exercise the actual request/
@@ -13,18 +14,54 @@ function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
+/** Branch-aware: content lives per-ref (the Contents API's `?ref=` query
+ *  param), and `main` is the only branch that exists until something creates
+ *  another one (via the git refs endpoints below, same as the real API).
+ *  `files` is the "main" bucket specifically, kept as its own Map reference
+ *  so existing tests that seed/inspect published content directly (which
+ *  always lives on "main") don't need to change. */
 function makeFakeGithub() {
   const files = new Map<string, FakeFile>();
+  const branchFiles = new Map<string, Map<string, FakeFile>>([["main", files]]);
+  const branches = new Set<string>(["main"]);
   let shaCounter = 0;
   const nextSha = () => `sha-${++shaCounter}`;
 
+  const filesFor = (ref: string): Map<string, FakeFile> => {
+    let m = branchFiles.get(ref);
+    if (m === undefined) {
+      m = new Map();
+      branchFiles.set(ref, m);
+    }
+    return m;
+  };
+
   const fetchImpl = vi.fn(async (input: string | URL, init?: RequestInit) => {
     const url = new URL(input);
-    const relPath = decodeURIComponent(url.pathname.replace(/^\/repos\/[^/]+\/[^/]+\/contents\/?/, ""));
     const method = init?.method ?? "GET";
 
+    const refHead = url.pathname.match(/\/git\/ref\/heads\/(.+)$/);
+    if (refHead) {
+      const branchName = decodeURIComponent(refHead[1]);
+      if (!branches.has(branchName)) return jsonResponse(404, { message: "Not Found" });
+      return jsonResponse(200, { object: { sha: `head-of-${branchName}` } });
+    }
+    if (url.pathname.endsWith("/git/refs") && method === "POST") {
+      const body = JSON.parse(init!.body as string) as { ref: string; sha: string };
+      const branchName = body.ref.replace(/^refs\/heads\//, "");
+      if (branches.has(branchName)) return jsonResponse(422, { message: "Reference already exists" });
+      branches.add(branchName);
+      filesFor(branchName); // new branch starts with an (empty) content tree
+      return jsonResponse(201, {});
+    }
+
+    const relPath = decodeURIComponent(url.pathname.replace(/^\/repos\/[^/]+\/[^/]+\/contents\/?/, ""));
+    const ref = url.searchParams.get("ref") ?? "main";
+    if (!branches.has(ref)) return jsonResponse(404, { message: "Branch not found" });
+    const branchMap = filesFor(ref);
+
     if (method === "GET") {
-      const exact = files.get(relPath);
+      const exact = branchMap.get(relPath);
       if (exact) {
         return jsonResponse(200, {
           type: "file",
@@ -36,50 +73,55 @@ function makeFakeGithub() {
       // Directory listing: any stored path nested under relPath.
       const prefix = relPath === "" ? "" : `${relPath}/`;
       const childNames = new Set<string>();
-      for (const p of files.keys()) {
+      for (const p of branchMap.keys()) {
         if (p.startsWith(prefix)) childNames.add(p.slice(prefix.length).split("/")[0]);
       }
       if (childNames.size === 0) return jsonResponse(404, { message: "Not Found" });
       return jsonResponse(
         200,
-        [...childNames].map((name) => ({ type: files.has(prefix + name) ? "file" : "dir", name }))
+        [...childNames].map((name) => ({ type: branchMap.has(prefix + name) ? "file" : "dir", name }))
       );
     }
 
     if (method === "PUT") {
       const body = JSON.parse(init!.body as string) as { content: string; sha?: string };
-      const existing = files.get(relPath);
+      const existing = branchMap.get(relPath);
       if (existing && body.sha !== existing.sha) return jsonResponse(409, { message: "sha does not match" });
       const sha = nextSha();
-      files.set(relPath, { content: Buffer.from(body.content, "base64").toString("utf8"), sha });
+      branchMap.set(relPath, { content: Buffer.from(body.content, "base64").toString("utf8"), sha });
       return jsonResponse(existing ? 200 : 201, { content: { sha } });
     }
 
     if (method === "DELETE") {
       const body = JSON.parse(init!.body as string) as { sha: string };
-      const existing = files.get(relPath);
+      const existing = branchMap.get(relPath);
       if (!existing) return jsonResponse(404, { message: "Not Found" });
       if (body.sha !== existing.sha) return jsonResponse(409, { message: "sha does not match" });
-      files.delete(relPath);
+      branchMap.delete(relPath);
       return jsonResponse(200, {});
     }
 
     throw new Error(`fake GitHub: unexpected method ${method}`);
   });
 
-  return { fetchImpl, files };
+  return { fetchImpl, files, branches, filesFor };
 }
 
 function makeAdapter(overrides: Partial<Parameters<typeof createGithubAdapter>[0]> = {}) {
-  const { fetchImpl, files } = makeFakeGithub();
+  const { fetchImpl, files, branches, filesFor } = makeFakeGithub();
   const adapter = createGithubAdapter({
     owner: "acme",
     repo: "site",
     token: "ghs_test",
     fetchImpl: fetchImpl as unknown as typeof fetch,
+    // Every pre-existing test in this file assumes the single-branch legacy
+    // layout (drafts under draftSubdir on the same branch as published
+    // content); the draftBranch default is covered by its own describe
+    // block below with an explicit adapter.
+    draftBranch: null,
     ...overrides,
   });
-  return { adapter, fetchImpl, files };
+  return { adapter, fetchImpl, files, branches, filesFor };
 }
 
 describe("isAllowedRepoPath", () => {
@@ -154,6 +196,48 @@ describe("createGithubAdapter: read/write/delete round-trip", () => {
   });
 });
 
+describe("createGithubAdapter: writes are serialized", () => {
+  it("deletePage over 3 locales issues writes sequentially (no overlap)", async () => {
+    const { fetchImpl, files } = makeFakeGithub();
+    // Instrument the fake transport itself: track the max number of write
+    // (PUT/DELETE) requests in flight at once, across ANY path.
+    let writesInFlight = 0;
+    let maxWritesInFlight = 0;
+    const instrumented = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const isWrite = init?.method === "PUT" || init?.method === "DELETE";
+      if (isWrite) {
+        writesInFlight++;
+        maxWritesInFlight = Math.max(maxWritesInFlight, writesInFlight);
+      }
+      try {
+        // A tick of delay so two un-serialized writes WOULD overlap if the
+        // adapter didn't chain them.
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return await fetchImpl(input, init);
+      } finally {
+        if (isWrite) writesInFlight--;
+      }
+    });
+
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      locales: ["en", "fr", "es"],
+      defaultLocale: "en",
+      fetchImpl: instrumented as unknown as typeof fetch,
+    });
+
+    for (const locale of ["en", "fr", "es"]) {
+      files.set(locale === "en" ? "content/about.md" : `content/${locale}/about.md`, { content: "x", sha: "s" });
+    }
+
+    await Promise.all(["en", "fr", "es"].map((locale) => adapter.deletePublished("about", locale)));
+
+    expect(maxWritesInFlight).toBe(1);
+  });
+});
+
 describe("createGithubAdapter: listSlugs", () => {
   it("lists only .md files, sorted, and returns [] for a directory that doesn't exist", async () => {
     const { adapter } = makeAdapter();
@@ -203,6 +287,69 @@ describe("createGithubAdapter: compare-and-swap", () => {
   });
 });
 
+describe("createGithubAdapter: opts.expectedVersion CAS", () => {
+  it("writes through when expectedVersion matches the path's current content version", async () => {
+    const { adapter, files } = makeAdapter();
+    await adapter.writeDraftRaw("about", "v1");
+    const v1 = versionOf("v1");
+    await adapter.writeDraftRaw("about", "v2", undefined, { expectedVersion: v1 });
+    expect(files.get("content/_drafts/about.md")?.content).toBe("v2");
+  });
+
+  it("rejects when expectedVersion doesn't match the path's current content version, without clobbering it", async () => {
+    const { adapter, files } = makeAdapter();
+    await adapter.writeDraftRaw("about", "v1");
+    await expect(adapter.writeDraftRaw("about", "v2", undefined, { expectedVersion: "not-the-real-version" })).rejects.toThrow(
+      ConflictError
+    );
+    expect(files.get("content/_drafts/about.md")?.content).toBe("v1");
+  });
+
+  it("never lets a cached sha from another path's write stand in for this write's checked version", async () => {
+    // Two different paths: writing "other" must not poison "about"'s cache
+    // entry, since the CAS check is per-path.
+    const { adapter } = makeAdapter();
+    await adapter.writeDraftRaw("about", "v1");
+    await adapter.writeDraftRaw("other", "unrelated");
+    const v1 = versionOf("v1");
+    await adapter.writeDraftRaw("about", "v2", undefined, { expectedVersion: v1 }); // still valid for "about"
+    expect(await adapter.readDraftRaw("about")).toBe("v2");
+  });
+
+  it("re-GETs and rejects when a concurrent write already moved the cache past expectedVersion", async () => {
+    // A first write updates the cache to v2's version; a second write still
+    // checked against v1 must re-fetch the server's current truth (not trust
+    // its own now-stale pre-write cache read) and reject.
+    const { adapter, files } = makeAdapter();
+    await adapter.writeDraftRaw("about", "v1");
+    const v1 = versionOf("v1");
+    await adapter.writeDraftRaw("about", "v2", undefined, { expectedVersion: v1 }); // cache now holds v2's version
+    await expect(adapter.writeDraftRaw("about", "v3", undefined, { expectedVersion: v1 })).rejects.toThrow(ConflictError);
+    expect(files.get("content/_drafts/about.md")?.content).toBe("v2");
+  });
+});
+
+describe("store.saveDraft against createGithubAdapter: the documented expectedVersion upgrade path", () => {
+  it("two interleaved saveDrafts with the same baseVersion: the second throws ConflictError", async () => {
+    // Integration check that store.saveDraft actually threads `baseVersion`
+    // through to the adapter as `opts.expectedVersion` (not just that store.ts's
+    // own pre-check catches a stale save, which store.test.ts already covers
+    // against a non-atomic adapter): request A's write moves the GitHub-side
+    // version; request B, built from the same stale `base`, must fail even
+    // though nothing here relies on B's own in-process pre-check timing.
+    const { adapter } = makeAdapter();
+    const store = createStore(adapter);
+    await store.saveDraft("about", { meta: {}, slices: [], body: "v1" });
+    const base = (await store.currentVersion("about"))!;
+
+    await store.saveDraft("about", { meta: {}, slices: [], body: "from request A" }, base);
+    await expect(store.saveDraft("about", { meta: {}, slices: [], body: "from request B" }, base)).rejects.toThrow(
+      ConflictError
+    );
+    expect((await store.getDraft("about"))!.body.trim()).toBe("from request A");
+  });
+});
+
 describe("createGithubAdapter: readInit", () => {
   it("merges readInit's RequestInit into every GET, never a write", async () => {
     const { fetchImpl } = makeFakeGithub();
@@ -223,6 +370,157 @@ describe("createGithubAdapter: readInit", () => {
     const getCall = fetchImpl.mock.calls.find(([, init]) => (init?.method ?? "GET") === "GET" && init?.cache)!;
     expect(getCall[1]?.cache).toBe("force-cache");
     expect(readInit).toHaveBeenCalledWith("content/about.md");
+  });
+
+  it("a write path's OWN internal GETs (cold-cache sha fetch, expectedVersion re-GET) never see readInit either", async () => {
+    const { fetchImpl, files } = makeFakeGithub();
+    const readInit = vi.fn(() => ({ cache: "force-cache" as const }));
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      readInit,
+    });
+
+    // Cold cache: writeRaw's own sha lookup is an internal GET, not a caller
+    // read. A cached (force-cache) answer here would CAS against stale data.
+    await adapter.writeRaw("about", "v1");
+    let writePathGets = fetchImpl.mock.calls.filter(([, init]) => (init?.method ?? "GET") === "GET");
+    expect(writePathGets.every(([, init]) => init?.cache === undefined)).toBe(true);
+    expect(readInit).not.toHaveBeenCalled();
+
+    // expectedVersion's re-GET path, triggered by a stale cache.
+    fetchImpl.mockClear();
+    files.set("content/about.md", { content: "v2 externally", sha: "external-sha" });
+    await expect(adapter.writeRaw("about", "v3", undefined, { expectedVersion: "not-current" })).rejects.toThrow();
+    writePathGets = fetchImpl.mock.calls.filter(([, init]) => (init?.method ?? "GET") === "GET");
+    expect(writePathGets.length).toBeGreaterThan(0);
+    expect(writePathGets.every(([, init]) => init?.cache === undefined)).toBe(true);
+    expect(readInit).not.toHaveBeenCalled();
+  });
+});
+
+describe("createGithubAdapter: draftBranch", () => {
+  it("defaults to \"typren-drafts\": a draft write lands there, never on the published branch", async () => {
+    const { fetchImpl, files, branches, filesFor } = makeFakeGithub();
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      // draftBranch omitted: exercises the real default.
+    });
+
+    await adapter.writeDraftRaw("about", "draft content");
+
+    expect(branches.has("typren-drafts")).toBe(true);
+    expect(filesFor("typren-drafts").get("content/_drafts/about.md")?.content).toBe("draft content");
+    expect(files.has("content/_drafts/about.md")).toBe(false); // never on "main"
+  });
+
+  it("auto-creates the draft branch from the published branch's HEAD on first draft write, then retries once", async () => {
+    const { fetchImpl, branches } = makeFakeGithub();
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      draftBranch: "my-drafts",
+    });
+    expect(branches.has("my-drafts")).toBe(false);
+
+    await adapter.writeDraftRaw("about", "v1");
+
+    expect(branches.has("my-drafts")).toBe(true);
+    expect(await adapter.readDraftRaw("about")).toBe("v1");
+    const createRefCall = fetchImpl.mock.calls.find(
+      ([url, init]) => String(url).endsWith("/git/refs") && init?.method === "POST"
+    )!;
+    expect(JSON.parse(createRefCall[1]!.body as string)).toMatchObject({ ref: "refs/heads/my-drafts" });
+  });
+
+  it("publish writes the published branch and deletes the draft on the draft branch", async () => {
+    const { fetchImpl, files, filesFor } = makeFakeGithub();
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      draftBranch: "typren-drafts",
+    });
+    const store = createStore(adapter);
+
+    await store.saveDraft("about", { meta: {}, slices: [], body: "new content" });
+    await store.publish("about");
+
+    expect(files.get("content/about.md")?.content).toContain("new content"); // published on "main"
+    expect(filesFor("typren-drafts").has("content/_drafts/about.md")).toBe(false); // draft gone
+  });
+
+  it("draftBranch: null keeps the legacy single-branch layout (draft on the published branch)", async () => {
+    const { fetchImpl, files } = makeFakeGithub();
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      draftBranch: null,
+    });
+
+    await adapter.writeDraftRaw("about", "draft content");
+
+    expect(files.get("content/_drafts/about.md")?.content).toBe("draft content"); // on "main", not a new branch
+  });
+
+  it("throws a clear error when the published branch's HEAD can't be resolved to create the draft branch", async () => {
+    const { fetchImpl: realFetch } = makeFakeGithub();
+    const brokenFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (String(input).includes("/git/ref/heads/")) return new Response("boom", { status: 500 });
+      return realFetch(input, init);
+    });
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: brokenFetch as unknown as typeof fetch,
+      draftBranch: "my-drafts",
+    });
+    await expect(adapter.writeDraftRaw("about", "v1")).rejects.toThrow(/could not resolve HEAD/);
+  });
+
+  it("throws a clear error when the draft branch ref can't be created", async () => {
+    const { fetchImpl: realFetch } = makeFakeGithub();
+    const brokenFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/git/refs") && init?.method === "POST") return new Response("boom", { status: 500 });
+      return realFetch(input, init);
+    });
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: brokenFetch as unknown as typeof fetch,
+      draftBranch: "my-drafts",
+    });
+    await expect(adapter.writeDraftRaw("about", "v1")).rejects.toThrow(/could not create draft branch/);
+  });
+});
+
+describe("createGithubAdapter: delete failure", () => {
+  it("throws a clear error when a delete fails for a reason other than CAS/404", async () => {
+    const { fetchImpl: realFetch } = makeFakeGithub();
+    const brokenFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") return new Response("server error", { status: 500 });
+      return realFetch(input, init);
+    });
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: brokenFetch as unknown as typeof fetch,
+    });
+    await adapter.writeRaw("about", "content");
+    await expect(adapter.deletePublished("about")).rejects.toThrow(/GitHub delete of/);
   });
 });
 

@@ -67,4 +67,10 @@ describe("buildSitemap", () => {
       expect(entry.lastModified).toBe("2026-01-02");
     }
   });
+
+  it("uses listSlugs, not listPages (no hasDraft/listLocales fan-out)", async () => {
+    const store = fakeStore([{ slug: "about" }]);
+    await buildSitemap(store, config);
+    expect(store.listPagesCalls).toBe(0);
+  });
 });

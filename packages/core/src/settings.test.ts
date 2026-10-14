@@ -141,6 +141,59 @@ describe("createSettingsStore", () => {
     expect(fs.existsSync(path.join(settingsDir, ".drafts", "settings.md"))).toBe(true);
   });
 
+  it("throws when settingsContentAdapter is the SAME instance as config.adapter", () => {
+    const sharedAdapter = createMarkdownAdapter({ contentDir });
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: sharedAdapter,
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+      settingsContentAdapter: sharedAdapter,
+    };
+    expect(() => createSettingsStore(config)).toThrow(/same adapter instance/);
+  });
+
+  it("throws when settingsContentAdapter's root is the same directory as config.adapter's root", () => {
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: createMarkdownAdapter({ contentDir }),
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+      settingsContentAdapter: createMarkdownAdapter({ contentDir }), // a second instance, same dir
+    };
+    expect(() => createSettingsStore(config)).toThrow(/overlap|same as/);
+  });
+
+  it("throws when settingsContentAdapter's root is NESTED inside config.adapter's root", () => {
+    const nestedDir = path.join(contentDir, "settings");
+    fs.mkdirSync(nestedDir, { recursive: true });
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: createMarkdownAdapter({ contentDir }),
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+      settingsContentAdapter: createMarkdownAdapter({ contentDir: nestedDir }),
+    };
+    expect(() => createSettingsStore(config)).toThrow(/overlap|same as/);
+  });
+
+  it("does not throw for a distinct, non-overlapping settingsContentAdapter root", () => {
+    const settingsDir = path.join(dir, "settings-content");
+    fs.mkdirSync(settingsDir, { recursive: true });
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: createMarkdownAdapter({ contentDir }),
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+      settingsContentAdapter: createMarkdownAdapter({ contentDir: settingsDir }),
+    };
+    expect(() => createSettingsStore(config)).not.toThrow();
+  });
+
   it("gates writes on the distinct 'admin' auth action, not the content-write action", async () => {
     const actions: AuthAction[] = [];
     const denyAdmin: AuthAdapter = {

@@ -73,4 +73,21 @@ describe("buildRedirects", () => {
     const store = fakeStore([{ slug: "about", meta: { aliases: [`/${"a".repeat(2049)}`] } }]);
     await expect(buildRedirects(store)).rejects.toThrow(/exceeds 2048 characters/);
   });
+
+  it("uses listSlugs, not listPages (no hasDraft/listLocales fan-out)", async () => {
+    const store = fakeStore([{ slug: "about" }]);
+    await buildRedirects(store);
+    expect(store.listPagesCalls).toBe(0);
+  });
+
+  it("still reports the duplicate owner by page order, not read-completion order", async () => {
+    // Bounded-concurrency reads (mapLimit) must not reorder the validation
+    // pass: "about" is declared first in `slugs`, so it stays the reported
+    // owner even though nothing here guarantees its read settles first.
+    const store = fakeStore([
+      { slug: "about", meta: { aliases: ["/old-path"] } },
+      { slug: "team", meta: { aliases: ["/old-path"] } },
+    ]);
+    await expect(buildRedirects(store)).rejects.toThrow(/claimed by both "about" and "team"/);
+  });
 });
