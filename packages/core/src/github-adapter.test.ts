@@ -202,6 +202,29 @@ describe("createGithubAdapter: compare-and-swap", () => {
   });
 });
 
+describe("createGithubAdapter: readInit", () => {
+  it("merges readInit's RequestInit into every GET, never a write", async () => {
+    const { fetchImpl } = makeFakeGithub();
+    const readInit = vi.fn((relPath: string) => ({ cache: "force-cache" as const, headers: { "x-rel": relPath } }));
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      readInit,
+    });
+
+    await adapter.writeRaw("about", "content"); // a write: readInit must not be consulted for the PUT
+    await adapter.readRaw("about"); // a read: readInit's RequestInit must be merged in
+
+    const putCall = fetchImpl.mock.calls.find(([, init]) => init?.method === "PUT")!;
+    expect(putCall[1]?.cache).toBeUndefined();
+    const getCall = fetchImpl.mock.calls.find(([, init]) => (init?.method ?? "GET") === "GET" && init?.cache)!;
+    expect(getCall[1]?.cache).toBe("force-cache");
+    expect(readInit).toHaveBeenCalledWith("content/about.md");
+  });
+});
+
 describe("createGithubAdapter: write-path allowlist enforcement", () => {
   it("rejects a slug shaped like a traversal attempt before ever calling fetch", async () => {
     const { adapter, fetchImpl } = makeAdapter();
