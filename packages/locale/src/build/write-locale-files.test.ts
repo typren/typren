@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -39,6 +39,20 @@ describe("writeLocaleFiles", () => {
 
     expect(paths).toEqual({ "en-US": join(dir, "en-US.lang.json") });
     expect(readdirSync(dir)).toEqual(["en-US.lang.json"]);
+  });
+
+  it.each([
+    ["a parent-relative filename", () => "../escaped.json"],
+    ["a Windows-style parent path", () => "..\\escaped.json"],
+    ["an absolute path", () => join(tmpdir(), "typren-locale-escaped.json")],
+  ])("a custom filenameStyle returning %s is refused before anything is written", (_label, style) => {
+    expect(() => writeLocaleFiles({ en: { Greeting: "Hi" } }, dir, { filenameStyle: style })).toThrow(/outside the output directory/);
+    expect(readdirSync(dir)).toEqual([]);
+    expect(existsSync(join(dir, "..", "escaped.json"))).toBe(false);
+  });
+
+  it("a locale key that is itself a traversal is refused", () => {
+    expect(() => writeLocaleFiles({ "../package": { Greeting: "Hi" } }, dir)).toThrow(/outside the output directory/);
   });
 
   it("writes deterministic, sorted-key, 2-space-indented bytes with a trailing newline", () => {

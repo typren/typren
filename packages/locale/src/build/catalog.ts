@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { assertNoHtml } from "../no-html";
 import { canonicalize, hashCatalog } from "../canonicalize";
 import { diff, isPlaceholderCompatible, merge } from "../delta";
@@ -7,6 +7,7 @@ import { resolve } from "../locale";
 import type { Catalog, Delta, Manifest } from "../types";
 import { resolveProvider } from "./resolve-provider";
 import type { LocaleSourceProvider, SourceConfig } from "./provider";
+import { joinInside } from "./write-locale-files";
 
 export interface BuildOptions {
   app: string;
@@ -44,7 +45,7 @@ interface ReleaseHistoryEntry {
 }
 
 function historyPath(outDir: string, app: string): string {
-  return join(outDir, "manifest", `${app}.history.json`);
+  return joinInside(outDir, "manifest", `${app}.history.json`);
 }
 
 function readHistory(outDir: string, app: string): ReleaseHistoryEntry[] {
@@ -147,9 +148,9 @@ export async function buildCatalogs(
     assertNoHtml(catalog, { label: `${options.app}/${lang}` });
     const hash = await hashCatalog(catalog);
 
-    const catalogDir = join(outDir, "catalog", options.app, lang);
+    const catalogDir = joinInside(outDir, "catalog", options.app, lang);
     mkdirSync(catalogDir, { recursive: true });
-    const catalogPath = join(catalogDir, `${hash}.json`);
+    const catalogPath = joinInside(catalogDir, `${hash}.json`);
     // Published bytes ARE the canonical form the hash covers. A raw-input
     // stringify could differ (key order, unicode form) from what was hashed.
     writeFileSync(catalogPath, canonicalize(catalog));
@@ -163,9 +164,8 @@ export async function buildCatalogs(
     catalogPaths[lang] = catalogPath;
   }
 
-  const manifestDir = join(outDir, "manifest");
-  mkdirSync(manifestDir, { recursive: true });
-  const manifestPath = join(manifestDir, `${options.app}.json`);
+  const manifestPath = joinInside(outDir, "manifest", `${options.app}.json`);
+  mkdirSync(dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
   const history = readHistory(outDir, options.app);
@@ -179,14 +179,14 @@ export async function buildCatalogs(
       if (!fromHash || fromHash === toHash) continue; // no prior release for this lang, or unchanged since it
 
       deltaCandidates++;
-      const fromPath = join(outDir, "catalog", options.app, lang, `${fromHash}.json`);
+      const fromPath = joinInside(outDir, "catalog", options.app, lang, `${fromHash}.json`);
       if (!existsSync(fromPath)) {
         missingFromPaths++;
         continue; // pruned off disk; that release falls back to a full-catalog fetch
       }
 
       const fromCatalog: Catalog = JSON.parse(readFileSync(fromPath, "utf8"));
-      const destPath = join(outDir, "delta", options.app, lang, `${fromHash}-${toHash}.json`);
+      const destPath = joinInside(outDir, "delta", options.app, lang, `${fromHash}-${toHash}.json`);
       await writeDelta(fromCatalog, catalog, destPath);
       deltaPaths.push(destPath);
     }

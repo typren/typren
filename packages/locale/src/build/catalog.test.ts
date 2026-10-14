@@ -26,6 +26,19 @@ describe("buildCatalogs", () => {
     vi.restoreAllMocks();
   });
 
+  it("a custom provider's traversal locale key is refused before it writes outside outDir", async () => {
+    const provider = { type: "custom", loadSource: async () => ({ "../../../escaped": { Greeting: "Hi" } }) };
+    await expect(buildCatalogs(provider, { app: "demo", buildVersion: "v1", outDir })).rejects.toThrow(/outside the output directory/);
+    expect(existsSync(join(outDir, "..", "escaped"))).toBe(false);
+  });
+
+  it("a traversal app name is refused for the manifest and history writes too", async () => {
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Greeting: "Hi" }));
+    await expect(buildCatalogs(sourceDir, { app: "../../escaped", buildVersion: "v1", outDir })).rejects.toThrow(
+      /outside the output directory/,
+    );
+  });
+
   it("writes immutable catalog files + a manifest with matching hashes", async () => {
     const en: Catalog = { Greeting: { Hello: "Hi {name}" } };
     const fr: Catalog = { Greeting: { Hello: "Salut {name}" } };

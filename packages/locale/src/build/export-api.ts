@@ -209,10 +209,6 @@ async function pollUntilDone(
   }
 }
 
-function rejectUnsafeKey(key: string, source: string): void {
-  if (UNSAFE_KEYS.has(key)) throw new Error(`export-api: rejected unsafe locale key "${key}" from ${source}`);
-}
-
 function parseZipBundle(
   bytes: Uint8Array,
   localeFrom: "filename" | "dir",
@@ -231,7 +227,6 @@ function parseZipBundle(
     }
     const catalog = JSON.parse(strFromU8(contents)) as Catalog;
     const key = normalizeLocaleKey(rawName, langMap);
-    rejectUnsafeKey(key, "zip bundle");
     catalogs[key] = catalogs[key] ? { ...catalogs[key], ...catalog } : catalog;
   }
   return catalogs;
@@ -241,7 +236,6 @@ function parseJsonBundle(doc: unknown, langMap: Record<string, string> | undefin
   const catalogs: Record<string, Catalog> = {};
   for (const [name, catalog] of Object.entries(doc as Record<string, unknown>)) {
     const key = normalizeLocaleKey(name, langMap);
-    rejectUnsafeKey(key, "json bundle");
     catalogs[key] = catalog as Catalog;
   }
   return catalogs;

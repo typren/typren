@@ -120,9 +120,15 @@ function describeProviderContract(name: string, factory: ProviderFactory): void 
 
     it("an unsafe '__proto__' key from the wire never lands", async () => {
       const provider = await factory({ ["__proto__"]: { Greeting: "Hi" }, en: { Greeting: "Yo" } });
-      const catalogs = await provider.loadSource();
-      expect(Object.getPrototypeOf(catalogs)).toBe(Object.prototype);
-      expect(Object.keys(catalogs)).not.toContain("__proto__");
+      // A JSON body can't carry a own `__proto__` key past JSON.stringify, so that provider sees none;
+      // the others see it and must refuse the whole load rather than emit it.
+      const result = await provider.loadSource().catch((e: unknown) => e);
+      if (result instanceof Error) {
+        expect(result.message).toMatch(/unsafe locale key/);
+      } else {
+        expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+        expect(Object.keys(result as Record<string, Catalog>)).not.toContain("__proto__");
+      }
     });
   });
 }
@@ -384,6 +390,21 @@ describe("createExportApiSourceProvider", () => {
       { fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     await expect(provider.loadSource()).rejects.toThrow(/README\.txt.*not a \.json file/);
+  });
+
+  it.each(["../package", "..\\x", "/etc/passwd", "en/../../package"])(
+    "a traversal-shaped bundle key %j is refused (zip entry and json key)",
+    async (name) => {
+      const catalogs = { [name]: { Greeting: "Hi" }, en: { Greeting: "Yo" } };
+      await expect(exportApiZipFactory(catalogs).loadSource()).rejects.toThrow(/unsafe locale key/);
+      await expect(exportApiJsonFactory(catalogs).loadSource()).rejects.toThrow(/unsafe locale key/);
+    },
+  );
+
+  it('a langMap override cannot map a key onto a traversal either', async () => {
+    await expect(exportApiJsonFactory({ en: { Greeting: "Hi" } }, { en: "../package" }).loadSource()).rejects.toThrow(
+      /unsafe locale key "\.\.\/package"/,
+    );
   });
 
   it('a literal-looking token (no "${}") is rejected with a clear error', async () => {
