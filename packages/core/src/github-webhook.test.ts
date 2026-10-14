@@ -169,4 +169,115 @@ describe("createGithubWebhookHandler: body size cap", () => {
     });
     expect((await handler(req)).status).toBe(413);
   });
+
+  it("413s a chunked body with no content-length, without reading the whole stream", async () => {
+    // No content-length header at all (the chunked-transfer case): the only
+    // guard that can catch this is the streaming byte count, not a header.
+    const chunkSize = 1024 * 1024; // 1MB
+    const totalChunks = 10; // 10MB of chunks available; the cap is 5MB
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled >= totalChunks) {
+          controller.close();
+          return;
+        }
+        pulled++;
+        controller.enqueue(new Uint8Array(chunkSize));
+      },
+    });
+    const req = new Request("https://example.com/hook", {
+      method: "POST",
+      body: stream,
+      duplex: "half",
+      headers: { "x-github-event": "push" },
+    } as RequestInit);
+
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange: async () => {} });
+    expect((await handler(req)).status).toBe(413);
+    // Must have bailed out partway through, not pulled every available chunk.
+    expect(pulled).toBeLessThan(totalChunks);
+  });
+
+  it("a non-numeric content-length doesn't crash or bypass the size check", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const body = push("refs/heads/main", [{ modified: ["content/about.md"] }]);
+    const text = JSON.stringify(body);
+    const req = new Request("https://example.com/hook", {
+      method: "POST",
+      body: text,
+      headers: {
+        "content-length": "not-a-number",
+        "x-github-event": "push",
+        "x-hub-signature-256": await sign(SECRET, text),
+      },
+    });
+    expect((await handler(req)).status).toBe(200);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createGithubWebhookHandler: delivery dedupe", () => {
+  it("202s a redelivered X-GitHub-Delivery id instead of invalidating twice", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const body = push("refs/heads/main", [{ modified: ["content/about.md"] }]);
+    const text = JSON.stringify(body);
+    const sig = await sign(SECRET, text);
+    const req1 = new Request("https://example.com/hook", {
+      method: "POST",
+      body: text,
+      headers: { "x-github-event": "push", "x-github-delivery": "dup-id", "x-hub-signature-256": sig },
+    });
+    const req2 = new Request("https://example.com/hook", {
+      method: "POST",
+      body: text,
+      headers: { "x-github-event": "push", "x-github-delivery": "dup-id", "x-hub-signature-256": sig },
+    });
+
+    expect((await handler(req1)).status).toBe(200);
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    const res2 = await handler(req2);
+    expect(res2.status).toBe(202);
+    expect(onChange).toHaveBeenCalledTimes(1); // not called again
+  });
+
+  it("different delivery ids are each processed", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const body = push("refs/heads/main", [{ modified: ["content/about.md"] }]);
+    const text = JSON.stringify(body);
+    const sig = await sign(SECRET, text);
+    for (const id of ["id-a", "id-b"]) {
+      const req = new Request("https://example.com/hook", {
+        method: "POST",
+        body: text,
+        headers: { "x-github-event": "push", "x-github-delivery": id, "x-hub-signature-256": sig },
+      });
+      expect((await handler(req)).status).toBe(200);
+    }
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("createGithubWebhookHandler: truncated commit list", () => {
+  it("treats a commit list at GitHub's own cap as truncated (full: true)", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const commits = Array.from({ length: 2048 }, () => ({ modified: ["content/about.md"] }));
+    const req = await pushRequest(push("refs/heads/main", commits));
+    expect((await handler(req)).status).toBe(200);
+    expect(onChange).toHaveBeenCalledWith({ paths: [], slugs: [], locales: [], full: true });
+  });
+
+  it("still enumerates a commit list safely under the cap", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const commits = Array.from({ length: 2047 }, () => ({ modified: ["content/about.md"] }));
+    const req = await pushRequest(push("refs/heads/main", commits));
+    expect((await handler(req)).status).toBe(200);
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ full: false }));
+  });
 });

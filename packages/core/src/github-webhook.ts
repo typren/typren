@@ -54,6 +54,37 @@ const MAX_BODY_BYTES = 5 * 1024 * 1024;
 type GithubCommit = { added?: string[]; modified?: string[]; removed?: string[] };
 type GithubPushPayload = { ref?: string; forced?: boolean; deleted?: boolean; commits?: GithubCommit[] };
 
+/** Reads `req.body` incrementally, counting bytes as they arrive, and bails
+ *  out (canceling the stream, never buffering the rest) the moment the
+ *  running total exceeds `maxBytes`. A chunked request carries no
+ *  `content-length` at all, so a header-only size check (the previous
+ *  version of this guard) never fires for one; this closes that gap by
+ *  checking the ACTUAL bytes received rather than trusting a header. Returns
+ *  `null` to mean "too large", never throws for that case. */
+async function readBodyCapped(req: Request, maxBytes: number): Promise<ArrayBuffer | null> {
+  if (!req.body) return new ArrayBuffer(0);
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out.buffer;
+}
+
 function toHex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -99,20 +130,57 @@ function slugAndLocale(relPath: string): { slug: string; locale?: string } | nul
   return null; // deeper nesting (e.g. a collection dir) isn't a Pages slug
 }
 
+// GitHub's own commit-list cap per push payload; a push with this many (or
+// more) is truncated, not exhaustive, the same as an empty list or a force
+// push -- see the commits.length check below.
+const GITHUB_PUSH_COMMIT_CAP = 2048;
+
+// X-GitHub-Delivery ids seen recently, oldest-first (Map preserves insertion
+// order), so a redelivered webhook (GitHub retries on a non-2xx, and a host
+// can also manually redeliver from its UI) 202s instead of invalidating twice.
+// ponytail: per-handler-instance only, in-memory -- a redelivery landing on a
+// DIFFERENT instance (multi-instance deploy) still processes. Upgrade path: a
+// shared store (KV/Redis) keyed by delivery id, if duplicate invalidations
+// ever actually show up in practice (they're idempotent, just wasted work).
+const MAX_SEEN_DELIVERIES = 1000;
+
 export function createGithubWebhookHandler(options: GithubWebhookOptions): (req: Request) => Promise<Response> {
   const { secret, branch = "main", contentDir = "content", draftSubdir = "_drafts", onChange } = options;
   if (!secret) throw new Error("typren: createGithubWebhookHandler requires a non-empty secret");
 
-  return async (req: Request): Promise<Response> => {
-    const contentLength = Number(req.headers.get("content-length") ?? "0");
-    if (contentLength > MAX_BODY_BYTES) return new Response("Payload too large", { status: 413 });
+  const seenDeliveries = new Map<string, true>();
+  function isReplay(deliveryId: string | null): boolean {
+    if (!deliveryId) return false;
+    if (seenDeliveries.has(deliveryId)) return true;
+    seenDeliveries.set(deliveryId, true);
+    if (seenDeliveries.size > MAX_SEEN_DELIVERIES) {
+      const oldest = seenDeliveries.keys().next().value;
+      if (oldest !== undefined) seenDeliveries.delete(oldest);
+    }
+    return false;
+  }
 
-    const bodyBuffer = await req.arrayBuffer();
-    if (bodyBuffer.byteLength > MAX_BODY_BYTES) return new Response("Payload too large", { status: 413 });
+  return async (req: Request): Promise<Response> => {
+    // Fast-path reject when a (numeric) content-length already says the body
+    // is too large, without opening the stream at all. A chunked request (or
+    // a non-numeric/garbage header) has no usable content-length here, so the
+    // REAL guard is the streaming byte count below.
+    const contentLengthHeader = req.headers.get("content-length");
+    const contentLength = contentLengthHeader === null ? NaN : Number(contentLengthHeader);
+    if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+      return new Response("Payload too large", { status: 413 });
+    }
+
+    const bodyBuffer = await readBodyCapped(req, MAX_BODY_BYTES);
+    if (bodyBuffer === null) return new Response("Payload too large", { status: 413 });
 
     // Signature verified over the RAW body, before any JSON parsing.
     const valid = await verifySignature(secret, bodyBuffer, req.headers.get("x-hub-signature-256"));
     if (!valid) return new Response("Invalid signature", { status: 401 });
+
+    if (isReplay(req.headers.get("x-github-delivery"))) {
+      return new Response("Already processed", { status: 202 });
+    }
 
     const event = req.headers.get("x-github-event");
     if (event === "ping") return new Response("pong", { status: 200 });
@@ -127,10 +195,12 @@ export function createGithubWebhookHandler(options: GithubWebhookOptions): (req:
 
     if (payload.ref !== `refs/heads/${branch}`) return new Response("Ignored: other branch", { status: 202 });
 
-    // A force push rewrites history the commit list doesn't describe, and an
+    // A force push rewrites history the commit list doesn't describe, an
     // empty list (GitHub caps it, and some pushes carry none) proves nothing
-    // changed only if it really is complete, so both fall back to "everything".
-    if (!payload.deleted && (payload.forced || !payload.commits?.length)) {
+    // changed only if it really is complete, and a list AT GitHub's own cap
+    // is itself truncated (more commits existed than the payload lists) --
+    // all three fall back to "everything".
+    if (!payload.deleted && (payload.forced || !payload.commits?.length || payload.commits.length >= GITHUB_PUSH_COMMIT_CAP)) {
       return runOnChange({ paths: [], slugs: [], locales: [], full: true });
     }
 
