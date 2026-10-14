@@ -45,15 +45,12 @@ site.
 
 With neither `allowedEmails` nor `allowedRoles` set, a mapping would
 authorize *any* resolved identity — almost never the right policy for a
-public editor. The two legacy mappings keep that as a documented
-default-open caveat (useful for a project still wiring up roles):
+public editor. Every mapping throws at construction if you pass none of
+these:
 
 - **`nextAuthAdapter`** (`@typren/core/auth/next-auth`)
-- **`clerkAuthAdapter`** (`@typren/core/auth/clerk`)
-
-The three newer mappings throw at construction instead, requiring an
-allowlist up front:
-
+- **`clerkAuthAdapter`** (`@typren/core/auth/clerk`) — also accepts
+  `allowedUserIds` as a third way to satisfy the requirement
 - **`betterAuthAdapter`** (`@typren/core/auth/better-auth`)
 - **`supabaseAuthAdapter`** (`@typren/core/auth/supabase`)
 - **`oidcAuthAdapter`** (`@typren/core/auth/oidc`) — generic OIDC/JWT for
@@ -74,6 +71,8 @@ for it, not merely a claim the user's own profile asserts:
   only read when the token carries `email_verified: true` (or, for
   Cloudflare Access, is inherently trusted — Access only issues a token after
   the user proved control of it).
+- **Clerk** (`clerkAuthAdapter`): only the user's primary email, and only
+  when `primaryEmailAddress?.verification?.status === "verified"`.
 - **Better Auth** (`betterAuthAdapter`): only when `session.user.emailVerified`
   is true.
 - **Supabase** (`supabaseAuthAdapter`): only when
@@ -129,8 +128,13 @@ why.
 
 `@typren/core/auth/local`'s `localAuth()` is what `typren init` scaffolds.
 It authorizes every action identically (there's only one tier in local dev,
-so it doesn't branch on `ctx.action`) only when
-`NODE_ENV === "development"`, and fails closed in production unless you pass
+so it doesn't branch on `ctx.action`) only when `NODE_ENV === "development"`
+**and** the request's `Host` is loopback (`localhost`, `127.0.0.1`, `[::1]`,
+or a `*.localhost` name), and fails closed in production unless you pass
 `allowInProduction: true` — which you should never do for a real deployment.
-See [Choosing auth](./choosing-auth.md) for wiring a real provider before you
+The loopback check exists because `NODE_ENV` alone doesn't stop a
+misconfigured production host from running with `NODE_ENV=development`; the
+scaffolded dev script binds Next to `127.0.0.1` (`next dev -H 127.0.0.1`) so
+the dev server itself is never reachable off-box. See
+[Choosing auth](./choosing-auth.md) for wiring a real provider before you
 deploy.
