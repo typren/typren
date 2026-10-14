@@ -172,9 +172,78 @@ export declare function nextSteps(baseDir: string): string;
  *  below) need no change, but takes an explicit array so tests can drive
  *  every dispatch branch without touching the real process.argv or
  *  capturing stdout beyond spying on console.*, matching how `nextSteps()`
- *  was already split out of `printNextSteps()` for the same reason. */
-export declare function main(argv?: string[]): void;
+ *  was already split out of `printNextSteps()` for the same reason.
+ *  Declared `async` only for `migrate`, the one command with real I/O
+ *  (`--remote` fetches); every other branch returns before its first await,
+ *  so it runs fully synchronously the way existing callers expect. */
+export declare function main(argv?: string[]): Promise<void>;
 export {};
+
+// ---- dist/migrate.d.ts ----
+export interface MigrationDetectPattern {
+    pattern: string;
+    glob: string;
+    hint: string;
+}
+export interface MigrationNote {
+    package: string;
+    version: string;
+    title: string;
+    detect: MigrationDetectPattern[];
+    body: string;
+    source: "bundled" | "remote";
+}
+export interface MigrationMatch {
+    file: string;
+    line: number;
+    hint: string;
+}
+export interface MigrationNoteResult {
+    package: string;
+    version: string;
+    title: string;
+    matches: MigrationMatch[];
+    body: string;
+    source: "bundled" | "remote";
+    /** Set when `--remote` returned a note for the same package+version as a
+     *  bundled one and the two bodies disagree: the remote copy is unpinned by
+     *  the lockfile and may not match what's actually installed. */
+    divergesFromBundled?: boolean;
+}
+export interface MigrateResult {
+    from: string;
+    to: string;
+    notes: MigrationNoteResult[];
+}
+export interface MigrateOptions {
+    cwd?: string;
+    from?: string;
+    to?: string;
+    remote?: boolean;
+    /** Test seam: a stand-in for the global `fetch`. */
+    fetchImpl?: typeof fetch;
+}
+/** Resolves the `@typren/core` range at HEAD, the version the project was
+ *  last committed against, not whatever `node_modules` happens to hold right
+ *  now. Returns null when there's no git history, no package.json there, or
+ *  no `@typren/core` dependency, each a reason to require `--from` instead. */
+export declare function fromVersionFromGit(cwd: string): string | null;
+export declare function migrate(opts?: MigrateOptions): Promise<MigrateResult>;
+/** Same hand-rolled style as the rest of this CLI's argv handling. */
+export declare function parseMigrateArgs(args: string[]): {
+    from: string | undefined;
+    to: string | undefined;
+    cwd: string | undefined;
+    json: boolean;
+    remote: boolean;
+};
+export declare function printMigrateReport(result: MigrateResult, opts?: {
+    json?: boolean;
+}): void;
+
+// ---- dist/safe-matter.d.ts ----
+import matter from "gray-matter";
+export declare const parseMatter: (raw: string) => matter.GrayMatterFile<string>;
 
 // ---- dist/telemetry.d.ts ----
 /** Whether telemetry should fire at all right now, folding in every opt-out source. */
