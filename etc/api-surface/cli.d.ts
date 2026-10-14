@@ -214,6 +214,11 @@ export interface MigrateResult {
     from: string;
     to: string;
     notes: MigrationNoteResult[];
+    /** Set when the installed @typren/core only packs notes from
+     *  `.min-version` onward (postbuild keeps the newest 5) and `from`
+     *  predates it: some notes this project might have needed were dropped
+     *  from the release, not just "none applied between from and to". */
+    droppedNotesWarning?: string;
 }
 export interface MigrateOptions {
     cwd?: string;
