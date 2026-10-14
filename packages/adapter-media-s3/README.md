@@ -30,7 +30,7 @@ const mediaAdapter = createS3MediaAdapter({
   accessKeyId: process.env.S3_ACCESS_KEY_ID!,
   secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
   publicBaseUrl: "https://media.example.com",
-  prefix: "uploads/", // optional
+  prefix: "uploads/", // optional, but if set MUST end in "/" (see Known limits)
 });
 ```
 
@@ -102,6 +102,10 @@ on just this bucket.
 
 ## Known limits
 
+- **`prefix`, if set, MUST end in `/`.** Construction throws otherwise. A prefix
+  without a trailing slash is a shared-bucket collision risk: `"siteA"` also matches
+  the key `"siteAB/x"` (plain `startsWith`), so one site's adapter could list or
+  delete another's objects. `"siteA/"` can't.
 - **Path-style URLs only** (`${endpoint}/${bucket}/${key}`). Covers R2, Supabase,
   MinIO and AWS, but not a bucket that only supports virtual-hosted-style requests.
   Add a `virtualHostedStyle` option building `${bucket}.${host}/${key}` if that's

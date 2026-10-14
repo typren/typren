@@ -49,6 +49,18 @@ describe("createS3MediaAdapter: option validation", () => {
   it("rejects a prefix containing a traversal segment", () => {
     expect(() => createS3MediaAdapter({ ...BASE_OPTS, prefix: "../escape/" })).toThrow(/prefix is invalid/);
   });
+
+  it("rejects a prefix without a trailing slash", () => {
+    expect(() => createS3MediaAdapter({ ...BASE_OPTS, prefix: "siteA" })).toThrow(/must be non-empty and end in/);
+  });
+
+  it("rejects an empty-string prefix", () => {
+    expect(() => createS3MediaAdapter({ ...BASE_OPTS, prefix: "" })).toThrow(/must be non-empty and end in/);
+  });
+
+  it("accepts a prefix ending in a trailing slash", () => {
+    expect(() => createS3MediaAdapter({ ...BASE_OPTS, prefix: "siteA/" })).not.toThrow();
+  });
 });
 
 describe("createS3MediaAdapter: upload", () => {
@@ -173,6 +185,14 @@ describe("createS3MediaAdapter: delete", () => {
   it("refuses an id outside its own prefix (shared bucket) without making a request", async () => {
     const adapter = createS3MediaAdapter({ ...BASE_OPTS, prefix: "site-a/" });
     await expect(adapter.delete("site-b/photo.webp")).rejects.toThrow(/outside this adapter's prefix/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("a trailing-slash prefix cannot delete a sibling prefix that merely shares a string prefix", async () => {
+    // Without the mandatory trailing slash, "siteA".startsWith would have let
+    // "siteA" match "siteAB/x" too; "siteA/" cannot.
+    const adapter = createS3MediaAdapter({ ...BASE_OPTS, prefix: "siteA/" });
+    await expect(adapter.delete("siteAB/x")).rejects.toThrow(/outside this adapter's prefix/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

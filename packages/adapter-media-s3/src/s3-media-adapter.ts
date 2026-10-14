@@ -55,8 +55,20 @@ function validateOptions(opts: S3MediaAdapterOptions) {
     throw new Error("typren: adapter-media-s3 endpoint must be https:// (http:// only for localhost MinIO)");
   }
   if (!BUCKET_RE.test(opts.bucket)) throw new Error("typren: adapter-media-s3 bucket name is invalid");
-  if (opts.prefix !== undefined && (!PREFIX_RE.test(opts.prefix) || opts.prefix.includes(".."))) {
-    throw new Error("typren: adapter-media-s3 prefix is invalid");
+  if (opts.prefix !== undefined) {
+    if (!PREFIX_RE.test(opts.prefix) || opts.prefix.includes("..")) {
+      throw new Error("typren: adapter-media-s3 prefix is invalid");
+    }
+    // A prefix lacking a trailing "/" is a key-collision risk in a shared
+    // bucket: prefix "siteA" also matches key "siteAB/x" (`startsWith`), so
+    // one site's config could list or delete another's objects. Requiring
+    // "siteA/" makes a prefix boundary unambiguous.
+    if (opts.prefix === "" || !opts.prefix.endsWith("/")) {
+      throw new Error(
+        `typren: adapter-media-s3 prefix "${opts.prefix}" must be non-empty and end in "/" (e.g. "siteA/"); ` +
+          `otherwise it can match another site's keys in a shared bucket ("siteA" also matches "siteAB/x")`
+      );
+    }
   }
 }
 
