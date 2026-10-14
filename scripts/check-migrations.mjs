@@ -19,7 +19,7 @@
  */
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // `typren/core`'s postbuild only packs notes named `core-*.md` (see
 // packages/core/scripts/postbuild.mjs's packMigrationNotes), so `typren
@@ -131,7 +131,7 @@ export function checkMigrations(repoRoot) {
 
 function isDirectRun() {
   const entry = process.argv[1];
-  return Boolean(entry) && import.meta.url === new URL(`file://${path.resolve(entry)}`).href;
+  return Boolean(entry) && import.meta.url === pathToFileURL(entry).href;
 }
 
 if (isDirectRun()) {
