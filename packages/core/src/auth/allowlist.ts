@@ -15,6 +15,21 @@ import type { AuthContext, AuthUser } from "../auth-adapter";
  * `adminRoles` configured) denies rather than falling back to `allowedRoles`.
  * A host must opt in to who gets to reconfigure the site.
  */
+// ASCII-only lowercasing for the allowlist compare: `String.toLowerCase()` is
+// locale-sensitive for a few codepoints (e.g. Turkish dotless i), which could
+// make an email compare unequal or equal depending on the host's locale. An
+// email containing any non-ASCII byte is deliberately never matched, rather
+// than risk a locale-dependent false match.
+const toAsciiLower = (s: string): string | null => {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code > 0x7f) return null;
+    out += code >= 65 && code <= 90 ? s[i].toLowerCase() : s[i];
+  }
+  return out;
+};
+
 export function checkAllowlist(
   u: AuthUser,
   ctx: AuthContext,
@@ -24,7 +39,11 @@ export function checkAllowlist(
     return !!opts.adminRoles?.length && (u.roles?.some((r) => opts.adminRoles!.includes(r)) ?? false);
   const emailOk =
     !opts.allowedEmails ||
-    (u.email != null && opts.allowedEmails.some((e) => e.toLowerCase() === u.email!.toLowerCase()));
+    (() => {
+      const candidate = u.email != null ? toAsciiLower(u.email) : null;
+      if (candidate == null) return false;
+      return opts.allowedEmails!.some((e) => toAsciiLower(e) === candidate);
+    })();
   const roleOk = !opts.allowedRoles || (u.roles?.some((r) => opts.allowedRoles!.includes(r)) ?? false);
   return emailOk && roleOk;
 }

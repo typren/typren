@@ -49,6 +49,18 @@ describe("createS3MediaAdapter: option validation", () => {
   it("rejects a prefix containing a traversal segment", () => {
     expect(() => createS3MediaAdapter({ ...BASE_OPTS, prefix: "../escape/" })).toThrow(/prefix is invalid/);
   });
+
+  it("rejects a prefix without a trailing slash", () => {
+    expect(() => createS3MediaAdapter({ ...BASE_OPTS, prefix: "siteA" })).toThrow(/must be non-empty and end in/);
+  });
+
+  it("rejects an empty-string prefix", () => {
+    expect(() => createS3MediaAdapter({ ...BASE_OPTS, prefix: "" })).toThrow(/must be non-empty and end in/);
+  });
+
+  it("accepts a prefix ending in a trailing slash", () => {
+    expect(() => createS3MediaAdapter({ ...BASE_OPTS, prefix: "siteA/" })).not.toThrow();
+  });
 });
 
 describe("createS3MediaAdapter: upload", () => {
@@ -87,6 +99,47 @@ describe("createS3MediaAdapter: upload", () => {
     const adapter = createS3MediaAdapter(BASE_OPTS);
     const asset = await adapter.upload(preparedFile({ name: "noext", width: undefined, height: undefined }));
     expect(asset.id).toMatch(/^noext-[0-9a-f]{8}$/);
+  });
+
+  it("sets a long immutable cache-control header, keys being immutable", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
+    const adapter = createS3MediaAdapter(BASE_OPTS);
+    await adapter.upload(preparedFile());
+    const [req] = fetchMock.mock.calls[0] as [Request];
+    expect(req.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("sets content-disposition: inline for an SVG upload", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
+    const adapter = createS3MediaAdapter(BASE_OPTS);
+    await adapter.upload(preparedFile({ name: "icon.svg", mime: "image/svg+xml" }));
+    const [req] = fetchMock.mock.calls[0] as [Request];
+    expect(req.headers.get("content-disposition")).toBe("inline");
+  });
+
+  it("does not set content-disposition for a non-SVG upload", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
+    const adapter = createS3MediaAdapter(BASE_OPTS);
+    await adapter.upload(preparedFile());
+    const [req] = fetchMock.mock.calls[0] as [Request];
+    expect(req.headers.get("content-disposition")).toBeNull();
+  });
+
+  it("rejects an upload whose mime isn't in the allowlist, without making a request", async () => {
+    const adapter = createS3MediaAdapter(BASE_OPTS);
+    await expect(adapter.upload(preparedFile({ mime: "text/html" }))).rejects.toThrow(
+      /rejects mime "text\/html"/
+    );
+    await expect(adapter.upload(preparedFile({ mime: "image/png" }))).rejects.toThrow(/rejects mime/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows every allowlisted mime", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
+    const adapter = createS3MediaAdapter(BASE_OPTS);
+    for (const mime of ["image/webp", "image/avif", "image/svg+xml"]) {
+      await expect(adapter.upload(preparedFile({ mime, name: "f" }))).resolves.toBeDefined();
+    }
   });
 
   it("throws on a non-2xx response without leaking the secret key", async () => {
@@ -146,6 +199,33 @@ describe("createS3MediaAdapter: list", () => {
     const adapter = createS3MediaAdapter(BASE_OPTS);
     await expect(adapter.list()).rejects.toThrow(/typren: S3 ListObjectsV2/);
   });
+
+  it("throws past a hard cap of pages instead of looping forever", async () => {
+    let n = 0;
+    fetchMock.mockImplementation(async () => {
+      n++;
+      return new Response(
+        `<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>t-${n}</NextContinuationToken></ListBucketResult>`,
+        { status: 200 }
+      );
+    });
+    const adapter = createS3MediaAdapter(BASE_OPTS);
+    await expect(adapter.list()).rejects.toThrow(/exceeded 100 pages/);
+    expect(n).toBe(100); // caps the request count too, doesn't just throw after an unbounded fetch spree
+  });
+
+  it("throws when the provider repeats a continuation token instead of looping forever", async () => {
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(
+          `<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>stuck-token</NextContinuationToken></ListBucketResult>`,
+          { status: 200 }
+        )
+    );
+    const adapter = createS3MediaAdapter(BASE_OPTS);
+    await expect(adapter.list()).rejects.toThrow(/repeated continuation token/);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // first page returns the token, second page repeats it
+  });
 });
 
 describe("createS3MediaAdapter: delete", () => {
@@ -173,6 +253,14 @@ describe("createS3MediaAdapter: delete", () => {
   it("refuses an id outside its own prefix (shared bucket) without making a request", async () => {
     const adapter = createS3MediaAdapter({ ...BASE_OPTS, prefix: "site-a/" });
     await expect(adapter.delete("site-b/photo.webp")).rejects.toThrow(/outside this adapter's prefix/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("a trailing-slash prefix cannot delete a sibling prefix that merely shares a string prefix", async () => {
+    // Without the mandatory trailing slash, "siteA".startsWith would have let
+    // "siteA" match "siteAB/x" too; "siteA/" cannot.
+    const adapter = createS3MediaAdapter({ ...BASE_OPTS, prefix: "siteA/" });
+    await expect(adapter.delete("siteAB/x")).rejects.toThrow(/outside this adapter's prefix/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

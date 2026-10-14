@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { betterAuthAdapter } from "./better-auth";
 
-const session = (overrides: { role?: string | null } = {}) => ({
-  user: { id: "u1", email: "user@example.com", name: "User", role: overrides.role },
+const session = (overrides: { role?: string | null; emailVerified?: boolean } = {}) => ({
+  user: {
+    id: "u1",
+    email: "user@example.com",
+    emailVerified: overrides.emailVerified ?? true,
+    name: "User",
+    role: overrides.role,
+  },
 });
 
 describe("betterAuthAdapter", () => {
@@ -19,6 +25,38 @@ describe("betterAuthAdapter", () => {
       getSession: async () => session(),
       allowedEmails: ["someone-else@example.com"],
     });
+    expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
+  });
+
+  it("denies an unverified email against allowedEmails, allows once verified, leaves role-based access unaffected", async () => {
+    const byEmail = betterAuthAdapter({
+      getSession: async () => session({ emailVerified: false }),
+      allowedEmails: ["user@example.com"],
+    });
+    expect(await byEmail.authorize({ action: "saveDraft" })).toBe(false);
+    expect((await byEmail.getUser!({ action: "read" }))?.email).toBeUndefined();
+
+    const byEmailVerified = betterAuthAdapter({
+      getSession: async () => session({ emailVerified: true }),
+      allowedEmails: ["user@example.com"],
+    });
+    expect(await byEmailVerified.authorize({ action: "saveDraft" })).toBe(true);
+
+    const byRole = betterAuthAdapter({
+      getSession: async () => session({ emailVerified: false, role: "editor" }),
+      allowedRoles: ["editor"],
+    });
+    expect(await byRole.authorize({ action: "saveDraft" })).toBe(true);
+  });
+
+  it("normalizes a non-array rolesFrom result to no roles instead of throwing", async () => {
+    const adapter = betterAuthAdapter({
+      getSession: async () => session(),
+      rolesFrom: () => "editor" as unknown as string[],
+      allowedRoles: ["editor"],
+    });
+    const user = await adapter.getUser!({ action: "read" });
+    expect(user?.roles).toBeUndefined();
     expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
   });
 

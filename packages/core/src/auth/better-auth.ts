@@ -6,7 +6,7 @@ import { checkAllowlist } from "./allowlist";
  *  `() => auth.api.getSession({ headers: await headers() })`). This entry
  *  (`@typren/core/auth/better-auth`) never resolves `better-auth` itself. */
 type Session = {
-  user?: { id?: string; email?: string; name?: string; role?: string | null };
+  user?: { id?: string; email?: string; emailVerified?: boolean; name?: string; role?: string | null };
 } | null;
 
 /**
@@ -43,15 +43,24 @@ export function betterAuthAdapter(opts: {
       "typren: betterAuthAdapter requires an allowlist (allowedEmails or allowedRoles); without one any signed-in user could edit"
     );
   }
-  const rolesFrom =
-    opts.rolesFrom ??
-    ((s: NonNullable<Session>) =>
-      s.user?.role ? s.user.role.split(",").map((r) => r.trim()).filter(Boolean) : undefined);
+  const defaultRolesFrom = (s: NonNullable<Session>) =>
+    s.user?.role ? s.user.role.split(",").map((r) => r.trim()).filter(Boolean) : undefined;
+  // A host-supplied rolesFrom isn't type-checked at runtime; a non-array
+  // return (e.g. a single string) must never leak through as "roles", since
+  // callers treat `roles` as an array to `.some()` over.
+  const rolesFrom = (s: NonNullable<Session>): string[] | undefined => {
+    const r = (opts.rolesFrom ?? defaultRolesFrom)(s);
+    return Array.isArray(r) ? r : undefined;
+  };
   const toUser = (s: Session): AuthUser | null => {
     if (!s?.user?.email && !s?.user?.id) return null;
     return {
       id: s.user!.id ?? s.user!.email!,
-      email: s.user!.email,
+      // Only a verified email can satisfy allowedEmails: omitting it here
+      // (rather than filtering in checkAllowlist) means an unverified email
+      // can never match the allowlist, for this mapping or any other check
+      // that reads AuthUser.email.
+      email: s.user!.emailVerified === true ? s.user!.email : undefined,
       name: s.user!.name,
       roles: rolesFrom(s),
     };

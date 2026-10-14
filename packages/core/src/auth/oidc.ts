@@ -86,7 +86,10 @@ export function oidcAuthAdapter(opts: OidcOpts): AuthAdapter {
 
 /** Shared construction, without the allowlist requirement: `cfAccessAuthAdapter`
  *  calls this directly (see its own doc comment for why it's exempt). */
-function buildOidcAdapter(opts: OidcOpts): AuthAdapter {
+// `emailTrusted`: the issuer itself authenticated the email (Cloudflare Access
+// only issues a token after the user proved control of it), so no
+// `email_verified` claim is needed or sent. Generic OIDC leaves it false.
+function buildOidcAdapter(opts: OidcOpts, emailTrusted = false): AuthAdapter {
   const rolesClaim = opts.rolesClaim ?? "roles";
   const emailClaim = opts.emailClaim ?? "email";
 
@@ -103,7 +106,9 @@ function buildOidcAdapter(opts: OidcOpts): AuthAdapter {
       discoveryPromise = (async () => {
         // Some issuers end in "/" (Auth0); strip it for the URL only, since
         // jwtVerify still matches `iss` against the issuer exactly as given.
-        const res = await fetch(`${opts.issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`);
+        const res = await fetch(`${opts.issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`, {
+          signal: AbortSignal.timeout(5000),
+        });
         if (!res.ok) throw new Error(`typren: OIDC discovery failed for ${opts.issuer} (${res.status})`);
         const doc = (await res.json()) as { issuer?: unknown; jwks_uri?: unknown };
         // OIDC Discovery 1.0 section 4.3: the document's issuer MUST equal the one it was fetched for.
@@ -132,7 +137,14 @@ function buildOidcAdapter(opts: OidcOpts): AuthAdapter {
   };
   const toUser = (claims: Claims): AuthUser | null => {
     if (!claims.sub) return null;
-    const email = typeof claims[emailClaim] === "string" ? (claims[emailClaim] as string) : undefined;
+    // Only an IdP-verified email can satisfy allowedEmails: omitting it here
+    // (rather than filtering in checkAllowlist) means an unverified email
+    // can never match the allowlist, for this mapping or any other check
+    // that reads AuthUser.email.
+    const email =
+      typeof claims[emailClaim] === "string" && (emailTrusted || claims.email_verified === true)
+        ? (claims[emailClaim] as string)
+        : undefined;
     return { id: claims.sub, email, name: claims.name, roles: rolesOf(claims) };
   };
   const resolve = async (): Promise<Claims | null> => {
@@ -143,6 +155,7 @@ function buildOidcAdapter(opts: OidcOpts): AuthAdapter {
       issuer: opts.issuer,
       audience: opts.audience,
       algorithms: ASYMMETRIC_ALGS,
+      requiredClaims: ["exp", "sub"],
     });
     return payload as Claims;
   };
@@ -176,6 +189,13 @@ function buildOidcAdapter(opts: OidcOpts): AuthAdapter {
  * request through; a verified token here is already allowlisted, by Access
  * itself. `allowedEmails`/`allowedRoles` remain available for a second,
  * narrower tier inside Typren.
+ *
+ * NOTE on `allowedRoles`/`adminRoles` here: Access tokens only carry a
+ * `groups` claim when the team has SCIM group sync configured. Without it,
+ * every token omits `groups` and `rolesOf` resolves to `undefined`, so
+ * `allowedRoles`/`adminRoles` silently deny everyone rather than signal
+ * misconfiguration. Confirm SCIM sync is on before relying on role gating
+ * with this preset.
  */
 export function cfAccessAuthAdapter(opts: {
   /** The Cloudflare Access team name, e.g. `"acme"` for `acme.cloudflareaccess.com`.
@@ -203,5 +223,5 @@ export function cfAccessAuthAdapter(opts: {
     issuer,
     jwksUri: `${issuer}/cdn-cgi/access/certs`,
     rolesClaim: opts.rolesClaim ?? "groups",
-  });
+  }, true);
 }

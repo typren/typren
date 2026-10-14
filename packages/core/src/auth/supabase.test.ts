@@ -74,6 +74,32 @@ describe("supabaseAuthAdapter", () => {
     expect(await withAdmin.authorize({ action: "admin" })).toBe(true);
   });
 
+  it("denies an unconfirmed email against allowedEmails, allows once confirmed, leaves role-based access unaffected", async () => {
+    const byEmail = supabaseAuthAdapter({
+      client: client({ id: "u1", email: "user@example.com", email_confirmed_at: null }),
+      allowedEmails: ["user@example.com"],
+    });
+    expect(await byEmail.authorize({ action: "saveDraft" })).toBe(false);
+    expect((await byEmail.getUser!({ action: "read" }))?.email).toBeUndefined();
+
+    const byEmailConfirmed = supabaseAuthAdapter({
+      client: client({ id: "u1", email: "user@example.com", email_confirmed_at: "2026-01-01T00:00:00Z" }),
+      allowedEmails: ["user@example.com"],
+    });
+    expect(await byEmailConfirmed.authorize({ action: "saveDraft" })).toBe(true);
+
+    const byRole = supabaseAuthAdapter({
+      client: client({
+        id: "u1",
+        email: "user@example.com",
+        email_confirmed_at: null,
+        app_metadata: { roles: ["editor"] },
+      }),
+      allowedRoles: ["editor"],
+    });
+    expect(await byRole.authorize({ action: "saveDraft" })).toBe(true);
+  });
+
   it("fails closed when getUser throws", async () => {
     const adapter = supabaseAuthAdapter({
       client: {

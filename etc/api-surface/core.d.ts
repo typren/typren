@@ -333,6 +333,7 @@ type Session = {
     user?: {
         id?: string;
         email?: string;
+        emailVerified?: boolean;
         name?: string;
         role?: string | null;
     };
@@ -508,6 +509,13 @@ export declare function oidcAuthAdapter(opts: OidcOpts): AuthAdapter;
  * request through; a verified token here is already allowlisted, by Access
  * itself. `allowedEmails`/`allowedRoles` remain available for a second,
  * narrower tier inside Typren.
+ *
+ * NOTE on `allowedRoles`/`adminRoles` here: Access tokens only carry a
+ * `groups` claim when the team has SCIM group sync configured. Without it,
+ * every token omits `groups` and `rolesOf` resolves to `undefined`, so
+ * `allowedRoles`/`adminRoles` silently deny everyone rather than signal
+ * misconfiguration. Confirm SCIM sync is on before relying on role gating
+ * with this preset.
  */
 export declare function cfAccessAuthAdapter(opts: {
     /** The Cloudflare Access team name, e.g. `"acme"` for `acme.cloudflareaccess.com`.
@@ -545,6 +553,7 @@ type SupabaseClient = {
 export type SupabaseUser = {
     id: string;
     email?: string | null;
+    email_confirmed_at?: string | null;
     user_metadata?: Record<string, unknown>;
     app_metadata?: {
         roles?: string[];
