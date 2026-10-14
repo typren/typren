@@ -26,6 +26,21 @@ describe("checkAllowlist", () => {
     );
   });
 
+  it("denies an email containing non-ASCII characters instead of locale-lowercasing it", () => {
+    // Turkish dotless/dotted i is the classic locale-sensitive lowercasing
+    // trap; the allowlist must never depend on the host's locale.
+    expect(
+      checkAllowlist(user({ email: "USER@EXAMPLE.COM" }), { action: "read" }, { allowedEmails: ["user@example.com"] })
+    ).toBe(true);
+    expect(
+      checkAllowlist(
+        user({ email: "üser@example.com" }),
+        { action: "read" },
+        { allowedEmails: ["üser@example.com"] }
+      )
+    ).toBe(false);
+  });
+
   it("denies admin unless adminRoles is configured and intersects", () => {
     expect(checkAllowlist(user({ roles: ["admin"] }), { action: "admin" }, {})).toBe(false);
     expect(
