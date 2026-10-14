@@ -427,6 +427,36 @@ describe("cfAccessAuthAdapter", () => {
     expect(await adapter.authorize({ action: "saveDraft" })).toBe(true);
   });
 
+  it("matches allowedEmails on an Access token, which carries no email_verified claim", async () => {
+    const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
+    const jwk = await exportJWK(publicKey);
+    jwk.kid = "cf-key-3";
+    jwk.alg = "ES256";
+    jwk.use = "sig";
+    const teamIssuer = "https://acme.cloudflareaccess.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        if (String(url) === `${teamIssuer}/cdn-cgi/access/certs`) return { status: 200, json: async () => ({ keys: [jwk] }) };
+        throw new Error(`unexpected fetch ${url}`);
+      })
+    );
+    const token = await new SignJWT({ email: "Owner@Acme.com" })
+      .setProtectedHeader({ alg: "ES256", kid: "cf-key-3" })
+      .setSubject("user-1")
+      .setIssuer(teamIssuer)
+      .setAudience("app-aud")
+      .setExpirationTime("1h")
+      .sign(privateKey);
+    const adapter = cfAccessAuthAdapter({
+      teamDomain: "acme",
+      audience: "app-aud",
+      getToken: async () => token,
+      allowedEmails: ["owner@acme.com"],
+    });
+    expect(await adapter.authorize({ action: "saveDraft" })).toBe(true);
+  });
+
   it("is exempt from the allowlist requirement: Access's own policy already gated the token", async () => {
     const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
     const jwk = await exportJWK(publicKey);

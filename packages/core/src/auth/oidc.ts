@@ -86,7 +86,10 @@ export function oidcAuthAdapter(opts: OidcOpts): AuthAdapter {
 
 /** Shared construction, without the allowlist requirement: `cfAccessAuthAdapter`
  *  calls this directly (see its own doc comment for why it's exempt). */
-function buildOidcAdapter(opts: OidcOpts): AuthAdapter {
+// `emailTrusted`: the issuer itself authenticated the email (Cloudflare Access
+// only issues a token after the user proved control of it), so no
+// `email_verified` claim is needed or sent. Generic OIDC leaves it false.
+function buildOidcAdapter(opts: OidcOpts, emailTrusted = false): AuthAdapter {
   const rolesClaim = opts.rolesClaim ?? "roles";
   const emailClaim = opts.emailClaim ?? "email";
 
@@ -139,7 +142,7 @@ function buildOidcAdapter(opts: OidcOpts): AuthAdapter {
     // can never match the allowlist, for this mapping or any other check
     // that reads AuthUser.email.
     const email =
-      typeof claims[emailClaim] === "string" && claims.email_verified === true
+      typeof claims[emailClaim] === "string" && (emailTrusted || claims.email_verified === true)
         ? (claims[emailClaim] as string)
         : undefined;
     return { id: claims.sub, email, name: claims.name, roles: rolesOf(claims) };
@@ -220,5 +223,5 @@ export function cfAccessAuthAdapter(opts: {
     issuer,
     jwksUri: `${issuer}/cdn-cgi/access/certs`,
     rolesClaim: opts.rolesClaim ?? "groups",
-  });
+  }, true);
 }
