@@ -54,6 +54,10 @@
       "types": "./dist/auth/clerk.d.ts",
       "default": "./dist/auth/clerk.js"
     },
+    "./auth/better-auth": {
+      "types": "./dist/auth/better-auth.d.ts",
+      "default": "./dist/auth/better-auth.js"
+    },
     "./templates/init": {
       "types": "./dist/templates/init.d.ts",
       "default": "./dist/templates/init.js"
