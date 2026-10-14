@@ -69,25 +69,37 @@ export function createFsSettingsAdapter(opts: { file: string }): SettingsAdapter
 const SETTINGS_SLUG = "settings";
 
 export interface SettingsStore {
-  get(locale?: string): SiteSettingsRuntime;
+  get(locale?: string): Promise<SiteSettingsRuntime>;
   /** Version of the stored settings doc, for the same optimistic-lock flow pages
    *  use. Without this a client had nothing to seed `baseVersion` from, so its
    *  FIRST save passed `undefined`, which `store.saveDraft` treats as "no base
    *  version to check" and writes unconditionally, silently overwriting whatever
    *  another session had just saved. */
-  currentVersion(locale?: string): string | null;
+  currentVersion(locale?: string): Promise<string | null>;
   saveDraft(next: SiteSettingsRuntime, baseVersion?: string, locale?: string): Promise<SaveResult>;
   publish(baseVersion?: string, locale?: string): Promise<SaveResult>;
   bootstrap: SettingsAdapter;
 }
 
 export function createSettingsStore(config: CmsConfig): SettingsStore {
-  const dir = path.join(path.dirname(config.adapter.root), ".typren");
-  const adapter = createMarkdownAdapter({
-    contentDir: dir,
-    locales: config.adapter.locales,
-    defaultLocale: config.adapter.defaultLocale,
-  });
+  // Existing fs sites keep today's location exactly (sibling of the Pages
+  // content dir): only a markdown Pages adapter carries `root` (see
+  // markdown-adapter.ts's `MarkdownAdapter` type), so that's the detection.
+  // A non-fs Pages adapter (GitHub, Notion) has no root to site a sibling
+  // dir next to, so it must bring its own settings-content adapter.
+  const adapter =
+    "root" in config.adapter
+      ? createMarkdownAdapter({
+          contentDir: path.join(path.dirname((config.adapter as { root: string }).root), ".typren"),
+          locales: config.adapter.locales,
+          defaultLocale: config.adapter.defaultLocale,
+        })
+      : (config.settingsContentAdapter ??
+        (() => {
+          throw new Error(
+            "typren: config.adapter has no filesystem root (e.g. a GitHub or Notion adapter), so settings need an explicit config.settingsContentAdapter"
+          );
+        })());
   const actions = makeActions({ ...config, adapter, onPublish: undefined, onSaveDraft: undefined });
   const store = createStore(adapter);
   const auth = resolveAuth(config);
@@ -101,10 +113,11 @@ export function createSettingsStore(config: CmsConfig): SettingsStore {
     // reads the default-locale doc as its base, and a locale with no
     // translation of its own must fall back to it (the same rule pages
     // follow), not to EMPTY.
-    get: (locale) =>
-      adapter.exists(SETTINGS_SLUG, adapter.defaultLocale)
-        ? (store.getPublished(SETTINGS_SLUG, locale).meta as unknown as SiteSettingsRuntime)
-        : EMPTY,
+    async get(locale) {
+      if (!(await adapter.exists(SETTINGS_SLUG, adapter.defaultLocale))) return EMPTY;
+      const published = await store.getPublished(SETTINGS_SLUG, locale);
+      return published.meta as unknown as SiteSettingsRuntime;
+    },
     // No exists() guard: store.currentVersion already returns null for a
     // missing doc, and gating on the published file dropped the version of a
     // draft-only doc, reopening the silent-first-save-overwrite hole this

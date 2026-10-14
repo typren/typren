@@ -60,9 +60,9 @@ const canonicalPath = (slug: string, homeSlug?: string): string => (slug === hom
  * be a redirect loop), a duplicate alias claimed by two pages, or more total
  * aliases than `maxEntries`.
  */
-export function buildRedirects(store: ContentStore, opts: BuildRedirectsOptions = {}): RedirectEntry[] {
+export async function buildRedirects(store: ContentStore, opts: BuildRedirectsOptions = {}): Promise<RedirectEntry[]> {
   const { homeSlug, maxEntries = DEFAULT_MAX_ENTRIES } = opts;
-  const pages = store.listPages();
+  const pages = await store.listPages();
 
   // Every real route on the site, so an alias can never shadow one of them.
   const canonicalPaths = new Map(pages.map(({ slug }) => [canonicalPath(slug, homeSlug), slug]));
@@ -71,7 +71,7 @@ export function buildRedirects(store: ContentStore, opts: BuildRedirectsOptions 
   const claimedBy = new Map<string, string>(); // normalized `from` -> owning slug
 
   for (const { slug } of pages) {
-    const meta = store.getPublished(slug).meta as PageRedirectMeta;
+    const meta = (await store.getPublished(slug)).meta as PageRedirectMeta;
     const aliases = meta.aliases;
     if (aliases === undefined) continue;
     if (!Array.isArray(aliases)) {

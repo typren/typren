@@ -411,7 +411,7 @@ export declare function buildCollectionActions(config: CmsConfig): Record<string
  *  action, so this is what a host's server-fetch calls into). Reuses the same
  *  adapter construction as makeCollectionActions so the overlap guard and
  *  contentDir resolution can't drift between the read and write paths. */
-export declare function listCollectionRecords(config: CmsConfig, section: CollectionSection, locale?: string): CollectionRecordInfo[];
+export declare function listCollectionRecords(config: CmsConfig, section: CollectionSection, locale?: string): Promise<CollectionRecordInfo[]>;
 
 // ---- dist/field-schema.d.ts ----
 import type { SliceSchema } from "./types.js";
@@ -481,13 +481,13 @@ export type FsMediaAdapterOptions = {
 /**
  * Filesystem media adapter over a flat directory (mirrors `markdown-adapter.ts`'s
  * conventions: a `create*Adapter(opts)` factory, a `SAFE_*` traversal guard,
- * idempotent delete). Async throughout (unlike `ContentAdapter`) because
+ * idempotent delete). Async throughout, same as `ContentAdapter` (issue #29):
  * `list()` probes image dimensions via sharp. See `types.ts`'s `MediaAdapter`.
  */
 export declare function createFsMediaAdapter({ dir, publicPath }: FsMediaAdapterOptions): MediaAdapter;
 
 // ---- dist/github-adapter.d.ts ----
-import type { PageContent } from "./types.js";
+import type { ContentAdapter } from "./types.js";
 /**
  * True when `relPath` (repo-relative, forward-slash) safely resolves inside
  * one of `allowedRoots` (also repo-relative). Rejects `..`, absolute paths,
@@ -533,51 +533,94 @@ export type GithubAdapterOptions = {
      *  dot-dir path segments (see `isAllowedRepoPath`), so a dot-prefixed
      *  default would make every draft write reject itself. "_" is this repo's
      *  existing convention for a reserved/internal name (see
-     *  fs-media-adapter.ts's `_manifest-` prefix). */
+     *  fs-media-adapter.ts's `_manifest-` prefix). Kept deliberately distinct
+     *  from the fs adapter's own default rather than unified with it (issue
+     *  #29): the dotfile rule is a real security boundary for this adapter
+     *  (keeps a draft write from ever landing in `.github/` or another
+     *  dot-prefixed path GitHub treats specially), not an arbitrary naming
+     *  choice to reconcile. */
     draftSubdir?: string;
     /** Injectable for tests; defaults to the global `fetch`. */
     fetchImpl?: typeof fetch;
+    /** Merged into every GET's `RequestInit` (content reads only, never writes).
+     *  Lets a host attach its own fetch-cache tags/options, e.g. Next's
+     *  `{ next: { tags: [...] } }`, so a push webhook can invalidate the host's
+     *  cache for this adapter's reads (see the `@typren/core/github-webhook`
+     *  subpath). Never set this on the editor's own adapter instance: draft
+     *  reads must always be fresh, a cached draft read would show a stale
+     *  version of exactly the content someone is actively editing.
+     *  ponytail: one site-wide cache tag is the common case; a host needing
+     *  per-slug invalidation granularity passes a `relPath`-keyed tag itself
+     *  (this hook already gets `relPath`), cheaper than this adapter inventing
+     *  a tagging scheme. */
+    readInit?: (relPath: string) => RequestInit | undefined;
 };
 /**
  * GitHub Contents API adapter. Mirrors `markdown-adapter.ts`'s factory shape
  * and locale layout (default locale flat at `contentDir`, others under
- * `contentDir/<locale>/`, drafts under `.../<draftSubdir>`) and
- * `fs-media-adapter.ts`'s async convention -- unlike the filesystem adapter,
- * every method here does real network I/O, so none of them can be
- * synchronous. That is a real (structural) divergence from the `ContentAdapter`
- * interface in types.ts, which predates any network-backed implementation
- * and types every method as synchronous. Wiring this adapter into
- * `createStore`/`createMeditorApi` therefore needs that interface widened to
- * `T | Promise<T>` first -- deliberately out of scope here: it ripples into
- * store.ts, collection.ts, settings.ts, and api/routes.ts, which is a much
- * larger change than "add a GitHub adapter" and collides with the parallel
- * per-request-config-resolution work on routes.ts. This adapter is the ready,
- * tested piece that migration plugs in.
+ * `contentDir/<locale>/`, drafts under `.../<draftSubdir>`). Implements
+ * `ContentAdapter` natively: every method does real network I/O and returns a
+ * promise, the same shape the interface itself now requires (issue #29).
  *
- * The upside lands regardless of that wiring: every write here does an
+ * The CAS story lands on top of that: every write here does an
  * immediate read-sha-then-write, and the PUT is atomically compare-and-swapped
  * server-side by GitHub against the sha it's given -- a real CAS, not the fs
  * adapter's unconditional overwrite. That's the shape store.ts's own
  * `saveDraft` ponytail note asks for ("an atomic adapter ... moves the
  * compare into the adapter via an optional expectedVersion hook").
  */
-export declare function createGithubAdapter({ owner, repo, token, branch, contentDir, mediaDir, frontmatterKey, defaultLocale, locales, draftSubdir, fetchImpl, }: GithubAdapterOptions): {
+export declare function createGithubAdapter({ owner, repo, token, branch, contentDir, mediaDir, frontmatterKey, defaultLocale, locales, draftSubdir, fetchImpl, readInit, }: GithubAdapterOptions): ContentAdapter;
+
+// ---- dist/github-webhook.d.ts ----
+/**
+ * GitHub push-webhook handler for a site whose content lives in a
+ * `createGithubAdapter`-backed repo (issue #29's "git runtime"): a host
+ * mounts this at its webhook route, GitHub POSTs on every push, and
+ * `onChange` is the host's own cache-invalidation hook (e.g. Next's
+ * `revalidateTag`, see the README's "Live content from GitHub" section).
+ * Web-standard `Request`/`Response`, same convention as
+ * `@typren/forms`'s `createFormHandler`: one function that mounts on Next
+ * Route Handlers, Workers, Lambda function URLs, or Hono alike.
+ */
+export type GithubWebhookChange = {
+    /** Every added/modified/removed path under `contentDir` this push touched,
+     *  repo-relative (e.g. "content/about.md"), draft paths already excluded. */
+    paths: string[];
+    /** Slugs derived from the `.md` paths above (both locale-prefixed and flat). */
+    slugs: string[];
+    /** Locales present in `paths` (a flat/default-locale path contributes none:
+     *  there is no locale segment to read off it). */
     locales: string[];
-    defaultLocale: string;
-    root: string;
-    parse: (raw: string) => PageContent;
-    serialize: (page: PageContent) => string;
-    listSlugs(locale?: string): Promise<string[]>;
-    listLocales(slug: string): Promise<string[]>;
-    exists: (slug: string, locale?: string) => Promise<boolean>;
-    readRaw: (slug: string, locale?: string) => Promise<string>;
-    writeRaw: (slug: string, raw: string, locale?: string) => Promise<void>;
-    deletePublished: (slug: string, locale?: string) => Promise<void>;
-    readDraftRaw: (slug: string, locale?: string) => Promise<string | null>;
-    writeDraftRaw: (slug: string, raw: string, locale?: string) => Promise<void>;
-    deleteDraft: (slug: string, locale?: string) => Promise<void>;
-    hasDraft: (slug: string, locale?: string) => Promise<boolean>;
+    /** True when the push can't be enumerated reliably (force push, or no
+     *  commit list in the payload): `paths`/`slugs`/`locales` are then empty and
+     *  the host must invalidate ALL Typren content, or the rewritten pages stay
+     *  stale until something else touches them. */
+    full: boolean;
 };
+export type GithubWebhookOptions = {
+    /** The webhook's configured secret, used to verify `X-Hub-Signature-256`.
+     *  Required: a webhook with no secret is an unauthenticated endpoint that
+     *  lets anyone trigger `onChange` by guessing the URL. */
+    secret: string;
+    /** Only a push to this branch triggers `onChange`; every other branch is
+     *  202 Accepted (ignored), not rejected (another branch pushing is normal
+     *  repo activity, not an error). Default "main". */
+    branch?: string;
+    /** Repo-relative content directory, matching the `createGithubAdapter`
+     *  instance this webhook invalidates for. Default "content". */
+    contentDir?: string;
+    /** Draft subdirectory name, matching the adapter's own `draftSubdir`. A
+     *  draft-only push never fires `onChange`: draft reads are never cached
+     *  (see `readInit`'s doc comment on `GithubAdapterOptions`), so there is
+     *  nothing to invalidate. Default "_drafts". */
+    draftSubdir?: string;
+    /** The host's cache-invalidation hook, e.g.
+     *  `() => revalidateTag("typren-content")`. Thrown errors become a 500 so
+     *  GitHub retries/redelivers the webhook rather than silently losing the
+     *  invalidation. */
+    onChange: (change: GithubWebhookChange) => void | Promise<void>;
+};
+export declare function createGithubWebhookHandler(options: GithubWebhookOptions): (req: Request) => Promise<Response>;
 
 // ---- dist/i18n.d.ts ----
 /** Flat, dot-namespaced editor-UI strings. */
@@ -704,7 +747,16 @@ export type MarkdownAdapterOptions = {
  * non-default locales live under `contentDir/<locale>/`. `parse`/`serialize`
  * are locale-agnostic. The locale never enters the file.
  */
-export declare function createMarkdownAdapter({ contentDir, draftDir, frontmatterKey, defaultLocale, locales, draftSubdir, requireSliceArray, }: MarkdownAdapterOptions): ContentAdapter;
+/** `createMarkdownAdapter`'s return type: `ContentAdapter` plus the one extra
+ *  the fs-backed adapter can offer that a network-backed one can't -- an
+ *  absolute on-disk root, for callers that need to site something beside it
+ *  (the `.typren/` settings dir, a collection's dir-overlap guard). Kept off
+ *  `ContentAdapter` itself (see that interface's doc comment) since neither
+ *  the GitHub nor Notion adapter has a real filesystem path to report. */
+export type MarkdownAdapter = ContentAdapter & {
+    readonly root: string;
+};
+export declare function createMarkdownAdapter({ contentDir, draftDir, frontmatterKey, defaultLocale, locales, draftSubdir, requireSliceArray, }: MarkdownAdapterOptions): MarkdownAdapter;
 
 // ---- dist/media.d.ts ----
 import type { CmsConfig, PreparedFile } from "./types.js";
@@ -761,26 +813,24 @@ export type NotionPage = {
  * The seam between the adapter and Notion's HTTP API, mocked directly in
  * tests (see notion-adapter.test.ts), so no network/HTTP-mocking library is
  * needed to unit-test the adapter's read/write/mapping logic. Every method is
- * SYNCHRONOUS to satisfy `ContentAdapter` (see `createFetchNotionClient`'s
- * doc comment for how the real implementation bridges Notion's async HTTP
- * to that).
+ * async, matching `ContentAdapter` (issue #29) and Notion's own HTTP API.
  */
 export interface NotionClient {
     /** Every non-archived row in the database (pagination is the client's problem). */
-    queryDatabase(databaseId: string): NotionPage[];
+    queryDatabase(databaseId: string): Promise<NotionPage[]>;
     /** `null` when the page id doesn't exist OR is archived (this adapter
      *  treats "archived" as "deleted", see `deletePublished`). */
-    retrievePage(pageId: string): NotionPage | null;
-    createPage(databaseId: string, properties: Record<string, NotionRawProperty>): NotionPage;
-    updatePage(pageId: string, properties: Record<string, NotionRawProperty>): NotionPage;
+    retrievePage(pageId: string): Promise<NotionPage | null>;
+    createPage(databaseId: string, properties: Record<string, NotionRawProperty>): Promise<NotionPage>;
+    updatePage(pageId: string, properties: Record<string, NotionRawProperty>): Promise<NotionPage>;
     /** Notion has no hard delete via the API, only archive (= its trash). */
-    archivePage(pageId: string): void;
+    archivePage(pageId: string): Promise<void>;
     /** A page's block children, recursively resolved (each returned block's own
      *  `children` is already populated when `has_children` is true), see
      *  notion-blocks.ts for what they turn into. Only called when a
      *  `NotionAdapterOptions.content` of `"blocks"` is configured; omit it on a
      *  client that never backs such a collection. */
-    listBlockChildren?(pageId: string): NotionBlock[];
+    listBlockChildren?(pageId: string): Promise<NotionBlock[]>;
 }
 export type NotionAdapterOptions = {
     client: NotionClient;
@@ -859,8 +909,10 @@ export type NotionAdapterOptions = {
 export declare function createNotionAdapter({ client, databaseId, properties, slugProperty, bodyProperty, content, defaultLocale, locales, }: NotionAdapterOptions): ContentAdapter;
 /** Real `NotionClient` against `https://api.notion.com`. `token` is an
  *  internal-integration secret, pass it from `process.env` only (never
- *  commit one); the caller owns getting it there. */
-export declare function createFetchNotionClient(token: string): NotionClient;
+ *  commit one); the caller owns getting it there. `fetchImpl` is injectable
+ *  for tests, same convention as github-adapter.ts, defaults to the global
+ *  `fetch`. */
+export declare function createFetchNotionClient(token: string, fetchImpl?: typeof fetch): NotionClient;
 
 // ---- dist/notion-blocks.d.ts ----
 import type { PageContent } from "./types.js";
@@ -1087,7 +1139,7 @@ export type BuildRedirectsOptions = {
  * be a redirect loop), a duplicate alias claimed by two pages, or more total
  * aliases than `maxEntries`.
  */
-export declare function buildRedirects(store: ContentStore, opts?: BuildRedirectsOptions): RedirectEntry[];
+export declare function buildRedirects(store: ContentStore, opts?: BuildRedirectsOptions): Promise<RedirectEntry[]>;
 
 // ---- dist/sections.d.ts ----
 import type { ComponentType } from "react";
@@ -1299,7 +1351,7 @@ import { type SliceMarkdownRegistry } from "./markdown-render.js";
  *  store: the "llms-full.txt" companion to a hand-curated llms.txt (this
  *  function does NOT replace a curated summary file: a hand-authored
  *  llms.txt still needs a human author for marketing copy). */
-export declare function generateLlmsFullTxt(store: ContentStore, renderOverrides?: SliceMarkdownRegistry): string;
+export declare function generateLlmsFullTxt(store: ContentStore, renderOverrides?: SliceMarkdownRegistry): Promise<string>;
 
 // ---- dist/seo/markdown-render.d.ts ----
 import type { Slice } from "../types.js";
@@ -1392,7 +1444,7 @@ export type BuildSitemapOptions = {
 /** One entry per page in the store, honoring per-page `noindex`/`sitemap`
  *  frontmatter overrides. Does NOT know about non-CMS collections (e.g. a
  *  separate hosted-resources collection). The host concats those itself. */
-export declare function buildSitemap(store: ContentStore, config: SeoConfig, opts?: BuildSitemapOptions): MetadataRoute.Sitemap;
+export declare function buildSitemap(store: ContentStore, config: SeoConfig, opts?: BuildSitemapOptions): Promise<MetadataRoute.Sitemap>;
 
 // ---- dist/seo/slice-registry.d.ts ----
 import type { Slice } from "../types.js";
@@ -1513,13 +1565,13 @@ export declare function createFsSettingsAdapter(opts: {
     file: string;
 }): SettingsAdapter;
 export interface SettingsStore {
-    get(locale?: string): SiteSettingsRuntime;
+    get(locale?: string): Promise<SiteSettingsRuntime>;
     /** Version of the stored settings doc, for the same optimistic-lock flow pages
      *  use. Without this a client had nothing to seed `baseVersion` from, so its
      *  FIRST save passed `undefined`, which `store.saveDraft` treats as "no base
      *  version to check" and writes unconditionally, silently overwriting whatever
      *  another session had just saved. */
-    currentVersion(locale?: string): string | null;
+    currentVersion(locale?: string): Promise<string | null>;
     saveDraft(next: SiteSettingsRuntime, baseVersion?: string, locale?: string): Promise<SaveResult>;
     publish(baseVersion?: string, locale?: string): Promise<SaveResult>;
     bootstrap: SettingsAdapter;
@@ -1575,30 +1627,30 @@ export declare function slugify(text: string): string;
  *  single-locale callers are unchanged); the store composes the default-locale
  *  fallback that the dumb per-locale adapter doesn't know about. */
 export interface ContentStore {
-    listPages(locale?: string): PageInfo[];
+    listPages(locale?: string): Promise<PageInfo[]>;
     /** Published content for a locale, with default-locale fallback applied. */
-    getPublished(slug: string, locale?: string): LocalizedPage;
-    getDraft(slug: string, locale?: string): PageContent | null;
+    getPublished(slug: string, locale?: string): Promise<LocalizedPage>;
+    getDraft(slug: string, locale?: string): Promise<PageContent | null>;
     /** Version of the content the editor would load (draft if present, else
      *  published, else null when the slug has no content yet) for a locale. */
-    currentVersion(slug: string, locale?: string): string | null;
+    currentVersion(slug: string, locale?: string): Promise<string | null>;
     /** Write a draft. When `baseVersion` is given, throws `ConflictError` if the
      *  current version has moved since (optimistic lock). Returns the new version. */
-    saveDraft(slug: string, page: PageContent, baseVersion?: string, locale?: string): string;
-    discardDraft(slug: string, locale?: string): void;
+    saveDraft(slug: string, page: PageContent, baseVersion?: string, locale?: string): Promise<string>;
+    discardDraft(slug: string, locale?: string): Promise<void>;
     /** Promote the draft to published (via the adapter), clear it, run onPublish.
      *  With `baseVersion`, throws `ConflictError` if the draft moved since. */
     publish(slug: string, baseVersion?: string, locale?: string): Promise<void>;
     /** Create a new published page in a locale. Throws if it already exists. */
-    createPage(slug: string, page: PageContent, locale?: string): void;
+    createPage(slug: string, page: PageContent, locale?: string): Promise<void>;
     /** Seed a draft translation of an existing page from `fromLocale`'s content
      *  (copies structure + text as a starting point). No-op if `toLocale` already
      *  has content or a draft. */
-    createTranslation(slug: string, fromLocale: string, toLocale: string): void;
+    createTranslation(slug: string, fromLocale: string, toLocale: string): Promise<void>;
     /** Delete a page in ALL locales (+ their drafts). */
-    deletePage(slug: string): void;
+    deletePage(slug: string): Promise<void>;
     /** Delete a single translation (one locale) + its draft. */
-    deleteTranslation(slug: string, locale: string): void;
+    deleteTranslation(slug: string, locale: string): Promise<void>;
     /** Move a page from `slug` to `newSlug`: published AND any draft, in every
      *  locale the source occupies (see markdown-adapter's per-locale layout).
      *  All-locales, unlike most ops' single optional `locale` param: a page's
@@ -1608,13 +1660,13 @@ export interface ContentStore {
      *  `SlugExistsError` (not `ConflictError`, a destination collision, not a
      *  stale-version race) if `newSlug` already has content anywhere the move
      *  would touch. No-op if `newSlug === slug`. */
-    renamePage(slug: string, newSlug: string): void;
+    renamePage(slug: string, newSlug: string): Promise<void>;
     /** Copy `slug`'s content (published AND draft, whichever exist) to a new,
      *  auto-derived non-colliding slug (see `slugify`) and return it. Single-
      *  locale (defaults to the default locale), matching `createPage`'s own
      *  scope; other translations of the source are not duplicated. Throws if
      *  `slug` has neither published nor draft content to copy. */
-    duplicatePage(slug: string, locale?: string): string;
+    duplicatePage(slug: string, locale?: string): Promise<string>;
 }
 export declare function createStore(adapter: ContentAdapter, opts?: {
     onPublish?: (slug: string, locale: string) => void | Promise<void>;
@@ -1755,27 +1807,23 @@ export interface ContentAdapter {
      *  store/actions read these instead of duplicating the config. */
     readonly locales: string[];
     readonly defaultLocale: string;
-    /** Absolute path to this adapter's content root. Lets callers that need to
-     *  site something beside it (the `.typren/` settings dir, a collection's
-     *  dir-overlap guard) do so without re-deriving or guessing the path. */
-    readonly root: string;
     /** Slugs of every editable (sliced) page in a locale (defaults to default). */
-    listSlugs(locale?: string): string[];
+    listSlugs(locale?: string): Promise<string[]>;
     /** Locales in which `slug` has a published file (switcher / translation status). */
-    listLocales(slug: string): string[];
-    exists(slug: string, locale?: string): boolean;
-    /** Raw published source (throws if absent; callers gate with `exists`). */
-    readRaw(slug: string, locale?: string): string;
-    writeRaw(slug: string, raw: string, locale?: string): void;
+    listLocales(slug: string): Promise<string[]>;
+    exists(slug: string, locale?: string): Promise<boolean>;
+    /** Raw published source (rejects if absent; callers gate with `exists`). */
+    readRaw(slug: string, locale?: string): Promise<string>;
+    writeRaw(slug: string, raw: string, locale?: string): Promise<void>;
     /** Delete the published source (and let the store also drop any draft). */
-    deletePublished(slug: string, locale?: string): void;
+    deletePublished(slug: string, locale?: string): Promise<void>;
     /** Raw draft source, or null when no draft is checked out. */
-    readDraftRaw(slug: string, locale?: string): string | null;
-    writeDraftRaw(slug: string, raw: string, locale?: string): void;
-    deleteDraft(slug: string, locale?: string): void;
-    hasDraft(slug: string, locale?: string): boolean;
+    readDraftRaw(slug: string, locale?: string): Promise<string | null>;
+    writeDraftRaw(slug: string, raw: string, locale?: string): Promise<void>;
+    deleteDraft(slug: string, locale?: string): Promise<void>;
+    hasDraft(slug: string, locale?: string): Promise<boolean>;
     /** Parse raw source into structured content, and back. Locale-agnostic: the
-     *  locale is a path segment, never inside the file. */
+     *  locale is a path segment, never inside the file. Pure/sync: no I/O. */
     parse(raw: string): PageContent;
     serialize(page: PageContent): string;
 }
@@ -1825,6 +1873,12 @@ export interface CmsConfig {
      *  tier in a private sibling dir, bootstrap tier in a root JSON file. No new
      *  adapter required to get Settings/onboarding working. */
     settingsAdapter?: SettingsAdapter;
+    /** Where the SiteSettings *content* doc itself is stored (distinct from
+     *  `settingsAdapter`'s bootstrap JSON above). Required when `adapter` has no
+     *  filesystem root to site a sibling `.typren/` dir next to (a GitHub or
+     *  Notion Pages adapter); omit for a markdown adapter, which keeps today's
+     *  derived location unchanged. */
+    settingsContentAdapter?: ContentAdapter;
     /** `false` disables first-run onboarding (embeds, tests, hosts that seed
      *  settings out-of-band). Omit = auto-detect via bootstrap `onboarded` flag. */
     onboarding?: false;

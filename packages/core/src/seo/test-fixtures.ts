@@ -11,24 +11,24 @@ export function fakeStore(pages: FixturePage[]): ContentStore {
     pages.map((p) => [p.slug, { meta: p.meta ?? {}, slices: p.slices ?? [], body: "" }])
   );
   return {
-    listPages: () =>
+    listPages: async () =>
       pages.map((p) => ({
         slug: p.slug,
         title: (p.meta?.title as string) ?? p.slug,
         hasDraft: false,
         locales: ["en"],
       })),
-    getPublished: (slug) => ({ ...byId.get(slug)!, locale: "en", isFallback: false }),
-    getDraft: () => null,
-    currentVersion: () => null,
-    saveDraft: () => "",
-    discardDraft: () => {},
+    getPublished: async (slug) => ({ ...byId.get(slug)!, locale: "en", isFallback: false }),
+    getDraft: async () => null,
+    currentVersion: async () => null,
+    saveDraft: async () => "",
+    discardDraft: async () => {},
     publish: async () => {},
-    createPage: () => {},
-    renamePage: () => {},
-    duplicatePage: () => "",
-    createTranslation: () => {},
-    deletePage: () => {},
-    deleteTranslation: () => {},
+    createPage: async () => {},
+    renamePage: async () => {},
+    duplicatePage: async () => "",
+    createTranslation: async () => {},
+    deletePage: async () => {},
+    deleteTranslation: async () => {},
   };
 }

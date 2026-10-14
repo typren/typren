@@ -1,6 +1,6 @@
 import path from "node:path";
 import matter from "gray-matter";
-import type { PageContent, Slice } from "./types";
+import type { ContentAdapter, PageContent, Slice } from "./types";
 import { localeSubdir } from "./localize";
 import { ConflictError } from "./version";
 
@@ -81,10 +81,27 @@ export type GithubAdapterOptions = {
    *  dot-dir path segments (see `isAllowedRepoPath`), so a dot-prefixed
    *  default would make every draft write reject itself. "_" is this repo's
    *  existing convention for a reserved/internal name (see
-   *  fs-media-adapter.ts's `_manifest-` prefix). */
+   *  fs-media-adapter.ts's `_manifest-` prefix). Kept deliberately distinct
+   *  from the fs adapter's own default rather than unified with it (issue
+   *  #29): the dotfile rule is a real security boundary for this adapter
+   *  (keeps a draft write from ever landing in `.github/` or another
+   *  dot-prefixed path GitHub treats specially), not an arbitrary naming
+   *  choice to reconcile. */
   draftSubdir?: string;
   /** Injectable for tests; defaults to the global `fetch`. */
   fetchImpl?: typeof fetch;
+  /** Merged into every GET's `RequestInit` (content reads only, never writes).
+   *  Lets a host attach its own fetch-cache tags/options, e.g. Next's
+   *  `{ next: { tags: [...] } }`, so a push webhook can invalidate the host's
+   *  cache for this adapter's reads (see the `@typren/core/github-webhook`
+   *  subpath). Never set this on the editor's own adapter instance: draft
+   *  reads must always be fresh, a cached draft read would show a stale
+   *  version of exactly the content someone is actively editing.
+   *  ponytail: one site-wide cache tag is the common case; a host needing
+   *  per-slug invalidation granularity passes a `relPath`-keyed tag itself
+   *  (this hook already gets `relPath`), cheaper than this adapter inventing
+   *  a tagging scheme. */
+  readInit?: (relPath: string) => RequestInit | undefined;
 };
 
 type GithubContentsGetResponse = { type: string; content: string; encoding: string; sha: string };
@@ -94,20 +111,11 @@ type GithubContentsPutResponse = { content: { sha: string } };
 /**
  * GitHub Contents API adapter. Mirrors `markdown-adapter.ts`'s factory shape
  * and locale layout (default locale flat at `contentDir`, others under
- * `contentDir/<locale>/`, drafts under `.../<draftSubdir>`) and
- * `fs-media-adapter.ts`'s async convention -- unlike the filesystem adapter,
- * every method here does real network I/O, so none of them can be
- * synchronous. That is a real (structural) divergence from the `ContentAdapter`
- * interface in types.ts, which predates any network-backed implementation
- * and types every method as synchronous. Wiring this adapter into
- * `createStore`/`createMeditorApi` therefore needs that interface widened to
- * `T | Promise<T>` first -- deliberately out of scope here: it ripples into
- * store.ts, collection.ts, settings.ts, and api/routes.ts, which is a much
- * larger change than "add a GitHub adapter" and collides with the parallel
- * per-request-config-resolution work on routes.ts. This adapter is the ready,
- * tested piece that migration plugs in.
+ * `contentDir/<locale>/`, drafts under `.../<draftSubdir>`). Implements
+ * `ContentAdapter` natively: every method does real network I/O and returns a
+ * promise, the same shape the interface itself now requires (issue #29).
  *
- * The upside lands regardless of that wiring: every write here does an
+ * The CAS story lands on top of that: every write here does an
  * immediate read-sha-then-write, and the PUT is atomically compare-and-swapped
  * server-side by GitHub against the sha it's given -- a real CAS, not the fs
  * adapter's unconditional overwrite. That's the shape store.ts's own
@@ -126,7 +134,8 @@ export function createGithubAdapter({
   locales = [defaultLocale],
   draftSubdir = "_drafts",
   fetchImpl = fetch,
-}: GithubAdapterOptions) {
+  readInit,
+}: GithubAdapterOptions): ContentAdapter {
   const allowedRoots = [contentDir, mediaDir];
 
   // Slugs flow in from client actions; reject anything that isn't a plain
@@ -185,7 +194,7 @@ export function createGithubAdapter({
   /** GET one file's content + sha. Returns null on 404. Caches the sha. */
   async function getFile(relPath: string): Promise<{ text: string; sha: string } | null> {
     assertAllowed(relPath);
-    const res = await githubFetch(apiUrl(relPath));
+    const res = await githubFetch(apiUrl(relPath), readInit?.(relPath));
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`typren: GitHub read of "${relPath}" failed (${res.status}): ${await res.text()}`);
     const data = (await res.json()) as GithubContentsGetResponse;
@@ -254,18 +263,18 @@ export function createGithubAdapter({
   return {
     locales,
     defaultLocale,
-    // Not an absolute fs path (there isn't one for a network adapter) --
-    // the repo-relative content root, for parity with ContentAdapter.root's
-    // "site something beside it" purpose where the caller only needs a path
-    // string, not filesystem access.
-    root: contentDir,
     parse,
     serialize,
 
+    // ponytail: the Contents API's directory listing caps at 1000 entries
+    // and the response has no pagination for it. Fine for any realistic
+    // Pages count; a site that actually hits the cap needs the Git Trees API
+    // (`GET /git/trees/<branch>?recursive=1`, one call for the whole tree,
+    // paginated) instead of this per-directory listing. Not implemented now.
     async listSlugs(locale: string = defaultLocale): Promise<string[]> {
       const dir = localeDir(locale);
       assertAllowed(dir);
-      const res = await githubFetch(apiUrl(dir));
+      const res = await githubFetch(apiUrl(dir), readInit?.(dir));
       if (res.status === 404) return [];
       if (!res.ok) throw new Error(`typren: GitHub list of "${dir}" failed (${res.status}): ${await res.text()}`);
       const entries = (await res.json()) as GithubContentsListEntry[];

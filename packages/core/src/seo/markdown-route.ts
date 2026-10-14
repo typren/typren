@@ -18,10 +18,11 @@ export function createMarkdownRouteHandler(store: ContentStore, renderOverrides?
   return {
     async GET(_req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
       const { slug } = await params;
-      if (!store.listPages().some((p) => p.slug === slug)) {
+      const pages = await store.listPages();
+      if (!pages.some((p) => p.slug === slug)) {
         return new NextResponse("Not found", { status: 404 });
       }
-      const page = store.getPublished(slug);
+      const page = await store.getPublished(slug);
       const title = typeof page.meta.title === "string" ? page.meta.title : slug;
       const body = `# ${title}\n\n${renderSlicesAsMarkdown(page.slices, renderOverrides)}\n`;
       return new NextResponse(body, { headers: { "Content-Type": "text/markdown; charset=utf-8" } });

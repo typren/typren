@@ -64,9 +64,78 @@ calls your Server Actions and it's the only place that needs an identity.
 | `@typren/core/auth/next-auth` | `AuthAdapter` over an existing NextAuth session |
 | `@typren/core/auth/clerk` | `AuthAdapter` over an existing Clerk session |
 | `@typren/core/theme.css` | the `--typren-*` CSS variable contract editor UI reads |
+| `@typren/core/github-webhook` | GitHub push-webhook handler, pairs with `createGithubAdapter` |
 
 `next`, `next-auth`, `@clerk/nextjs`, `react` and `react-dom` are all optional
 peer dependencies. Install only the ones the adapters you actually use need.
+
+## Live content from GitHub
+
+`createGithubAdapter` (storage: GitHub, below) reads content straight from a
+repo over the Contents API, no checkout, no build-time copy. That makes it a
+viable **git runtime**: a server-rendered site can read its content live from
+GitHub at request time, as long as two things are wired up so a page doesn't
+re-fetch GitHub on every request and a publish is still fast to see:
+
+1. **Cache the adapter's reads** with `readInit`, so your host framework's
+   fetch cache (not this package) owns the caching:
+
+   ```ts
+   import { createGithubAdapter } from "@typren/core";
+
+   // The SITE-RENDER instance: reads are cached and tagged.
+   const siteAdapter = createGithubAdapter({
+     owner: "acme",
+     repo: "site",
+     token: ghToken,
+     readInit: () => ({ next: { tags: ["typren-content"] } }), // Next's fetch-cache tag
+   });
+
+   // The EDITOR's own instance: NEVER set readInit here. Draft reads must
+   // always be fresh, a cached draft would show a stale version of exactly
+   // the content someone is actively editing.
+   const editorAdapter = createGithubAdapter({ owner: "acme", repo: "site", token: ghToken });
+   ```
+
+2. **Invalidate that cache from both directions**: a push to GitHub (someone
+   edited content outside the CMS, or a redeploy landed) via the webhook
+   handler below, and the editor's own publish, immediately, via
+   `CmsConfig.onPublish` — without the second one, your own publish click
+   would sit behind the push webhook's round trip before it's visible.
+
+   ```ts
+   // app/api/github-webhook/route.ts
+   import { revalidateTag } from "next/cache";
+   import { createGithubWebhookHandler } from "@typren/core/github-webhook";
+
+   const { POST } = { POST: createGithubWebhookHandler({
+     secret: process.env.GITHUB_WEBHOOK_SECRET!,
+     branch: "main",
+     onChange: async () => revalidateTag("typren-content"),
+   }) };
+   export { POST };
+   ```
+
+   ```ts
+   // cms.config.ts
+   export const cmsConfig: CmsConfig = {
+     // ...
+     adapter: editorAdapter,
+     onPublish: async () => revalidateTag("typren-content"), // same tag, same cache
+   };
+   ```
+
+Configure the webhook in GitHub's repo settings (content type
+`application/json`, the same secret, `push` events). A draft-only push never
+calls `onChange` (there is nothing cached to invalidate: draft reads are
+never cached, see `readInit`'s doc comment). A force push, or a push whose
+payload has no commit list, calls `onChange` with `full: true` and empty
+`paths`: a host doing per-slug invalidation must then invalidate everything.
+The single-tag example above already does. Listing a page directory still
+goes through the Contents API's directory-listing endpoint, which caps at
+1000 entries; `createGithubAdapter`'s `listSlugs` has a `ponytail:` comment
+naming the Git Trees API (`/git/trees/<branch>?recursive=1`) as the upgrade
+path for a site with more pages than that.
 
 ## Adapters are interfaces, not requirements
 

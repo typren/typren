@@ -250,7 +250,7 @@ async function pages(
   if (!slug) {
     if (method === "GET") {
       const denied = await requireRead(built);
-      return denied ?? json({ pages: store.listPages(locale) });
+      return denied ?? json({ pages: await store.listPages(locale) });
     }
     if (method === "POST") {
       const { title } = await body<{ title?: string }>(request);
@@ -264,12 +264,15 @@ async function pages(
     if (method === "GET") {
       const denied = await requireRead(built);
       if (denied) return denied;
-      if (!config.adapter.exists(slug, config.adapter.defaultLocale)) return json({ error: "Not found" }, 404);
-      const draft = store.getDraft(slug, locale);
-      const published = store.getPublished(slug, locale);
+      if (!(await config.adapter.exists(slug, config.adapter.defaultLocale))) return json({ error: "Not found" }, 404);
+      const [draft, published, version] = await Promise.all([
+        store.getDraft(slug, locale),
+        store.getPublished(slug, locale),
+        store.currentVersion(slug, locale),
+      ]);
       return json({
         page: draft ?? published,
-        version: store.currentVersion(slug, locale),
+        version,
         hasDraft: Boolean(draft),
       });
     }
@@ -346,7 +349,7 @@ async function collections(
   if (!slug) {
     if (method === "GET") {
       const denied = await requireRead(built);
-      return denied ?? json({ records: listCollectionRecords(config, section, locale) });
+      return denied ?? json({ records: await listCollectionRecords(config, section, locale) });
     }
     if (method === "POST") {
       const { title } = await body<{ title?: string }>(request);
@@ -361,13 +364,16 @@ async function collections(
       const denied = await requireRead(built);
       if (denied) return denied;
       const adapter = collectionAdapters.get(id)!;
-      if (!adapter.exists(slug, adapter.defaultLocale)) return json({ error: "Not found" }, 404);
+      if (!(await adapter.exists(slug, adapter.defaultLocale))) return json({ error: "Not found" }, 404);
       const collectionStore = collectionStores.get(id)!;
-      const draft = collectionStore.getDraft(slug, locale);
-      const published = collectionStore.getPublished(slug, locale);
+      const [draft, published, version] = await Promise.all([
+        collectionStore.getDraft(slug, locale),
+        collectionStore.getPublished(slug, locale),
+        collectionStore.currentVersion(slug, locale),
+      ]);
       return json({
         page: draft ?? published,
-        version: collectionStore.currentVersion(slug, locale),
+        version,
         hasDraft: Boolean(draft),
       });
     }
@@ -429,14 +435,9 @@ async function settingsRoutes(
     const denied = await requireRead(built);
     // `version` completes the optimistic-lock loop: a client had no way to read
     // it, so its first save sent no baseVersion and could not conflict-detect.
-    return (
-      denied ??
-      json({
-        ...settings.get(locale),
-        bootstrap: settings.bootstrap.readBootstrap(),
-        version: settings.currentVersion(locale),
-      })
-    );
+    if (denied) return denied;
+    const [current, version] = await Promise.all([settings.get(locale), settings.currentVersion(locale)]);
+    return json({ ...current, bootstrap: settings.bootstrap.readBootstrap(), version });
   }
   if (sub === "draft" && method === "PUT") {
     const { settings: next, baseVersion } = await body<{
