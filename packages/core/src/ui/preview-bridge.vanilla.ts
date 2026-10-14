@@ -86,9 +86,10 @@ export function initPreviewBridge(allowedOrigin?: string): () => void {
   };
 
   const onMessage = (e: MessageEvent) => {
-    // Same check the editor side applies. This frame renders draft content and
-    // can be embedded, so it should only take instructions from its own origin.
-    // The channel was guarded on one side only.
+    // This frame renders draft content and can be embedded, so it only takes
+    // instructions from the one allowed origin. The editor side cannot do the
+    // same (it sandboxes this frame into an opaque origin), so it checks
+    // `event.source` instead.
     if (e.origin !== origin) return;
     const d = e.data;
     if (!d || d.__typren !== true) return;
