@@ -85,10 +85,6 @@ function stripRange(range: string): string {
   return range.replace(/^[\^~]/, "");
 }
 
-/** Resolves the `@typren/core` range at HEAD, the version the project was
- *  last committed against, not whatever `node_modules` happens to hold right
- *  now. Returns null when there's no git history, no package.json there, or
- *  no `@typren/core` dependency, each a reason to require `--from` instead. */
 /** process.env minus GIT_* variables. Git exports GIT_DIR and friends to its
  *  hooks, and an inherited GIT_DIR makes a git child process ignore `cwd` and
  *  act on the hook's repository instead (a pre-push test run once rewrote the
@@ -97,6 +93,10 @@ export function envWithoutGit(): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")));
 }
 
+/** Resolves the `@typren/core` range at HEAD, the version the project was
+ *  last committed against, not whatever `node_modules` happens to hold right
+ *  now. Returns null when there's no git history, no package.json there, or
+ *  no `@typren/core` dependency, each a reason to require `--from` instead. */
 export function fromVersionFromGit(cwd: string): string | null {
   let raw: string;
   try {
