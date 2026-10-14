@@ -176,6 +176,24 @@ export function createGithubAdapter({
   // server-side check either way.
   const shaCache = new Map<string, { sha: string; version: string }>();
 
+  // Every write (PUT/DELETE) runs through this chain, one at a time, per
+  // adapter instance: two writes fired concurrently (e.g. deletePage's per-
+  // locale deletes) would otherwise both read-then-write against the SAME
+  // cached sha and race each other into a spurious ConflictError (or worse,
+  // a real lost update if the cache read happened to be fresh for both).
+  // Reads (listSlugs, readRaw, exists, ...) are unaffected and stay parallel.
+  let writeChain: Promise<unknown> = Promise.resolve();
+  function serializeWrite<T>(run: () => Promise<T>): Promise<T> {
+    const result = writeChain.then(run, run);
+    // Keep the chain alive past a rejection without surfacing it twice: the
+    // caller of THIS write still awaits `result` and sees its own rejection.
+    writeChain = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
+  }
+
   // Same endpoint for a file or a directory listing -- GitHub's Contents API
   // returns an object for the former, an array for the latter.
   const apiUrl = (relPath: string) =>
@@ -223,7 +241,17 @@ export function createGithubAdapter({
    *  or write to this same path), so this call re-GETs to see the server's
    *  current truth rather than let that other request's cached sha stand in
    *  for what THIS call checked. */
-  async function putFile(
+  function putFile(
+    relPath: string,
+    slug: string,
+    text: string,
+    message: string,
+    opts?: { expectedVersion?: string }
+  ): Promise<void> {
+    return serializeWrite(() => putFileNow(relPath, slug, text, message, opts));
+  }
+
+  async function putFileNow(
     relPath: string,
     slug: string,
     text: string,
@@ -265,7 +293,11 @@ export function createGithubAdapter({
 
   /** DELETE one file. No-op (not an error) when it doesn't exist, matching
    *  the fs adapter's idempotent delete. */
-  async function deleteFile(relPath: string, slug: string, message: string): Promise<void> {
+  function deleteFile(relPath: string, slug: string, message: string): Promise<void> {
+    return serializeWrite(() => deleteFileNow(relPath, slug, message));
+  }
+
+  async function deleteFileNow(relPath: string, slug: string, message: string): Promise<void> {
     assertAllowed(relPath);
     let sha = shaCache.get(relPath)?.sha;
     if (sha === undefined) sha = (await getFile(relPath))?.sha;

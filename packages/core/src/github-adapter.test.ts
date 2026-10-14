@@ -155,6 +155,48 @@ describe("createGithubAdapter: read/write/delete round-trip", () => {
   });
 });
 
+describe("createGithubAdapter: writes are serialized", () => {
+  it("deletePage over 3 locales issues writes sequentially (no overlap)", async () => {
+    const { fetchImpl, files } = makeFakeGithub();
+    // Instrument the fake transport itself: track the max number of write
+    // (PUT/DELETE) requests in flight at once, across ANY path.
+    let writesInFlight = 0;
+    let maxWritesInFlight = 0;
+    const instrumented = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const isWrite = init?.method === "PUT" || init?.method === "DELETE";
+      if (isWrite) {
+        writesInFlight++;
+        maxWritesInFlight = Math.max(maxWritesInFlight, writesInFlight);
+      }
+      try {
+        // A tick of delay so two un-serialized writes WOULD overlap if the
+        // adapter didn't chain them.
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return await fetchImpl(input, init);
+      } finally {
+        if (isWrite) writesInFlight--;
+      }
+    });
+
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      locales: ["en", "fr", "es"],
+      defaultLocale: "en",
+      fetchImpl: instrumented as unknown as typeof fetch,
+    });
+
+    for (const locale of ["en", "fr", "es"]) {
+      files.set(locale === "en" ? "content/about.md" : `content/${locale}/about.md`, { content: "x", sha: "s" });
+    }
+
+    await Promise.all(["en", "fr", "es"].map((locale) => adapter.deletePublished("about", locale)));
+
+    expect(maxWritesInFlight).toBe(1);
+  });
+});
+
 describe("createGithubAdapter: listSlugs", () => {
   it("lists only .md files, sorted, and returns [] for a directory that doesn't exist", async () => {
     const { adapter } = makeAdapter();
