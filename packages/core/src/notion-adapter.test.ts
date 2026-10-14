@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { createContentAdapterContractSuite } from "@typren/contract-tests";
 import { createFetchNotionClient, createNotionAdapter, type NotionClient, type NotionPage } from "./notion-adapter";
 import type { NotionBlock } from "./notion-blocks";
 
@@ -401,6 +402,25 @@ describe("notion-adapter listSlugs ordering", () => {
     });
     expect(await adapter.listSlugs()).toEqual(["Ada", "Zed"]);
   });
+});
+
+describe("createNotionAdapter contract", () => {
+  // slugProperty is required for the contract suite's writeRaw-on-an-unknown-
+  // slug round trip: without one, this adapter can only update an EXISTING
+  // row (see createNotionAdapter's doc comment), which the generic suite
+  // (shared with the fs/GitHub adapters, which always support creating by
+  // slug) doesn't special-case.
+  createContentAdapterContractSuite(
+    () =>
+      createNotionAdapter({
+        client: fakeClient(),
+        databaseId: "db-contract",
+        properties: { ...properties, body: { name: "Body", type: "rich_text" as const } },
+        slugProperty: "name",
+        bodyProperty: "body",
+      }),
+    { draftsWriteThrough: true }
+  );
 });
 
 describe("createFetchNotionClient transport", () => {

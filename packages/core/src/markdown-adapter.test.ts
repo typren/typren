@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createContentAdapterContractSuite } from "@typren/contract-tests";
 import { createMarkdownAdapter } from "./markdown-adapter";
 
 // parse/serialize are pure string transforms (no fs touched), so a throwaway
@@ -55,3 +56,12 @@ describe("markdown-adapter listSlugs", () => {
   });
 });
 
+describe("markdown-adapter contract", () => {
+  let contractDir: string;
+  beforeEach(() => {
+    contractDir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-md-contract-"));
+  });
+  afterEach(() => fs.rmSync(contractDir, { recursive: true, force: true }));
+
+  createContentAdapterContractSuite(() => createMarkdownAdapter({ contentDir: contractDir }));
+});

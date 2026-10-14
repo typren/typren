@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { createContentAdapterContractSuite } from "@typren/contract-tests";
 import { createGithubAdapter, isAllowedRepoPath } from "./github-adapter";
 import { ConflictError } from "./version";
 
@@ -223,6 +224,10 @@ describe("createGithubAdapter: readInit", () => {
     expect(getCall[1]?.cache).toBe("force-cache");
     expect(readInit).toHaveBeenCalledWith("content/about.md");
   });
+});
+
+describe("createGithubAdapter contract", () => {
+  createContentAdapterContractSuite(() => makeAdapter().adapter);
 });
 
 describe("createGithubAdapter: write-path allowlist enforcement", () => {
