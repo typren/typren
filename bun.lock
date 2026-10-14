@@ -32,12 +32,12 @@
     },
     "packages/adapter-cloudflare": {
       "name": "@typren/adapter-cloudflare",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "bin": {
         "typren-cloudflare": "./dist/cli.js",
       },
       "dependencies": {
-        "@typren/core": "^0.3.3",
+        "@typren/core": "^0.4.0",
       },
       "devDependencies": {
         "@types/node": "^26.6.4",
@@ -47,12 +47,12 @@
     },
     "packages/adapter-cloudfront": {
       "name": "@typren/adapter-cloudfront",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "bin": {
         "typren-cloudfront": "./dist/cli.js",
       },
       "dependencies": {
-        "@typren/core": "^0.3.3",
+        "@typren/core": "^0.4.0",
       },
       "devDependencies": {
         "@types/node": "^26.6.4",
@@ -60,14 +60,29 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/adapter-media-s3": {
+      "name": "@typren/adapter-media-s3",
+      "version": "0.1.0",
+      "dependencies": {
+        "aws4fetch": "^1.0.20",
+      },
+      "devDependencies": {
+        "@types/node": "^26.6.4",
+        "@typren/core": "workspace:*",
+        "typescript": "^6.0.3",
+      },
+      "peerDependencies": {
+        "@typren/core": "^0.4.0",
+      },
+    },
     "packages/cli": {
       "name": "typren",
-      "version": "0.3.3",
+      "version": "0.4.0",
       "bin": {
         "typren": "./dist/cli.js",
       },
       "dependencies": {
-        "@typren/core": "^0.3.2",
+        "@typren/core": "^0.4.0",
         "gray-matter": "^4.0.3",
       },
       "devDependencies": {
@@ -86,7 +101,7 @@
     },
     "packages/core": {
       "name": "@typren/core",
-      "version": "0.3.3",
+      "version": "0.4.0",
       "dependencies": {
         "dompurify": "^3.4.16",
         "gray-matter": "^4.0.3",
@@ -123,7 +138,7 @@
     },
     "packages/editor": {
       "name": "@typren/editor",
-      "version": "0.3.3",
+      "version": "0.4.0",
       "dependencies": {
         "@typren/core": "workspace:*",
         "class-variance-authority": "^0.7.1",
@@ -148,7 +163,7 @@
     },
     "packages/forms": {
       "name": "@typren/forms",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "devDependencies": {
         "@types/node": "^26.6.4",
         "typescript": "^6.0.3",
@@ -533,6 +548,8 @@
 
     "@typren/adapter-cloudfront": ["@typren/adapter-cloudfront@workspace:packages/adapter-cloudfront"],
 
+    "@typren/adapter-media-s3": ["@typren/adapter-media-s3@workspace:packages/adapter-media-s3"],
+
     "@typren/contract-tests": ["@typren/contract-tests@workspace:packages/contract-tests"],
 
     "@typren/core": ["@typren/core@workspace:packages/core"],
@@ -594,6 +611,8 @@
     "assertion-error": ["assertion-error@2.0.1", "", {}, "sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA=="],
 
     "ast-v8-to-istanbul": ["ast-v8-to-istanbul@1.0.6", "", { "dependencies": { "@jridgewell/trace-mapping": "^0.3.31", "estree-walker": "^3.0.3", "js-tokens": "^10.0.0" } }, "sha512-fvpl29helSO2w/z7utIbrkNXILdrLwDwAMH2I/zPKlGf5244+gf+B4cyS1sANcrPY2h+hWCGSgC8N61s/+AF9A=="],
+
+    "aws4fetch": ["aws4fetch@1.0.20", "", {}, "sha512-/djoAN709iY65ETD6LKCtyyEI04XIBP5xVvfmNxsEP0uJB5tyaGBztSryRr4HqMStr9R06PisQE7m9zDTXKu6g=="],
 
     "balanced-match": ["balanced-match@4.0.4", "", {}, "sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA=="],
 
