@@ -311,6 +311,10 @@ describe("nextSteps", () => {
     expect(nextSteps("src")).toContain('"@/*": ["./src/*"]');
     expect(nextSteps(".")).toContain('"@/*": ["./*"]');
   });
+
+  it("points at `typren migrate` for future @typren upgrades", () => {
+    expect(nextSteps("src")).toContain("npx typren migrate");
+  });
 });
 
 describe("resolveReviewPaths", () => {
@@ -666,6 +670,60 @@ describe("main", () => {
       vi.spyOn(console, "log").mockImplementation(() => {});
       main(["telemetry", "on"]);
       expect(telemetry.record).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("migrate", () => {
+    function installFakeCore(projectDir: string): void {
+      const coreDir = path.join(projectDir, "node_modules", "@typren", "core");
+      fs.mkdirSync(path.join(coreDir, "migrations"), { recursive: true });
+      fs.writeFileSync(path.join(coreDir, "package.json"), JSON.stringify({ name: "@typren/core", version: "0.5.0" }));
+      fs.copyFileSync(
+        path.join(import.meta.dirname, "..", "test-fixtures", "migrations", "core-0.5.0.md"),
+        path.join(coreDir, "migrations", "core-0.5.0.md")
+      );
+    }
+
+    it("exits non-zero and prints matches when the project still needs the fix", async () => {
+      installFakeCore(dir);
+      fs.writeFileSync(path.join(dir, "page.ts"), 'cmsStore.getPublished("home");');
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await main(["migrate", "--cwd", dir, "--from", "0.4.0"]);
+
+      expect(process.exitCode).toBe(1);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("page.ts:1"));
+      expect(telemetry.record).toHaveBeenCalledWith("migrate");
+    });
+
+    it("exits zero when no note applies or nothing matches", async () => {
+      installFakeCore(dir);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await main(["migrate", "--cwd", dir, "--from", "0.5.0"]);
+
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("prints the error and exits non-zero without a --from and no git history", async () => {
+      installFakeCore(dir);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await main(["migrate", "--cwd", dir]);
+
+      expect(process.exitCode).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("--from"));
+      expect(telemetry.record).not.toHaveBeenCalled();
+    });
+
+    it("prints JSON with --json", async () => {
+      installFakeCore(dir);
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await main(["migrate", "--cwd", dir, "--from", "0.4.0", "--json"]);
+
+      const printed = log.mock.calls.map((c) => c[0]).find((line) => typeof line === "string" && line.startsWith("{"));
+      expect(JSON.parse(printed as string)).toMatchObject({ from: "0.4.0", to: "0.5.0" });
     });
   });
 });

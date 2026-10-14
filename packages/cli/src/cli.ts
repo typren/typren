@@ -4,20 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import matter from "gray-matter";
-
-// gray-matter ships a `javascript` front-matter engine that eval()s the block
-// when a file opens with `---javascript`. `typren review` runs on freshly
-// merged, writer-supplied markdown: content is data, never code. Refuse it.
-const SAFE_ENGINES = {
-  javascript: (): never => {
-    throw new Error("typren: javascript front-matter is not supported");
-  },
-};
-const parseMatter = (raw: string) => matter(raw, { engines: SAFE_ENGINES });
 import { buildTemplates, TYPREN_BOOTSTRAP_MARKER, TYPREN_REWRITE_MARKER } from "@typren/core/templates/init";
 import { createFsSettingsAdapter, resolveI18n, type SiteSettingsBootstrap, type Slice } from "@typren/core";
 import { firstRunNotice, isEnabled, readCliVersion, record, setEnabled } from "./telemetry";
+import { parseMatter } from "./safe-matter";
+import { migrate, printMigrateReport, parseMigrateArgs } from "./migrate";
 
 export type ScaffoldResult =
   | { ok: true; baseDir: string; created: string[]; skipped: string[] }
@@ -822,6 +813,9 @@ Next steps:
      return <SliceZone slices={page.slices} />;
 
 3. Start your dev server.
+
+4. After upgrading any @typren package, run \`npx typren migrate\` and follow
+   it until it exits 0.
 `;
 }
 
@@ -838,6 +832,7 @@ Usage:
   npx typren review [slug] [--base <ref>] [--json] [--pr]
   npx typren review --update-pr <number> --body-file <path>
   npx typren telemetry [on|off]
+  npx typren migrate [--from <ver>] [--to <ver>] [--json] [--remote] [--cwd <dir>]
   npx typren --version
 
   init             Scaffold typren's content layer into the current project
@@ -862,6 +857,23 @@ Usage:
 
   telemetry [on|off]   Enable/disable anonymous CLI usage telemetry, or print
                    the current state with no argument.
+
+  migrate          Check the project against the installed @typren/core's
+                   bundled migration notes: finds code that needs updating
+                   after an upgrade and prints the fix/verify steps. Exits
+                   non-zero while matches remain.
+                     --from <ver>   Starting version (default: the
+                                    @typren/core range in the last commit's
+                                    package.json; required if that can't be
+                                    determined, e.g. no git history).
+                     --to <ver>     Ending version (default: installed
+                                    @typren/core version).
+                     --json         Print machine-readable JSON instead of text.
+                     --remote       Also check typren.com for notes newer than
+                                    this install. These are UNVERIFIED (not
+                                    pinned by your lockfile); see the CLI README.
+                     --cwd <dir>    Run against a project at this path
+                                    (default: current directory).
 
   --force          Overwrite files that already exist (init only).
   --help           Show this help.
@@ -993,14 +1005,32 @@ function runTelemetryCommand(args: string[]): void {
 // neither ever reaching the telemetry notice/record calls: those aren't
 // usage signals, and --version's own error path shouldn't announce telemetry
 // on its way out.
-const KNOWN_COMMANDS = new Set(["init", "apply-settings", "review", "telemetry"]);
+const KNOWN_COMMANDS = new Set(["init", "apply-settings", "review", "telemetry", "migrate"]);
+
+async function runMigrateCommand(args: string[]): Promise<boolean> {
+  const opts = parseMigrateArgs(args);
+  try {
+    const result = await migrate({ cwd: opts.cwd, from: opts.from, to: opts.to, remote: opts.remote });
+    printMigrateReport(result, { json: opts.json });
+    const anyMatches = result.notes.some((n) => n.matches.length > 0);
+    if (anyMatches) process.exitCode = 1;
+    return true;
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+    return false;
+  }
+}
 
 /** `argv` defaults to the real process argv so direct runs (isDirectRun()
  *  below) need no change, but takes an explicit array so tests can drive
  *  every dispatch branch without touching the real process.argv or
  *  capturing stdout beyond spying on console.*, matching how `nextSteps()`
- *  was already split out of `printNextSteps()` for the same reason. */
-export function main(argv: string[] = process.argv.slice(2)): void {
+ *  was already split out of `printNextSteps()` for the same reason.
+ *  Declared `async` only for `migrate`, the one command with real I/O
+ *  (`--remote` fetches); every other branch returns before its first await,
+ *  so it runs fully synchronously the way existing callers expect. */
+export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
   const args = argv;
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
@@ -1014,7 +1044,9 @@ export function main(argv: string[] = process.argv.slice(2)): void {
   const force = args.includes("--force");
   const command = args.find((a) => !a.startsWith("-")) ?? "init";
   if (!KNOWN_COMMANDS.has(command)) {
-    console.error(`typren: unknown command "${command}" (only "init", "apply-settings", "review", and "telemetry" are supported)`);
+    console.error(
+      `typren: unknown command "${command}" (only "init", "apply-settings", "review", "telemetry", and "migrate" are supported)`
+    );
     process.exitCode = 1;
     return;
   }
@@ -1040,6 +1072,11 @@ export function main(argv: string[] = process.argv.slice(2)): void {
 
   if (command === "review") {
     if (runReviewCommand(args)) record("review");
+    return;
+  }
+
+  if (command === "migrate") {
+    if (await runMigrateCommand(args)) record("migrate");
     return;
   }
 
