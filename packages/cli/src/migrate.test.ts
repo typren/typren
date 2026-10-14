@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fromVersionFromGit, migrate, parseMigrateArgs, printMigrateReport } from "./migrate";
+import { envWithoutGit, fromVersionFromGit, migrate, parseMigrateArgs, printMigrateReport } from "./migrate";
 
 const FIXTURE_NOTE = fs.readFileSync(path.join(import.meta.dirname, "..", "test-fixtures", "migrations", "core-0.5.0.md"), "utf8");
 
@@ -52,7 +52,7 @@ describe("parseMigrateArgs", () => {
 
 describe("fromVersionFromGit", () => {
   function initGitRepo(repoDir: string): void {
-    const git = (args: string[]) => execFileSync("git", args, { cwd: repoDir, stdio: "ignore" });
+    const git = (args: string[]) => execFileSync("git", args, { cwd: repoDir, stdio: "ignore", env: envWithoutGit() });
     git(["init", "-q"]);
     git(["config", "user.email", "test@example.com"]);
     git(["config", "user.name", "Test"]);
@@ -61,9 +61,22 @@ describe("fromVersionFromGit", () => {
   it("strips the range prefix off the committed @typren/core dependency", () => {
     initGitRepo(dir);
     writeProjectPackageJson(dir, "^0.4.0");
-    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "ignore" });
-    execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir, stdio: "ignore" });
+    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "ignore", env: envWithoutGit() });
+    execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir, stdio: "ignore", env: envWithoutGit() });
     expect(fromVersionFromGit(dir)).toBe("0.4.0");
+  });
+
+  it("ignores an inherited GIT_DIR (as set inside git hooks) and reads the repo at cwd", () => {
+    initGitRepo(dir);
+    writeProjectPackageJson(dir, "^0.4.0");
+    execFileSync("git", ["add", "-A"], { cwd: dir, stdio: "ignore", env: envWithoutGit() });
+    execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir, stdio: "ignore", env: envWithoutGit() });
+    vi.stubEnv("GIT_DIR", path.join(os.tmpdir(), "typren-nonexistent-git-dir"));
+    try {
+      expect(fromVersionFromGit(dir)).toBe("0.4.0");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("returns null with no git history", () => {
@@ -99,7 +112,7 @@ describe("migrate: version range selection", () => {
   });
 
   it("falls back to the @typren/core range committed at HEAD", async () => {
-    const git = (args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+    const git = (args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore", env: envWithoutGit() });
     git(["init", "-q"]);
     git(["config", "user.email", "test@example.com"]);
     git(["config", "user.name", "Test"]);
@@ -218,7 +231,7 @@ describe("migrate: --remote", () => {
 
 describe("migrate: malformed input", () => {
   it("fromVersionFromGit returns null for unparseable committed package.json", () => {
-    const git = (args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+    const git = (args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore", env: envWithoutGit() });
     git(["init", "-q"]);
     git(["config", "user.email", "test@example.com"]);
     git(["config", "user.name", "Test"]);

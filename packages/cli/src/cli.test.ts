@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applySettings, main, nextSteps, resolveReviewPaths, review, scaffold } from "./cli";
+import { envWithoutGit } from "./migrate";
 import * as telemetry from "./telemetry";
 
 /** When this suite runs inside a git hook (the repo's own pre-push runs it),
@@ -20,15 +21,15 @@ for (const key of Object.keys(process.env)) {
  *  (gitChangedContentFiles, gitShow, gitDiffRaw). Lives under the tmp `dir`
  *  each test already gets, so it's cleaned up the same way. */
 function initGitRepo(repoDir: string): void {
-  const git = (args: string[]) => execFileSync("git", args, { cwd: repoDir, stdio: "ignore" });
+  const git = (args: string[]) => execFileSync("git", args, { cwd: repoDir, stdio: "ignore", env: envWithoutGit() });
   git(["init", "-q"]);
   git(["config", "user.email", "test@example.com"]);
   git(["config", "user.name", "Test"]);
 }
 
 function commitAll(repoDir: string, message: string): void {
-  execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "ignore" });
-  execFileSync("git", ["commit", "-q", "-m", message], { cwd: repoDir, stdio: "ignore" });
+  execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "ignore", env: envWithoutGit() });
+  execFileSync("git", ["commit", "-q", "-m", message], { cwd: repoDir, stdio: "ignore", env: envWithoutGit() });
 }
 
 /**
