@@ -138,15 +138,68 @@ describe("migrate: detect matches", () => {
     ]);
   });
 
-  it("ignores node_modules, .next, dist and out", async () => {
+  it("ignores node_modules, .next, dist, out, coverage, build, .turbo, .vercel, .svelte-kit and .output", async () => {
     installFakeCore(dir, "0.5.0");
-    for (const ignored of ["node_modules/some-lib", ".next/cache", "dist", "out"]) {
+    for (const ignored of [
+      "node_modules/some-lib",
+      ".next/cache",
+      "dist",
+      "out",
+      "coverage",
+      "build",
+      ".turbo",
+      ".vercel",
+      ".svelte-kit",
+      ".output",
+    ]) {
       fs.mkdirSync(path.join(dir, ignored), { recursive: true });
       fs.writeFileSync(path.join(dir, ignored, "evil.ts"), "cmsStore.getPublished(\"x\");");
     }
 
     const result = await migrate({ cwd: dir, from: "0.4.0" });
     expect(result.notes[0].matches).toHaveLength(0);
+  });
+
+  it("doesn't follow a symlink into or out of the scanned tree", async () => {
+    installFakeCore(dir, "0.5.0");
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "typren-migrate-outside-"));
+    fs.writeFileSync(path.join(outside, "secret.ts"), 'cmsStore.getPublished("x");');
+    try {
+      fs.symlinkSync(outside, path.join(dir, "link-to-outside"));
+      fs.writeFileSync(path.join(dir, "real.ts"), "const y = 1;");
+      fs.symlinkSync(path.join(dir, "real.ts"), path.join(dir, "link-to-real.ts"));
+
+      const result = await migrate({ cwd: dir, from: "0.4.0" });
+      expect(result.notes[0].matches).toEqual([]);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("skips a file over the 1 MB scan cap instead of reading it", async () => {
+    installFakeCore(dir, "0.5.0");
+    fs.writeFileSync(path.join(dir, "huge.ts"), 'cmsStore.getPublished("x");' + " ".repeat(1_000_001));
+
+    const result = await migrate({ cwd: dir, from: "0.4.0" });
+    expect(result.notes[0].matches).toEqual([]);
+  });
+
+  it("reads each file once even when multiple detect patterns/notes apply to it", async () => {
+    installFakeCore(dir, "0.5.0", []);
+    fs.writeFileSync(
+      path.join(dir, "node_modules", "@typren", "core", "migrations", "core-0.5.0.md"),
+      `---\npackage: "@typren/core"\nversion: "0.5.0"\ntitle: "two patterns"\ndetect:\n` +
+        `  - pattern: "cmsStore"\n    glob: "**/*.ts"\n    hint: "a"\n` +
+        `  - pattern: "getPublished"\n    glob: "**/*.ts"\n    hint: "b"\n---\nbody\n`
+    );
+    fs.writeFileSync(path.join(dir, "page.ts"), 'cmsStore.getPublished("x");');
+    const readSpy = vi.spyOn(fs, "readFileSync");
+
+    const result = await migrate({ cwd: dir, from: "0.4.0" });
+
+    expect(result.notes[0].matches).toHaveLength(2);
+    const pageReads = readSpy.mock.calls.filter((c) => String(c[0]).endsWith("page.ts"));
+    expect(pageReads).toHaveLength(1);
   });
 
   it("reports a clean note (no matches) as an empty array, not an omitted note", async () => {
