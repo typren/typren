@@ -132,7 +132,14 @@ function buildOidcAdapter(opts: OidcOpts): AuthAdapter {
   };
   const toUser = (claims: Claims): AuthUser | null => {
     if (!claims.sub) return null;
-    const email = typeof claims[emailClaim] === "string" ? (claims[emailClaim] as string) : undefined;
+    // Only an IdP-verified email can satisfy allowedEmails: omitting it here
+    // (rather than filtering in checkAllowlist) means an unverified email
+    // can never match the allowlist, for this mapping or any other check
+    // that reads AuthUser.email.
+    const email =
+      typeof claims[emailClaim] === "string" && claims.email_verified === true
+        ? (claims[emailClaim] as string)
+        : undefined;
     return { id: claims.sub, email, name: claims.name, roles: rolesOf(claims) };
   };
   const resolve = async (): Promise<Claims | null> => {

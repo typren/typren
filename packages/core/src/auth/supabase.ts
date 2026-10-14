@@ -18,6 +18,7 @@ type SupabaseClient = {
 export type SupabaseUser = {
   id: string;
   email?: string | null;
+  email_confirmed_at?: string | null;
   user_metadata?: Record<string, unknown>;
   app_metadata?: { roles?: string[]; role?: string } & Record<string, unknown>;
 };
@@ -58,7 +59,17 @@ export function supabaseAuthAdapter(opts: {
     return u.app_metadata?.role ? [u.app_metadata.role] : undefined;
   };
   const toUser = (u: SupabaseUser | null): AuthUser | null =>
-    u ? { id: u.id, email: u.email ?? undefined, roles: rolesOf(u) } : null;
+    u
+      ? {
+          id: u.id,
+          // Only a confirmed email can satisfy allowedEmails: omitting it
+          // here (rather than filtering in checkAllowlist) means an
+          // unconfirmed email can never match the allowlist, for this
+          // mapping or any other check that reads AuthUser.email.
+          email: u.email_confirmed_at ? (u.email ?? undefined) : undefined,
+          roles: rolesOf(u),
+        }
+      : null;
   const resolve = async (): Promise<SupabaseUser | null> => {
     const { data, error } = await opts.client.auth.getUser();
     if (error) return null;
