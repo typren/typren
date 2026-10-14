@@ -13,11 +13,14 @@
  * So: extensionless in source, extensions added here in dist only. Then smoke
  * it: every server-safe entry must actually load under `node`.
  */
-import { readdirSync, readFileSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 const DIST = "dist";
+const MIGRATIONS_SRC = path.join("..", "..", "docs", "migrations");
+const MIGRATIONS_OUT = "migrations";
+const MIGRATIONS_KEEP = 5;
 
 /** `from "./x"`, `import("./x")`, `import "./x"`, `export … from "../x"`. */
 const RELATIVE_SPECIFIER = /(\bfrom\s*|\bimport\s*\(?\s*)(["'])(\.{1,2}\/[^"']*)\2/g;
@@ -52,6 +55,30 @@ for (const file of walk(DIST).filter((f) => f.endsWith(".js") || f.endsWith(".d.
 
 copyFileSync("src/theme.css", path.join(DIST, "theme.css"));
 
+// `typren migrate` (the CLI) reads notes from the INSTALLED @typren/core,
+// not from this repo's docs/, so each release packs the notes relevant to
+// it into the published package here. Keep only the newest few: old notes
+// for versions nobody's still upgrading from just bloat the tarball.
+// Prerelease versions aren't handled (no project here cuts one yet).
+function packMigrationNotes() {
+  rmSync(MIGRATIONS_OUT, { recursive: true, force: true });
+  if (!existsSync(MIGRATIONS_SRC)) return 0;
+  const parsed = readdirSync(MIGRATIONS_SRC)
+    .filter((f) => f.startsWith("core-") && f.endsWith(".md"))
+    .map((file) => {
+      const m = file.match(/^core-(\d+)\.(\d+)\.(\d+)\.md$/);
+      return m ? { file, version: [Number(m[1]), Number(m[2]), Number(m[3])] } : null;
+    })
+    .filter((x) => x !== null)
+    .sort((a, b) => b.version[0] - a.version[0] || b.version[1] - a.version[1] || b.version[2] - a.version[2])
+    .slice(0, MIGRATIONS_KEEP);
+  if (parsed.length === 0) return 0;
+  mkdirSync(MIGRATIONS_OUT, { recursive: true });
+  for (const { file } of parsed) copyFileSync(path.join(MIGRATIONS_SRC, file), path.join(MIGRATIONS_OUT, file));
+  return parsed.length;
+}
+const migrationsPacked = packMigrationNotes();
+
 // Smoke: raw Node ESM must load every server-safe entry, including `seo`
 // (it imports `next/server.js`; next ships no exports map, so the subpath
 // resolves as a file path and Node ESM needs the extension; see changeset).
@@ -64,3 +91,4 @@ execFileSync(
 
 console.log(`postbuild: ${rewrites} dist import specifiers extended, ${SERVER_ENTRIES.length} entries load under node`);
 if (skipped.length) console.log(`postbuild: left ${skipped.length} non-dist specifier(s) alone:\n  ${skipped.join("\n  ")}`);
+console.log(`postbuild: ${migrationsPacked} migration note(s) packed into ${MIGRATIONS_OUT}/`);
