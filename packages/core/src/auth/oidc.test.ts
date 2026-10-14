@@ -31,16 +31,23 @@ async function setup() {
     exp?: string;
     roles?: string[] | string;
     email?: string;
+    emailVerified?: boolean;
     key?: CryptoKey;
     alg?: string;
-  } = {}) =>
-    new SignJWT({ email: overrides.email ?? "user@example.com", roles: overrides.roles ?? ["editor"] })
+    noExp?: boolean;
+  } = {}) => {
+    let jwt = new SignJWT({
+      email: overrides.email ?? "user@example.com",
+      email_verified: overrides.emailVerified ?? true,
+      roles: overrides.roles ?? ["editor"],
+    })
       .setProtectedHeader({ alg: overrides.alg ?? "ES256", kid: "test-key" })
       .setSubject("user-1")
       .setIssuer(overrides.issuer ?? ISSUER)
-      .setAudience(overrides.audience ?? AUDIENCE)
-      .setExpirationTime(overrides.exp ?? "1h")
-      .sign(overrides.key ?? privateKey);
+      .setAudience(overrides.audience ?? AUDIENCE);
+    if (!overrides.noExp) jwt = jwt.setExpirationTime(overrides.exp ?? "1h");
+    return jwt.sign(overrides.key ?? privateKey);
+  };
 
   return { sign, fetchMock, otherKeyPair: await generateKeyPair("ES256", { extractable: true }) };
 }
@@ -292,6 +299,74 @@ describe("oidcAuthAdapter", () => {
       allowedRoles: ["editor"],
     });
     expect(await adapter.authorize({ action: "read" })).toBe(false);
+  });
+
+  it("rejects a token with no exp claim", async () => {
+    const { sign } = await setup();
+    const token = await sign({ noExp: true });
+    const adapter = oidcAuthAdapter({
+      getToken: async () => token,
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      allowedRoles: ["editor"],
+    });
+    expect(await adapter.authorize({ action: "read" })).toBe(false);
+  });
+
+  it("denies an unverified email against allowedEmails, allows once verified, leaves role-based access unaffected", async () => {
+    const { sign } = await setup();
+    const unverified = await sign({ emailVerified: false });
+    const verified = await sign({ emailVerified: true });
+
+    const byEmail = oidcAuthAdapter({
+      getToken: async () => unverified,
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      allowedEmails: ["user@example.com"],
+    });
+    expect(await byEmail.authorize({ action: "saveDraft" })).toBe(false);
+    expect((await byEmail.getUser!({ action: "read" }))?.email).toBeUndefined();
+
+    const byEmailVerified = oidcAuthAdapter({
+      getToken: async () => verified,
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      allowedEmails: ["user@example.com"],
+    });
+    expect(await byEmailVerified.authorize({ action: "saveDraft" })).toBe(true);
+
+    // Role-based access doesn't depend on email verification at all.
+    const byRole = oidcAuthAdapter({
+      getToken: async () => unverified,
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      allowedRoles: ["editor"],
+    });
+    expect(await byRole.authorize({ action: "saveDraft" })).toBe(true);
+  });
+
+  it("passes an abort signal to the discovery fetch and denies when it fires (simulated timeout)", async () => {
+    let sawSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL, init?: { signal?: AbortSignal }) => {
+        sawSignal = init?.signal;
+        // Simulate the 5s discovery timeout firing without actually waiting:
+        // reject as soon as the signal aborts, same as a real hung request.
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+          init?.signal?.dispatchEvent(new Event("abort"));
+        });
+      })
+    );
+    const adapter = oidcAuthAdapter({
+      getToken: async () => "irrelevant",
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      allowedRoles: ["editor"],
+    });
+    expect(await adapter.authorize({ action: "read" })).toBe(false);
+    expect(sawSignal).toBeInstanceOf(AbortSignal);
   });
 
   it("fails closed when getToken throws", async () => {

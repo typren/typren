@@ -103,7 +103,9 @@ function buildOidcAdapter(opts: OidcOpts): AuthAdapter {
       discoveryPromise = (async () => {
         // Some issuers end in "/" (Auth0); strip it for the URL only, since
         // jwtVerify still matches `iss` against the issuer exactly as given.
-        const res = await fetch(`${opts.issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`);
+        const res = await fetch(`${opts.issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`, {
+          signal: AbortSignal.timeout(5000),
+        });
         if (!res.ok) throw new Error(`typren: OIDC discovery failed for ${opts.issuer} (${res.status})`);
         const doc = (await res.json()) as { issuer?: unknown; jwks_uri?: unknown };
         // OIDC Discovery 1.0 section 4.3: the document's issuer MUST equal the one it was fetched for.
@@ -150,6 +152,7 @@ function buildOidcAdapter(opts: OidcOpts): AuthAdapter {
       issuer: opts.issuer,
       audience: opts.audience,
       algorithms: ASYMMETRIC_ALGS,
+      requiredClaims: ["exp", "sub"],
     });
     return payload as Claims;
   };
@@ -183,6 +186,13 @@ function buildOidcAdapter(opts: OidcOpts): AuthAdapter {
  * request through; a verified token here is already allowlisted, by Access
  * itself. `allowedEmails`/`allowedRoles` remain available for a second,
  * narrower tier inside Typren.
+ *
+ * NOTE on `allowedRoles`/`adminRoles` here: Access tokens only carry a
+ * `groups` claim when the team has SCIM group sync configured. Without it,
+ * every token omits `groups` and `rolesOf` resolves to `undefined`, so
+ * `allowedRoles`/`adminRoles` silently deny everyone rather than signal
+ * misconfiguration. Confirm SCIM sync is on before relying on role gating
+ * with this preset.
  */
 export function cfAccessAuthAdapter(opts: {
   /** The Cloudflare Access team name, e.g. `"acme"` for `acme.cloudflareaccess.com`.
