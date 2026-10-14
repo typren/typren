@@ -16,7 +16,7 @@ function fakeClient(
   // Every seeded/created page belongs to `databaseId` unless the seed says
   // otherwise (the "page from another database" test seeds one that doesn't),
   // matching how a real Notion row always carries its own parent database.
-  const pages = seed.map((p) => ({ parent: { database_id: databaseId }, ...p }));
+  const pages: NotionPage[] = seed.map((p) => ({ ...p, parent: p.parent ?? { database_id: databaseId } }));
   let nextId = 1;
   return {
     pages,
