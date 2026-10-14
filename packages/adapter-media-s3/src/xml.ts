@@ -21,7 +21,7 @@ export function decodeXmlEntities(value: string): string {
       const code = entity[1] === "x" ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
       return Number.isNaN(code) ? match : String.fromCodePoint(code);
     }
-    return ENTITIES[entity] ?? match;
+    return ENTITIES[entity];
   });
 }
 
