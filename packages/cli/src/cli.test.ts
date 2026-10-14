@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applySettings, main, nextSteps, resolveReviewPaths, review, scaffold } from "./cli";
+import { applySettings, main, nextSteps, openOrUpdateContentPr, resolveReviewPaths, review, scaffold } from "./cli";
 import { envWithoutGit } from "./migrate";
 import * as telemetry from "./telemetry";
 
@@ -429,6 +429,24 @@ describe("review", () => {
       if (!result.ok) return;
       expect(result.briefs.map((b) => b.file)).toEqual(["content/home.md"]);
     });
+
+    it("ignores an inherited GIT_DIR and diffs the repo at `dir`, not whatever GIT_DIR points at", () => {
+      initGitRepo(dir);
+      fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\n");
+      commitAll(dir, "base");
+      fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home Updated\n---\n");
+
+      vi.stubEnv("GIT_DIR", path.join(os.tmpdir(), "typren-nonexistent-git-dir"));
+      try {
+        const result = review(dir, { base: "HEAD" });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.briefs.map((b) => b.file)).toEqual(["content/home.md"]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
   });
 });
 
@@ -602,6 +620,64 @@ describe("main", () => {
           expect(telemetry.record).toHaveBeenCalledWith("review");
         } finally {
           process.env.PATH = originalPath;
+        }
+      });
+    });
+
+    describe("openOrUpdateContentPr (direct)", () => {
+      /** Custom fake `gh` (withFakeGh only distinguishes on argv[0], but this
+       *  path calls "pr list" then "pr create", two different "pr"
+       *  subcommands that need different canned output). */
+      function withFakeGhForPr(fn: () => void): void {
+        const binDir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-fakegh-pr-"));
+        fs.writeFileSync(
+          path.join(binDir, "gh"),
+          [
+            "#!/bin/sh",
+            'case "$1 $2" in',
+            '  "--version ") exit 0 ;;',
+            '  "pr list") echo "[]"; exit 0 ;;',
+            '  "pr create") echo "https://github.com/example/repo/pull/1"; exit 0 ;;',
+            '  "label list") echo "[]"; exit 0 ;;',
+            '  "label create") exit 0 ;;',
+            "  *) exit 1 ;;",
+            "esac",
+          ].join("\n"),
+          { mode: 0o755 }
+        );
+        const originalPath = process.env.PATH;
+        process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+        try {
+          fn();
+        } finally {
+          process.env.PATH = originalPath;
+          fs.rmSync(binDir, { recursive: true, force: true });
+        }
+      }
+
+      it("opens the PR via plain git (checkout/add/commit/push) even with a poisoned GIT_DIR", () => {
+        initGitRepo(dir);
+        fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\n");
+        commitAll(dir, "base");
+        const origin = fs.mkdtempSync(path.join(os.tmpdir(), "typren-origin-"));
+        execFileSync("git", ["init", "-q", "--bare", origin], { env: envWithoutGit() });
+        execFileSync("git", ["remote", "add", "origin", origin], { cwd: dir, env: envWithoutGit() });
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home Updated\n---\n");
+
+        const result = review(dir, { slug: "home", base: "HEAD" });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        vi.stubEnv("GIT_DIR", path.join(os.tmpdir(), "typren-nonexistent-git-dir"));
+        try {
+          withFakeGhForPr(() => {
+            const prResult = openOrUpdateContentPr(dir, result.briefs[0]);
+            expect(prResult).toMatchObject({ ok: true, action: "created", url: "https://github.com/example/repo/pull/1" });
+          });
+        } finally {
+          vi.unstubAllEnvs();
+          fs.rmSync(origin, { recursive: true, force: true });
         }
       });
     });
