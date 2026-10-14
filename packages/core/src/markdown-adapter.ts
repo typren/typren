@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
+import { parseMatter } from "./safe-matter";
 import type { ContentAdapter, PageContent, Slice } from "./types";
 import { localeSubdir } from "./localize";
 
@@ -84,7 +85,7 @@ export function createMarkdownAdapter({
   const draftFile = (slug: string, loc = defaultLocale) => path.join(localeDraftDir(loc), `${safe(slug)}.md`);
 
   const parse = (raw: string): PageContent => {
-    const { data, content } = matter(raw);
+    const { data, content } = parseMatter(raw);
     const { [frontmatterKey]: slices, ...meta } = data;
     // gray-matter caches parsed results by input string and returns shared
     // references. Deep-clone the result so editing the returned content can never mutate
@@ -125,7 +126,7 @@ export function createMarkdownAdapter({
         .filter(
           (slug) =>
             !requireSliceArray ||
-            Array.isArray(matter(fs.readFileSync(pageFile(slug, locale), "utf8")).data[frontmatterKey])
+            Array.isArray(parseMatter(fs.readFileSync(pageFile(slug, locale), "utf8")).data[frontmatterKey])
         )
         .sort((a, b) => a.localeCompare(b));
     },

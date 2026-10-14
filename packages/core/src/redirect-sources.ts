@@ -1,21 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import matter from "gray-matter";
 import type { ContentStore } from "./store";
 import type { RedirectEntry } from "./redirects";
+import { parseMatter } from "./safe-matter";
 
-// gray-matter's default engine set includes `javascript`, which eval()s the
-// front-matter block when a file opens with `---javascript`. Here that would
-// be code execution inside whatever process scans the content directory,
-// triggered by a markdown file, a pipeline's untrusted-writer input. Content
-// is data: refuse the engine outright.
-const SAFE_ENGINES = {
-  javascript: (): never => {
-    throw new Error("typren: javascript front-matter is not supported");
-  },
-};
-const parseMatter = (raw: string) => matter(raw, { engines: SAFE_ENGINES });
 
 /**
  * Minimal read-only `ContentStore` built by scanning a content directory's

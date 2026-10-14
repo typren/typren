@@ -31,7 +31,7 @@ describe("scanContentStore", () => {
     // execute.
     writeFileSync(path.join(dir, "evil.md"), "---javascript\n({ slices: [] })\n---\nbody");
 
-    expect(() => scanContentStore(dir as string)).toThrow(/javascript front-matter is not supported/);
+    expect(() => scanContentStore(dir as string)).toThrow(/JavaScript front matter is not allowed/);
   });
 
   it("returns an empty store for a missing content directory", async () => {

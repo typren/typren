@@ -1,5 +1,6 @@
 import path from "node:path";
 import matter from "gray-matter";
+import { parseMatter } from "./safe-matter";
 import type { ContentAdapter, PageContent, Slice } from "./types";
 import { localeSubdir } from "./localize";
 import { ConflictError, versionOf } from "./version";
@@ -373,7 +374,7 @@ export function createGithubAdapter({
   }
 
   const parse = (raw: string): PageContent => {
-    const { data, content } = matter(raw);
+    const { data, content } = parseMatter(raw);
     const { [frontmatterKey]: slices, ...meta } = data;
     return structuredClone({ meta, slices: (Array.isArray(slices) ? slices : []) as Slice[], body: content });
   };
