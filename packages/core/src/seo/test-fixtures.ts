@@ -22,6 +22,7 @@ export function fakeStore(pages: FixturePage[]): ContentStore & { listPagesCalls
       }));
     },
     exists: async (slug: string) => byId.has(slug),
+    listSlugs: async () => pages.map((p) => p.slug),
     getPublished: async (slug: string) => ({ ...byId.get(slug)!, locale: "en", isFallback: false }),
     getDraft: async () => null,
     currentVersion: async () => null,

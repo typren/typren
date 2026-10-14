@@ -2,7 +2,10 @@ import type { MetadataRoute } from "next";
 import type { ContentStore } from "../store";
 import type { I18nConfig } from "../i18n";
 import { localizedPath } from "../i18n";
+import { mapLimit } from "../concurrency";
 import type { PageSeoMeta, SeoConfig } from "./types";
+
+const FANOUT_LIMIT = 8;
 
 export type BuildSitemapOptions = {
   /** Slug that maps to the site root ("/") instead of "/<slug>", e.g. "home". */
@@ -26,9 +29,8 @@ export async function buildSitemap(
   const { homeSlug, defaultChangeFrequency = "monthly", defaultPriority = 0.7, i18n } = opts;
   const multiLocale = !!i18n && i18n.locales.length > 1;
 
-  const pages = await store.listPages();
-  const entries = await Promise.all(
-    pages.map(async ({ slug }) => {
+  const slugs = await store.listSlugs();
+  const entries = await mapLimit(slugs, FANOUT_LIMIT, async (slug) => {
       const meta = (await store.getPublished(slug)).meta as PageSeoMeta;
       if (meta.noindex) return [];
       const rest = {
@@ -54,7 +56,6 @@ export async function buildSitemap(
         alternates: { languages },
         ...rest,
       }));
-    })
-  );
+  });
   return entries.flat();
 }

@@ -15,4 +15,10 @@ describe("generateLlmsFullTxt", () => {
     const store = fakeStore([{ slug: "untitled", slices: [] }]);
     expect(await generateLlmsFullTxt(store)).toBe("# untitled\n\n");
   });
+
+  it("uses listSlugs, not listPages (no hasDraft/listLocales fan-out)", async () => {
+    const store = fakeStore([{ slug: "about" }]);
+    await generateLlmsFullTxt(store);
+    expect(store.listPagesCalls).toBe(0);
+  });
 });

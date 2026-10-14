@@ -1,6 +1,12 @@
 import type { ContentAdapter, LocalizedPage, PageContent, PageInfo } from "./types";
 import { versionOf, ConflictError, SlugExistsError } from "./version";
 import { mergeLocalized } from "./localize";
+import { mapLimit } from "./concurrency";
+
+/** Fan-out concurrency cap for store/SEO operations that loop over every slug
+ *  (or slug x locale) in a site: bounds concurrent adapter calls against
+ *  GitHub/Notion rate limits and fs file-descriptor limits. */
+const FANOUT_LIMIT = 8;
 
 /** Normalize free text into a URL-safe slug: lowercase, alnum-and-dash only, no
  *  leading/trailing dashes. Shared by `createPage` (from a title) and
@@ -20,6 +26,10 @@ export function slugify(text: string): string {
  *  fallback that the dumb per-locale adapter doesn't know about. */
 export interface ContentStore {
   listPages(locale?: string): Promise<PageInfo[]>;
+  /** Slugs of every page, cheap (adapter.listSlugs, no per-page read). Use
+   *  this instead of `listPages` for builders that only need the slug set
+   *  (sitemap, llms.txt, redirects), not each page's hasDraft/locales. */
+  listSlugs(locale?: string): Promise<string[]>;
   /** Whether `slug` has published content for a locale. A cheap existence
    *  check, unlike `listPages`, which fans out over every slug in the store;
    *  callers that only need to know "does this one page exist" (e.g. the
@@ -87,21 +97,23 @@ export function createStore(
   return {
     async listPages(locale = defaultLocale) {
       // Canonical page set = the default locale's slugs (a translation is always
-      // of an existing default page). Independent reads, so fetched concurrently.
+      // of an existing default page). Independent reads, bounded to FANOUT_LIMIT
+      // concurrent adapter calls (unbounded Promise.all over every slug can open
+      // hundreds of requests against a rate-limited GitHub/Notion adapter).
       const slugs = await adapter.listSlugs(defaultLocale);
-      return Promise.all(
-        slugs.map(async (slug) => {
-          const [raw, hasDraft, pageLocales] = await Promise.all([
-            adapter.readRaw(slug, defaultLocale),
-            adapter.hasDraft(slug, locale),
-            adapter.listLocales(slug),
-          ]);
-          const meta = adapter.parse(raw).meta;
-          const title = typeof meta.title === "string" ? meta.title : slug;
-          return { slug, title, hasDraft, locales: pageLocales };
-        })
-      );
+      return mapLimit(slugs, FANOUT_LIMIT, async (slug) => {
+        const [raw, hasDraft, pageLocales] = await Promise.all([
+          adapter.readRaw(slug, defaultLocale),
+          adapter.hasDraft(slug, locale),
+          adapter.listLocales(slug),
+        ]);
+        const meta = adapter.parse(raw).meta;
+        const title = typeof meta.title === "string" ? meta.title : slug;
+        return { slug, title, hasDraft, locales: pageLocales };
+      });
     },
+
+    listSlugs: (locale) => adapter.listSlugs(locale ?? defaultLocale),
 
     exists: (slug, locale = defaultLocale) => adapter.exists(slug, locale),
 
