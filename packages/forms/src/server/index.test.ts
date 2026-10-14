@@ -165,7 +165,7 @@ describe("createFormHandler", () => {
     const body = (await response.json()) as FormResponseBody;
     expect(body.ok).toBe(true);
     expect(body.sinks).toEqual([
-      { type: "broken", ok: false, detail: "vendor exploded" },
+      { type: "broken", ok: false },
       { type: "file", ok: true },
     ]);
     expect(readFileSync(file, "utf8")).toContain('"formId":"contact"');
@@ -187,10 +187,52 @@ describe("createFormHandler", () => {
     const body = (await response.json()) as FormResponseBody;
     expect(body.ok).toBe(false);
     expect(body.sinks).toEqual([
-      { type: "webhook", ok: false, detail: "webhook responded 500" },
+      { type: "webhook", ok: false },
       { type: "memory", ok: true },
     ]);
     expect(sink.delivered).toHaveLength(1);
+  });
+
+  it("never echoes sink failure detail in the public response, only server-side to the logger", async () => {
+    const logs: string[] = [];
+    const broken: FormSink = {
+      type: "broken",
+      deliver: async () => ({ ok: false, detail: "db password is hunter2" }),
+    };
+    const handler = createFormHandler({ schema, sinks: [broken], logger: (message) => logs.push(message) });
+    const response = await handler(jsonRequest(valid));
+
+    const body = (await response.json()) as FormResponseBody;
+    expect(body.sinks).toEqual([{ type: "broken", ok: false }]);
+    expect(JSON.stringify(body)).not.toContain("hunter2");
+    expect(logs.join("\n")).toContain("hunter2");
+  });
+
+  it("rejects a body over maxBodyBytes without buffering it, even without a content-length header", async () => {
+    const sink = memorySink();
+    const handler = createFormHandler({ schema, sinks: [sink], maxBodyBytes: 32 });
+    const bigPayload = JSON.stringify({ ...valid, name: "A".repeat(1000) });
+
+    // ReadableStream body: fetch/undici omit content-length for a streamed
+    // body, so this only fails if the actual bytes are counted as they arrive.
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(bigPayload));
+        controller.close();
+      },
+    });
+    const request = new Request("https://site.example/api", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: stream,
+      // @ts-expect-error -- required by undici for a streamed body, not in the lib.dom typings used here
+      duplex: "half",
+    });
+
+    const response = await handler(request);
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as FormResponseBody).errors).toEqual([{ field: "", code: "bad_request" }]);
+    expect(sink.delivered).toHaveLength(0);
   });
 
   it("leaves a prototype-pollution payload inert end to end", async () => {
