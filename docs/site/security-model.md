@@ -31,12 +31,12 @@ upstream layer to have already checked:
   argument.
 - **`createS3MediaAdapter`** (`@typren/adapter-media-s3`): a `SAFE_ID` regex
   on every key, and a delete additionally confirms the key starts with the
-  adapter's own configured `prefix` before deleting — in a bucket shared
+  adapter's own configured `prefix` before deleting: in a bucket shared
   between sites, an id outside this adapter's prefix belongs to someone
-  else and must never be deleted here. If you pass `prefix` at all, it must
-  be non-empty and end in `/` — construction throws otherwise, since a
-  prefix without a trailing slash (e.g. `"siteA"`) also matches another
-  site's keys (`"siteAB/x"`).
+  else and must never be deleted here. `prefix` is required and must be
+  non-empty and end in `/`; construction throws otherwise. With no prefix the
+  adapter would see the whole bucket, and a prefix without a trailing slash
+  (e.g. `"siteA"`) also matches another site's keys (`"siteAB/x"`).
 
 ## Webhook verification (GitHub push webhook)
 
