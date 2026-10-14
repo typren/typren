@@ -1,0 +1,172 @@
+import { describe, expect, it, vi } from "vitest";
+import { createGithubWebhookHandler } from "./github-webhook";
+
+const SECRET = "whs_test_secret";
+
+async function sign(secret: string, body: string): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
+    "sign",
+  ]);
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
+  return `sha256=${[...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function pushRequest(body: unknown, opts: { secret?: string; event?: string; badSig?: boolean; noSig?: boolean } = {}) {
+  const text = JSON.stringify(body);
+  const headers: Record<string, string> = { "x-github-event": opts.event ?? "push" };
+  if (!opts.noSig) headers["x-hub-signature-256"] = opts.badSig ? "sha256=deadbeef" : await sign(opts.secret ?? SECRET, text);
+  return new Request("https://example.com/api/github-webhook", { method: "POST", body: text, headers });
+}
+
+function push(ref: string, commits: Array<{ added?: string[]; modified?: string[]; removed?: string[] }>) {
+  return { ref, commits };
+}
+
+describe("createGithubWebhookHandler: construction", () => {
+  it("throws at construction when secret is empty", () => {
+    expect(() => createGithubWebhookHandler({ secret: "", onChange: async () => {} })).toThrow(/secret/);
+  });
+});
+
+describe("createGithubWebhookHandler: signature verification", () => {
+  it("401s a missing signature", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest(push("refs/heads/main", []), { noSig: true });
+    expect((await handler(req)).status).toBe(401);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("401s a bad signature", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest(push("refs/heads/main", []), { badSig: true });
+    expect((await handler(req)).status).toBe(401);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("accepts a valid signature", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest(push("refs/heads/main", [{ modified: ["content/about.md"] }]));
+    expect((await handler(req)).status).toBe(200);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createGithubWebhookHandler: event/ref routing", () => {
+  it("200s a ping without calling onChange", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest({}, { event: "ping" });
+    expect((await handler(req)).status).toBe(200);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("202s a non-push event", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest({}, { event: "issues" });
+    expect((await handler(req)).status).toBe(202);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("202s a push to a branch other than the configured one", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, branch: "main", onChange });
+    const req = await pushRequest(push("refs/heads/feature-x", [{ modified: ["content/about.md"] }]));
+    expect((await handler(req)).status).toBe(202);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("createGithubWebhookHandler: content filtering", () => {
+  it("202s a draft-only push, never calling onChange", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest(push("refs/heads/main", [{ modified: ["content/_drafts/about.md"] }]));
+    expect((await handler(req)).status).toBe(202);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("excludes a locale-nested draft path too", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest(
+      push("refs/heads/main", [{ modified: ["content/fr/_drafts/about.md", "content/fr/about.md"] }])
+    );
+    await handler(req);
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ paths: ["content/fr/about.md"], slugs: ["about"], locales: ["fr"] })
+    );
+  });
+
+  it("202s a push that touches no path under contentDir", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest(push("refs/heads/main", [{ modified: ["README.md"] }]));
+    expect((await handler(req)).status).toBe(202);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("calls onChange with paths/slugs/locales for a published change, default locale has no locale entry", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest(
+      push("refs/heads/main", [{ added: ["content/about.md"], modified: ["content/fr/about.md"] }])
+    );
+    expect((await handler(req)).status).toBe(200);
+    expect(onChange).toHaveBeenCalledWith({
+      paths: ["content/about.md", "content/fr/about.md"],
+      slugs: ["about"],
+      locales: ["fr"],
+      full: false,
+    });
+  });
+
+  it("asks for a full invalidation on a force push", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest({ ref: "refs/heads/main", forced: true, commits: [{ modified: ["README.md"] }] });
+    expect((await handler(req)).status).toBe(200);
+    expect(onChange).toHaveBeenCalledWith({ paths: [], slugs: [], locales: [], full: true });
+  });
+
+  it("asks for a full invalidation when the payload carries no commit list", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    expect((await handler(await pushRequest({ ref: "refs/heads/main" }))).status).toBe(200);
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ full: true }));
+  });
+
+  it("ignores a branch deletion", async () => {
+    const onChange = vi.fn();
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const req = await pushRequest({ ref: "refs/heads/main", deleted: true, commits: [] });
+    expect((await handler(req)).status).toBe(202);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("maps onChange throwing to a 500 (so GitHub retries/redelivers)", async () => {
+    const handler = createGithubWebhookHandler({
+      secret: SECRET,
+      onChange: async () => {
+        throw new Error("revalidate failed");
+      },
+    });
+    const req = await pushRequest(push("refs/heads/main", [{ modified: ["content/about.md"] }]));
+    expect((await handler(req)).status).toBe(500);
+  });
+});
+
+describe("createGithubWebhookHandler: body size cap", () => {
+  it("413s a body over 5MB via content-length", async () => {
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange: async () => {} });
+    const req = new Request("https://example.com/hook", {
+      method: "POST",
+      body: "x",
+      headers: { "content-length": String(6 * 1024 * 1024), "x-github-event": "push" },
+    });
+    expect((await handler(req)).status).toBe(413);
+  });
+});

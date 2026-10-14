@@ -58,6 +58,10 @@
       "types": "./dist/templates/init.d.ts",
       "default": "./dist/templates/init.js"
     },
+    "./github-webhook": {
+      "types": "./dist/github-webhook.d.ts",
+      "default": "./dist/github-webhook.js"
+    },
     "./theme.css": "./dist/theme.css",
     "./ui/*": {
       "types": "./dist/ui/*.d.ts",
