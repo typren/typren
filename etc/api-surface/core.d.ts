@@ -323,6 +323,51 @@ export declare function resolveAuth(config: {
     authorize?: () => boolean | Promise<boolean>;
 }): AuthAdapter;
 
+// ---- dist/auth/better-auth.d.ts ----
+import type { AuthAdapter } from "../auth-adapter.js";
+/** Better Auth's server instance is created per-app, so `getSession` is
+ *  injected, not imported, matching next-auth.ts (the host passes e.g.
+ *  `() => auth.api.getSession({ headers: await headers() })`). This entry
+ *  (`@typren/core/auth/better-auth`) never resolves `better-auth` itself. */
+type Session = {
+    user?: {
+        id?: string;
+        email?: string;
+        name?: string;
+        role?: string | null;
+    };
+} | null;
+/**
+ * REQUIRES AN ALLOWLIST: `allowedEmails` or `allowedRoles` must be set, or
+ * construction throws. A signed-in session with neither would authorize
+ * anyone who can sign in, which is almost never the intended policy for an
+ * editor.
+ *
+ * "admin" is gated separately from ordinary content writes: it needs
+ * `adminRoles` set and an intersecting role, full stop. Unmapped denies
+ * rather than falling back to `allowedRoles`. A host must opt in to who gets
+ * to reconfigure the site.
+ *
+ * Better Auth's admin plugin stores `session.user.role` as a single string,
+ * sometimes comma-separated for multi-role users; `rolesFrom` lets a host
+ * override extraction (e.g. a custom field) and defaults to splitting that
+ * string on commas.
+ */
+export declare function betterAuthAdapter(opts: {
+    /** The host's session lookup, e.g. `() => auth.api.getSession({ headers: await headers() })`. */
+    getSession: () => Promise<Session>;
+    /** Case-insensitive match on session.user.email. */
+    allowedEmails?: string[];
+    /** Any-intersection with the resolved roles. */
+    allowedRoles?: string[];
+    /** Any-intersection with the resolved roles, required for the "admin" action. */
+    adminRoles?: string[];
+    /** Override role extraction from the session. Default: split
+     *  `session.user.role` on commas. */
+    rolesFrom?: (session: NonNullable<Session>) => string[] | undefined;
+}): AuthAdapter;
+export {};
+
 // ---- dist/auth/clerk.d.ts ----
 import type { AuthAdapter } from "../auth-adapter.js";
 /**
@@ -391,6 +436,144 @@ export declare function nextAuthAdapter(opts: {
     /** Any-intersection with session.user.roles. */
     allowedRoles?: string[];
     /** Any-intersection with session.user.roles, required for the "admin" action. */
+    adminRoles?: string[];
+}): AuthAdapter;
+export {};
+
+// ---- dist/auth/oidc.d.ts ----
+import type { AuthAdapter } from "../auth-adapter.js";
+/**
+ * Generic OIDC/JWT gate (entry `@typren/core/auth/oidc`, peer `jose`). Covers
+ * any IdP that hands the host a bearer JWT: Okta, Entra ID, Auth0, Keycloak,
+ * Google Workspace SSO. The host reads the token out of its own
+ * header/cookie and injects `getToken`, same reasoning as next-auth's
+ * injected `auth()`: core never terminates a login flow or imports an IdP
+ * SDK.
+ *
+ * Verifies the signature against the issuer's remote JWKS (resolved once per
+ * adapter instance and cached/rotated by `jose`'s `createRemoteJWKSet`, not
+ * refetched per request) plus `iss`/`aud`/`exp`. Without an explicit
+ * `jwksUri`, the JWKS location is found via standard OIDC discovery: a lazy,
+ * cached-once fetch of `${issuer}/.well-known/openid-configuration` on the
+ * first `authorize()`/`getUser()` call, reading its `jwks_uri` (required to
+ * be `https:`, since an http one would let a network attacker point
+ * verification at their own keys). A discovery failure clears the cache so
+ * the next call retries rather than wedging the adapter open or closed
+ * forever on a transient outage; `authorize()` still fails closed for that
+ * call like any other verification error. Pass `jwksUri` explicitly to skip
+ * discovery entirely (`cfAccessAuthAdapter` below always does, Access's JWKS
+ * endpoint isn't behind discovery).
+ *
+ * REQUIRES AN ALLOWLIST: `allowedEmails` or `allowedRoles` must be set, or
+ * construction throws. A verified token with neither would authorize anyone
+ * who can sign in with the IdP, which is almost never the intended policy
+ * for an editor.
+ *
+ * "admin" is gated separately from ordinary content writes: it needs
+ * `adminRoles` set and an intersecting role, full stop. Unmapped denies
+ * rather than falling back to `allowedRoles`.
+ */
+type OidcOpts = {
+    /** Reads the bearer token from the host's own request, e.g. the
+     *  `Authorization` header. Returns null when absent. */
+    getToken: () => Promise<string | null>;
+    /** Expected `iss` claim, and the default JWKS host. */
+    issuer: string;
+    /** Expected `aud` claim. */
+    audience: string;
+    /** Default: resolved via OIDC discovery (`${issuer}/.well-known/openid-configuration`'s `jwks_uri`). */
+    jwksUri?: string;
+    /** Claim holding roles, normalized to string[] (string -> `[value]`). Default `"roles"`. */
+    rolesClaim?: string;
+    /** Claim holding the email. Default `"email"`. */
+    emailClaim?: string;
+    /** Case-insensitive match on the resolved email. */
+    allowedEmails?: string[];
+    /** Any-intersection with the resolved roles. */
+    allowedRoles?: string[];
+    /** Any-intersection with the resolved roles, required for the "admin" action. */
+    adminRoles?: string[];
+};
+export declare function oidcAuthAdapter(opts: OidcOpts): AuthAdapter;
+/**
+ * Cloudflare Access preset over the same verification `oidcAuthAdapter` uses.
+ * Access issues its own JWT (the `Cf-Access-Jwt-Assertion` header, still
+ * injected via `getToken`, core never reads headers itself) signed by the
+ * team's own JWKS; issuer and JWKS URL are both derived from `teamDomain`, so
+ * a host only supplies the team name and the application's `aud` tag.
+ *
+ * EXEMPT FROM THE ALLOWLIST REQUIREMENT: unlike a bare OIDC provider, Access
+ * only issues this token after its own per-application policy (the set of
+ * emails/groups/IdPs an admin configured for this `aud`) already let the
+ * request through; a verified token here is already allowlisted, by Access
+ * itself. `allowedEmails`/`allowedRoles` remain available for a second,
+ * narrower tier inside Typren.
+ */
+export declare function cfAccessAuthAdapter(opts: {
+    /** The Cloudflare Access team name, e.g. `"acme"` for `acme.cloudflareaccess.com`.
+     *  Must be a bare hostname label: no scheme, slashes or dots. */
+    teamDomain: string;
+    /** The Access application's `aud` tag. */
+    audience: string;
+    getToken: () => Promise<string | null>;
+    /** Claim holding roles. Default `"groups"` (Access's group-membership claim). */
+    rolesClaim?: string;
+    emailClaim?: string;
+    allowedEmails?: string[];
+    allowedRoles?: string[];
+    adminRoles?: string[];
+}): AuthAdapter;
+export {};
+
+// ---- dist/auth/supabase.d.ts ----
+import type { AuthAdapter } from "../auth-adapter.js";
+/** Structural shape of the subset of `@supabase/supabase-js`'s client this
+ *  adapter calls, so core never imports or depends on the real package (the
+ *  host's own `createClient(...)` satisfies this). Deliberately uses
+ *  `getUser()`, which revalidates the token against Supabase's server, not
+ *  `getSession()`, which only reads the (client-forgeable) local cookie. */
+type SupabaseClient = {
+    auth: {
+        getUser(): Promise<{
+            data: {
+                user: SupabaseUser | null;
+            };
+            error: unknown;
+        }>;
+    };
+};
+export type SupabaseUser = {
+    id: string;
+    email?: string | null;
+    user_metadata?: Record<string, unknown>;
+    app_metadata?: {
+        roles?: string[];
+        role?: string;
+    } & Record<string, unknown>;
+};
+/**
+ * REQUIRES AN ALLOWLIST: `allowedEmails` or `allowedRoles` must be set, or
+ * construction throws. A signed-in user with neither would authorize anyone
+ * who can sign in, which is almost never the intended policy for an editor.
+ *
+ * "admin" is gated separately from ordinary content writes: it needs
+ * `adminRoles` set and an intersecting role, full stop. Unmapped denies
+ * rather than falling back to `allowedRoles`.
+ *
+ * SECURITY: roles are read ONLY from `user.app_metadata` (`roles` array or
+ * singular `role`), never `user_metadata`. Supabase lets the signed-in user
+ * write their own `user_metadata` from the client; trusting it for
+ * authorization would let any user grant themselves roles. `app_metadata` is
+ * writable only via the service-role key, server-side.
+ */
+export declare function supabaseAuthAdapter(opts: {
+    /** The host's Supabase client, e.g. from `createServerClient(...)`. */
+    client: SupabaseClient;
+    /** Case-insensitive match on user.email. */
+    allowedEmails?: string[];
+    /** Any-intersection with app_metadata roles. */
+    allowedRoles?: string[];
+    /** Any-intersection with app_metadata roles, required for the "admin" action. */
     adminRoles?: string[];
 }): AuthAdapter;
 export {};
