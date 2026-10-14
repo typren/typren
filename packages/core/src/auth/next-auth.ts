@@ -1,4 +1,5 @@
 import type { AuthAdapter, AuthUser } from "../auth-adapter";
+import { checkAllowlist } from "./allowlist";
 
 /** next-auth v5's `auth()` is created per-app, so it's injected, not imported.
  *  This entry (`@typren/core/auth/next-auth`) never resolves `next-auth` itself. */
@@ -42,15 +43,7 @@ export function nextAuthAdapter(opts: {
       // Fail closed on any resolution error.
       const u = toUser(await opts.auth().catch(() => null));
       if (!u) return false;
-      if (ctx.action === "admin")
-        return !!opts.adminRoles?.length && (u.roles?.some((r) => opts.adminRoles!.includes(r)) ?? false);
-      const emailOk =
-        !opts.allowedEmails ||
-        (u.email != null &&
-          opts.allowedEmails.some((e) => e.toLowerCase() === u.email!.toLowerCase()));
-      const roleOk =
-        !opts.allowedRoles || (u.roles?.some((r) => opts.allowedRoles!.includes(r)) ?? false);
-      return emailOk && roleOk;
+      return checkAllowlist(u, ctx, opts);
     },
   };
 }
