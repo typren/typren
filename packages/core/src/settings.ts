@@ -82,6 +82,30 @@ export interface SettingsStore {
 }
 
 export function createSettingsStore(config: CmsConfig): SettingsStore {
+  // Settings is a reserved slug ("settings") written through its own
+  // adapter: if that adapter is (or points at the same storage as) the
+  // Pages adapter, a page actually named "settings" and the settings doc
+  // would silently collide -- whichever one last wrote wins, with no error
+  // either direction ever surfaces. Caught here, once, at construction,
+  // rather than as a mystery bug report the first time a site names a page
+  // "settings". See docs/migrations for the distinct-directory requirement.
+  if (config.settingsContentAdapter !== undefined) {
+    if (config.settingsContentAdapter === config.adapter) {
+      throw new Error(
+        'typren: config.settingsContentAdapter must not be the same adapter instance as config.adapter -- the "settings" slug would collide with a Pages slug of the same name. Use a distinct adapter (even a second instance of the same backend, pointed at a different location).'
+      );
+    }
+    if ("root" in config.adapter && "root" in config.settingsContentAdapter) {
+      const pagesRoot = path.resolve((config.adapter as { root: string }).root);
+      const settingsRoot = path.resolve((config.settingsContentAdapter as { root: string }).root);
+      if (pagesRoot === settingsRoot || pagesRoot.startsWith(`${settingsRoot}${path.sep}`) || settingsRoot.startsWith(`${pagesRoot}${path.sep}`)) {
+        throw new Error(
+          `typren: config.settingsContentAdapter's root ("${settingsRoot}") is the same as, or nested inside/around, config.adapter's root ("${pagesRoot}"). Settings must live in a distinct, non-overlapping directory so a page named "settings" can never collide with the settings doc.`
+        );
+      }
+    }
+  }
+
   // Existing fs sites keep today's location exactly (sibling of the Pages
   // content dir): only a markdown Pages adapter carries `root` (see
   // markdown-adapter.ts's `MarkdownAdapter` type), so that's the detection.
