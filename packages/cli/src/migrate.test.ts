@@ -179,6 +179,31 @@ describe("migrate: json shape", () => {
   });
 });
 
+describe("migrate: dropped-notes warning (postbuild's keep-5 .min-version)", () => {
+  it("warns and signals when `from` predates the oldest packed note", async () => {
+    installFakeCore(dir, "0.5.0");
+    fs.writeFileSync(path.join(dir, "node_modules", "@typren", "core", "migrations", ".min-version"), "0.4.0");
+
+    const result = await migrate({ cwd: dir, from: "0.2.0" });
+    expect(result.droppedNotesWarning).toMatch(/0\.4\.0/);
+    expect(result.droppedNotesWarning).toMatch(/0\.2\.0/);
+  });
+
+  it("stays silent when `from` is at or after the oldest packed note", async () => {
+    installFakeCore(dir, "0.5.0");
+    fs.writeFileSync(path.join(dir, "node_modules", "@typren", "core", "migrations", ".min-version"), "0.4.0");
+
+    const result = await migrate({ cwd: dir, from: "0.4.0" });
+    expect(result.droppedNotesWarning).toBeUndefined();
+  });
+
+  it("stays silent with no .min-version file (e.g. an older @typren/core install)", async () => {
+    installFakeCore(dir, "0.5.0");
+    const result = await migrate({ cwd: dir, from: "0.1.0" });
+    expect(result.droppedNotesWarning).toBeUndefined();
+  });
+});
+
 describe("migrate: --remote", () => {
   const REMOTE_INDEX = "https://typren.com/migrations/index.json";
   const REMOTE_NOTE = "https://typren.com/migrations/core-0.6.0.md";

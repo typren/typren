@@ -42,6 +42,11 @@ export interface MigrateResult {
   from: string;
   to: string;
   notes: MigrationNoteResult[];
+  /** Set when the installed @typren/core only packs notes from
+   *  `.min-version` onward (postbuild keeps the newest 5) and `from`
+   *  predates it: some notes this project might have needed were dropped
+   *  from the release, not just "none applied between from and to". */
+  droppedNotesWarning?: string;
 }
 
 export interface MigrateOptions {
@@ -130,6 +135,15 @@ function parseNote(raw: string, source: MigrationNote["source"]): MigrationNote 
     body: content.trim(),
     source,
   };
+}
+
+function readMinVersion(migrationsDir: string): string | null {
+  try {
+    const raw = fs.readFileSync(path.join(migrationsDir, ".min-version"), "utf8").trim();
+    return raw || null;
+  } catch {
+    return null;
+  }
 }
 
 function loadBundledNotes(migrationsDir: string): MigrationNote[] {
@@ -281,6 +295,15 @@ export async function migrate(opts: MigrateOptions = {}): Promise<MigrateResult>
   const bundled = selectNotes(loadBundledNotes(migrationsDir), from, to);
   const remote = opts.remote ? selectNotes(await fetchRemoteNotes(opts.fetchImpl ?? fetch), from, to) : [];
 
+  const minVersion = readMinVersion(migrationsDir);
+  const droppedNotesWarning =
+    minVersion && compareSemver(from, minVersion) < 0
+      ? `typren migrate: this install of @typren/core only packs migration notes from ${minVersion} onward ` +
+        `(the newest few are kept; older ones are dropped at release time). Your project is upgrading from ${from}, ` +
+        `which predates that cutoff, so notes it may have needed could be missing from this run. ` +
+        `See https://typren.com/migrations/ or docs/migrations in the typren repo for the full history.`
+      : undefined;
+
   const files = listFiles(cwd);
   const results: MigrationNoteResult[] = [];
   for (const note of bundled) {
@@ -309,7 +332,7 @@ export async function migrate(opts: MigrateOptions = {}): Promise<MigrateResult>
     });
   }
 
-  return { from, to, notes: results };
+  return { from, to, notes: results, droppedNotesWarning };
 }
 
 /** Same hand-rolled style as the rest of this CLI's argv handling. */
@@ -335,6 +358,8 @@ export function printMigrateReport(result: MigrateResult, opts: { json?: boolean
     console.log(JSON.stringify(result));
     return;
   }
+
+  if (result.droppedNotesWarning) console.error(`\n${result.droppedNotesWarning}\n`);
 
   if (result.notes.length === 0) {
     console.log(`typren migrate: no notes apply between ${result.from} and ${result.to}.`);

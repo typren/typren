@@ -1013,7 +1013,7 @@ async function runMigrateCommand(args: string[]): Promise<boolean> {
     const result = await migrate({ cwd: opts.cwd, from: opts.from, to: opts.to, remote: opts.remote });
     printMigrateReport(result, { json: opts.json });
     const anyMatches = result.notes.some((n) => n.matches.length > 0);
-    if (anyMatches) process.exitCode = 1;
+    if (anyMatches || result.droppedNotesWarning) process.exitCode = 1;
     return true;
   } catch (err) {
     console.error((err as Error).message);

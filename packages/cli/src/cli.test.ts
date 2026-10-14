@@ -726,5 +726,17 @@ describe("main", () => {
       const printed = log.mock.calls.map((c) => c[0]).find((line) => typeof line === "string" && line.startsWith("{"));
       expect(JSON.parse(printed as string)).toMatchObject({ from: "0.4.0", to: "0.5.0" });
     });
+
+    it("exits non-zero when notes were dropped below the installed core's .min-version, even with no matches", async () => {
+      installFakeCore(dir);
+      fs.writeFileSync(path.join(dir, "node_modules", "@typren", "core", "migrations", ".min-version"), "0.4.0");
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await main(["migrate", "--cwd", dir, "--from", "0.1.0"]);
+
+      expect(process.exitCode).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("0.4.0"));
+    });
   });
 });
