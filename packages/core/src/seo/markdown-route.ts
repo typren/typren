@@ -18,8 +18,7 @@ export function createMarkdownRouteHandler(store: ContentStore, renderOverrides?
   return {
     async GET(_req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
       const { slug } = await params;
-      const pages = await store.listPages();
-      if (!pages.some((p) => p.slug === slug)) {
+      if (!(await store.exists(slug))) {
         return new NextResponse("Not found", { status: 404 });
       }
       const page = await store.getPublished(slug);

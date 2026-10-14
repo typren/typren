@@ -20,6 +20,11 @@ export function slugify(text: string): string {
  *  fallback that the dumb per-locale adapter doesn't know about. */
 export interface ContentStore {
   listPages(locale?: string): Promise<PageInfo[]>;
+  /** Whether `slug` has published content for a locale. A cheap existence
+   *  check, unlike `listPages`, which fans out over every slug in the store;
+   *  callers that only need to know "does this one page exist" (e.g. the
+   *  markdown mirror route) should use this instead of scanning the list. */
+  exists(slug: string, locale?: string): Promise<boolean>;
   /** Published content for a locale, with default-locale fallback applied. */
   getPublished(slug: string, locale?: string): Promise<LocalizedPage>;
   getDraft(slug: string, locale?: string): Promise<PageContent | null>;
@@ -97,6 +102,8 @@ export function createStore(
         })
       );
     },
+
+    exists: (slug, locale = defaultLocale) => adapter.exists(slug, locale),
 
     async getPublished(slug, locale = defaultLocale): Promise<LocalizedPage> {
       const base = adapter.parse(await adapter.readRaw(slug, defaultLocale));

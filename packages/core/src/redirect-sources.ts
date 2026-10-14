@@ -44,6 +44,7 @@ export function scanContentStore(contentDir: string): ContentStore {
 
   return {
     listPages: async () => slugs.map((slug) => ({ slug, title: slug, hasDraft: false, locales: ["default"] })),
+    exists: async (slug: string) => slugs.includes(slug),
     getPublished: async (slug: string) => {
       const { data } = parseMatter(fs.readFileSync(path.join(contentDir, `${slug}.md`), "utf8"));
       // The `slices` key is left in `meta` here (unlike packages/cli's parsePage,
