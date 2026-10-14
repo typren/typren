@@ -371,6 +371,34 @@ describe("createGithubAdapter: readInit", () => {
     expect(getCall[1]?.cache).toBe("force-cache");
     expect(readInit).toHaveBeenCalledWith("content/about.md");
   });
+
+  it("a write path's OWN internal GETs (cold-cache sha fetch, expectedVersion re-GET) never see readInit either", async () => {
+    const { fetchImpl, files } = makeFakeGithub();
+    const readInit = vi.fn(() => ({ cache: "force-cache" as const }));
+    const adapter = createGithubAdapter({
+      owner: "acme",
+      repo: "site",
+      token: "ghs_test",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      readInit,
+    });
+
+    // Cold cache: writeRaw's own sha lookup is an internal GET, not a caller
+    // read. A cached (force-cache) answer here would CAS against stale data.
+    await adapter.writeRaw("about", "v1");
+    let writePathGets = fetchImpl.mock.calls.filter(([, init]) => (init?.method ?? "GET") === "GET");
+    expect(writePathGets.every(([, init]) => init?.cache === undefined)).toBe(true);
+    expect(readInit).not.toHaveBeenCalled();
+
+    // expectedVersion's re-GET path, triggered by a stale cache.
+    fetchImpl.mockClear();
+    files.set("content/about.md", { content: "v2 externally", sha: "external-sha" });
+    await expect(adapter.writeRaw("about", "v3", undefined, { expectedVersion: "not-current" })).rejects.toThrow();
+    writePathGets = fetchImpl.mock.calls.filter(([, init]) => (init?.method ?? "GET") === "GET");
+    expect(writePathGets.length).toBeGreaterThan(0);
+    expect(writePathGets.every(([, init]) => init?.cache === undefined)).toBe(true);
+    expect(readInit).not.toHaveBeenCalled();
+  });
 });
 
 describe("createGithubAdapter: draftBranch", () => {

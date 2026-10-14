@@ -249,10 +249,19 @@ export function createGithubAdapter({
   }
 
   /** GET one file's content + sha. Returns null on 404. Caches the sha and
-   *  the store's own content-hash version alongside it. */
-  async function getFile(relPath: string, ref: string): Promise<{ text: string; sha: string; version: string } | null> {
+   *  the store's own content-hash version alongside it.
+   *
+   *  `forWrite` skips `readInit`: a write path's own internal reads (the
+   *  cold-cache sha fetch, the `expectedVersion` re-GET) must always see the
+   *  server's current state, never a host's cache hint (e.g. `force-cache`)
+   *  -- CASing against a cached read would defeat the whole point of CAS. */
+  async function getFile(
+    relPath: string,
+    ref: string,
+    forWrite = false
+  ): Promise<{ text: string; sha: string; version: string } | null> {
     assertAllowed(relPath);
-    const res = await githubFetch(apiUrl(relPath, ref), readInit?.(relPath));
+    const res = await githubFetch(apiUrl(relPath, ref), forWrite ? undefined : readInit?.(relPath));
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`typren: GitHub read of "${relPath}" failed (${res.status}): ${await res.text()}`);
     const data = (await res.json()) as GithubContentsGetResponse;
@@ -301,7 +310,7 @@ export function createGithubAdapter({
 
     if (opts?.expectedVersion !== undefined) {
       if (cached === undefined || cached.version !== opts.expectedVersion) {
-        const fresh = await getFile(relPath, ref);
+        const fresh = await getFile(relPath, ref, true);
         const freshVersion = fresh?.version ?? null;
         if (freshVersion !== opts.expectedVersion) throw new ConflictError(slug, freshVersion, opts.expectedVersion);
         cached = fresh ? { sha: fresh.sha, version: fresh.version } : undefined;
@@ -309,7 +318,7 @@ export function createGithubAdapter({
     }
 
     let sha = cached?.sha;
-    if (sha === undefined && opts?.expectedVersion === undefined) sha = (await getFile(relPath, ref))?.sha;
+    if (sha === undefined && opts?.expectedVersion === undefined) sha = (await getFile(relPath, ref, true))?.sha;
 
     const res = await githubFetch(apiUrl(relPath, ref), {
       method: "PUT",
@@ -346,7 +355,7 @@ export function createGithubAdapter({
   async function deleteFileNow(relPath: string, slug: string, message: string, ref: string): Promise<void> {
     assertAllowed(relPath);
     let sha = shaCache.get(relPath)?.sha;
-    if (sha === undefined) sha = (await getFile(relPath, ref))?.sha;
+    if (sha === undefined) sha = (await getFile(relPath, ref, true))?.sha;
     if (sha === undefined) return; // already absent
 
     const res = await githubFetch(apiUrl(relPath, ref), {

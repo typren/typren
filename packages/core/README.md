@@ -84,17 +84,24 @@ GitHub at request time, as long as two things are wired up so a page doesn't
 re-fetch GitHub on every request and a publish is still fast to see:
 
 1. **Cache the adapter's reads** with `readInit`, so your host framework's
-   fetch cache (not this package) owns the caching:
+   fetch cache (not this package) owns the caching. `readInit` only ever
+   applies to a READ the adapter does on a caller's behalf (`readRaw`,
+   `listSlugs`, `exists`, ...); a write's own internal reads (the sha lookup
+   before a PUT, the `expectedVersion` re-GET) always bypass it, since CASing
+   a write against a cached read would defeat the whole point of CAS:
 
    ```ts
    import { createGithubAdapter } from "@typren/core";
 
-   // The SITE-RENDER instance: reads are cached and tagged.
+   // The SITE-RENDER instance: reads are cached and tagged. `cache:
+   // "force-cache"` opts into the platform's fetch cache at all (Next's
+   // default for a `fetch` call varies by context); `next.tags` is what
+   // the webhook/onPublish invalidation below targets.
    const siteAdapter = createGithubAdapter({
      owner: "acme",
      repo: "site",
      token: ghToken,
-     readInit: () => ({ next: { tags: ["typren-content"] } }), // Next's fetch-cache tag
+     readInit: () => ({ cache: "force-cache", next: { tags: ["typren-content"] } }),
    });
 
    // The EDITOR's own instance: NEVER set readInit here. Draft reads must
@@ -117,7 +124,15 @@ re-fetch GitHub on every request and a publish is still fast to see:
    const { POST } = { POST: createGithubWebhookHandler({
      secret: process.env.GITHUB_WEBHOOK_SECRET!,
      branch: "main",
-     onChange: async () => revalidateTag("typren-content"),
+     // `change.paths` is every path the push actually touched: a host that
+     // tags reads per-path/per-slug (rather than one site-wide tag) can
+     // invalidate just those instead of everything. Fall back to the
+     // one-tag example above if `change.full` is true (a force push or an
+     // unenumerable payload): there is nothing more specific to invalidate.
+     onChange: async (change) => {
+       if (change.full) return revalidateTag("typren-content");
+       for (const slug of change.slugs) revalidateTag(`typren-content:${slug}`);
+     },
    }) };
    export { POST };
    ```
@@ -127,7 +142,7 @@ re-fetch GitHub on every request and a publish is still fast to see:
    export const cmsConfig: CmsConfig = {
      // ...
      adapter: editorAdapter,
-     onPublish: async () => revalidateTag("typren-content"), // same tag, same cache
+     onPublish: async (slug) => revalidateTag(`typren-content:${slug}`), // same tag scheme, same cache
    };
    ```
 
