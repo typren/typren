@@ -63,10 +63,16 @@ calls your Server Actions and it's the only place that needs an identity.
 | `@typren/core/auth/local` | the reference `AuthAdapter`: a static allowlist |
 | `@typren/core/auth/next-auth` | `AuthAdapter` over an existing NextAuth session |
 | `@typren/core/auth/clerk` | `AuthAdapter` over an existing Clerk session |
+| `@typren/core/auth/better-auth` | `AuthAdapter` over an existing Better Auth session |
+| `@typren/core/auth/supabase` | `AuthAdapter` over an existing Supabase session |
+| `@typren/core/auth/oidc` | `AuthAdapter` verifying a generic OIDC/JWT bearer token (Okta, Entra ID, Auth0, Keycloak, Google Workspace SSO), plus a `cfAccessAuthAdapter` preset for Cloudflare Access |
 | `@typren/core/theme.css` | the `--typren-*` CSS variable contract editor UI reads |
 
-`next`, `next-auth`, `@clerk/nextjs`, `react` and `react-dom` are all optional
-peer dependencies. Install only the ones the adapters you actually use need.
+`next`, `next-auth`, `@clerk/nextjs`, `jose`, `react` and `react-dom` are all
+optional peer dependencies. Install only the ones the adapters you actually
+use need (`jose` backs `auth/oidc`'s JWT verification; Better Auth and
+Supabase need no extra package, the host passes in an already-constructed
+session getter or client).
 
 ## Adapters are interfaces, not requirements
 
