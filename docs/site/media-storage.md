@@ -47,7 +47,7 @@ const mediaAdapter = createS3MediaAdapter({
   accessKeyId: process.env.S3_ACCESS_KEY_ID!,
   secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
   publicBaseUrl: "https://media.example.com",
-  prefix: "uploads/", // optional, but MUST end in "/" if set
+  prefix: "uploads/", // required; must end in "/"
 });
 ```
 
@@ -114,8 +114,9 @@ on just this bucket.
 
 ### Prefix rules
 
-If set, `prefix` must be non-empty and end in `"/"` — construction throws
-otherwise. A prefix without a trailing slash is a shared-bucket collision
+`prefix` is required, must be non-empty, and must end in `"/"`; construction
+throws otherwise. Without a prefix the adapter would list, and let authors
+delete, every object in the bucket. A prefix without a trailing slash is a shared-bucket collision
 risk: `"siteA"` also matches the key `"siteAB/x"` under a plain
 `startsWith` check, so one site's adapter could list or delete another
 site's objects. `"siteA/"` can't.
