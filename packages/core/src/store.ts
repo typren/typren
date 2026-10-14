@@ -135,14 +135,18 @@ export function createStore(
     async saveDraft(slug, page, baseVersion, locale = defaultLocale) {
       if (baseVersion !== undefined) {
         // Draft-precedence: compare against what the editor actually loaded.
-        // ponytail: read-then-write has a TOCTOU window: fine for a single-node
-        // fs CMS. Upgrade path: an atomic adapter (git blob-sha / KV CAS) moves
-        // the compare into the adapter via an optional `expectedVersion` hook.
+        // ponytail: this pre-check is still a read-then-write with a TOCTOU
+        // window on its own (fine for a single-node fs CMS, which has nothing
+        // else to CAS against). For an atomic adapter, `baseVersion` is also
+        // passed through as `writeDraftRaw`'s `expectedVersion`, so the real
+        // compare-and-swap happens at write time against the adapter's own
+        // server-side check (e.g. github-adapter's cached blob sha), closing
+        // the window this pre-check alone can't.
         const cur = await readVersion(slug, locale);
         if (cur !== baseVersion) throw new ConflictError(slug, cur, baseVersion);
       }
       const raw = adapter.serialize(page);
-      await adapter.writeDraftRaw(slug, raw, locale);
+      await adapter.writeDraftRaw(slug, raw, locale, baseVersion !== undefined ? { expectedVersion: baseVersion } : undefined);
       const version = versionOf(raw);
       opts.onSaveDraft?.(slug, locale, version);
       return version;

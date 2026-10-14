@@ -2,7 +2,7 @@ import path from "node:path";
 import matter from "gray-matter";
 import type { ContentAdapter, PageContent, Slice } from "./types";
 import { localeSubdir } from "./localize";
-import { ConflictError } from "./version";
+import { ConflictError, versionOf } from "./version";
 
 const GITHUB_API = "https://api.github.com";
 
@@ -166,11 +166,15 @@ export function createGithubAdapter({
     return relPath;
   };
 
-  // relPath -> last-known blob sha, populated on every successful read/write
-  // and consulted (not re-fetched) on the next write to the same path. A
-  // cold cache still gets a fresh GET immediately before the PUT, so every
-  // write is CAS'd against GitHub's server-side check either way.
-  const shaCache = new Map<string, string>();
+  // relPath -> last-known {sha, version}, populated on every successful
+  // read/write and consulted (not re-fetched) on the next write to the same
+  // path. `version` is the store's content-hash version (version.ts's
+  // versionOf), kept alongside `sha` so a write with `opts.expectedVersion`
+  // can tell whether the cache is still trustworthy for THIS request before
+  // trusting its sha (see putFile). A cold cache still gets a fresh GET
+  // immediately before the PUT, so every write is CAS'd against GitHub's
+  // server-side check either way.
+  const shaCache = new Map<string, { sha: string; version: string }>();
 
   // Same endpoint for a file or a directory listing -- GitHub's Contents API
   // returns an object for the former, an array for the latter.
@@ -191,8 +195,9 @@ export function createGithubAdapter({
       },
     });
 
-  /** GET one file's content + sha. Returns null on 404. Caches the sha. */
-  async function getFile(relPath: string): Promise<{ text: string; sha: string } | null> {
+  /** GET one file's content + sha. Returns null on 404. Caches the sha and
+   *  the store's own content-hash version alongside it. */
+  async function getFile(relPath: string): Promise<{ text: string; sha: string; version: string } | null> {
     assertAllowed(relPath);
     const res = await githubFetch(apiUrl(relPath), readInit?.(relPath));
     if (res.status === 404) return null;
@@ -200,17 +205,45 @@ export function createGithubAdapter({
     const data = (await res.json()) as GithubContentsGetResponse;
     if (data.type !== "file") throw new Error(`typren: "${relPath}" is a ${data.type}, not a file`);
     const text = Buffer.from(data.content, data.encoding === "base64" ? "base64" : "utf8").toString("utf8");
-    shaCache.set(relPath, data.sha);
-    return { text, sha: data.sha };
+    const version = versionOf(text);
+    shaCache.set(relPath, { sha: data.sha, version });
+    return { text, sha: data.sha, version };
   }
 
   /** PUT (create or update) one file. Compare-and-swaps against the cached
    *  sha (fetching one first when the cache is cold and the file might
-   *  already exist); a sha GitHub rejects as stale throws `ConflictError`. */
-  async function putFile(relPath: string, slug: string, text: string, message: string): Promise<void> {
+   *  already exist); a sha GitHub rejects as stale throws `ConflictError`.
+   *
+   *  With `opts.expectedVersion`, additionally enforces the store's own
+   *  version-based optimistic lock AT the adapter, closing the TOCTOU window
+   *  between a caller's own read-then-write check and this write (see
+   *  store.ts's saveDraft). The cached `{sha, version}` pair is only trusted
+   *  when its version already matches `expectedVersion`: a mismatch means the
+   *  cache is either cold or was moved by some OTHER request (concurrent read
+   *  or write to this same path), so this call re-GETs to see the server's
+   *  current truth rather than let that other request's cached sha stand in
+   *  for what THIS call checked. */
+  async function putFile(
+    relPath: string,
+    slug: string,
+    text: string,
+    message: string,
+    opts?: { expectedVersion?: string }
+  ): Promise<void> {
     assertAllowed(relPath);
-    let sha = shaCache.get(relPath);
-    if (sha === undefined) sha = (await getFile(relPath))?.sha;
+    let cached = shaCache.get(relPath);
+
+    if (opts?.expectedVersion !== undefined) {
+      if (cached === undefined || cached.version !== opts.expectedVersion) {
+        const fresh = await getFile(relPath);
+        const freshVersion = fresh?.version ?? null;
+        if (freshVersion !== opts.expectedVersion) throw new ConflictError(slug, freshVersion, opts.expectedVersion);
+        cached = fresh ? { sha: fresh.sha, version: fresh.version } : undefined;
+      }
+    }
+
+    let sha = cached?.sha;
+    if (sha === undefined && opts?.expectedVersion === undefined) sha = (await getFile(relPath))?.sha;
 
     const res = await githubFetch(apiUrl(relPath), {
       method: "PUT",
@@ -227,14 +260,14 @@ export function createGithubAdapter({
     }
     if (!res.ok) throw new Error(`typren: GitHub write to "${relPath}" failed (${res.status}): ${await res.text()}`);
     const data = (await res.json()) as GithubContentsPutResponse;
-    shaCache.set(relPath, data.content.sha);
+    shaCache.set(relPath, { sha: data.content.sha, version: versionOf(text) });
   }
 
   /** DELETE one file. No-op (not an error) when it doesn't exist, matching
    *  the fs adapter's idempotent delete. */
   async function deleteFile(relPath: string, slug: string, message: string): Promise<void> {
     assertAllowed(relPath);
-    let sha = shaCache.get(relPath);
+    let sha = shaCache.get(relPath)?.sha;
     if (sha === undefined) sha = (await getFile(relPath))?.sha;
     if (sha === undefined) return; // already absent
 
@@ -303,14 +336,14 @@ export function createGithubAdapter({
       if (file === null) throw new Error(`typren: "${slug}" does not exist`);
       return file.text;
     },
-    writeRaw: async (slug: string, raw: string, locale?: string) =>
-      putFile(pagePath(slug, locale), slug, raw, `content: publish ${slug}`),
+    writeRaw: async (slug: string, raw: string, locale?: string, opts?: { expectedVersion?: string }) =>
+      putFile(pagePath(slug, locale), slug, raw, `content: publish ${slug}`, opts),
     deletePublished: async (slug: string, locale?: string) =>
       deleteFile(pagePath(slug, locale), slug, `content: delete ${slug}`),
 
     readDraftRaw: async (slug: string, locale?: string) => (await getFile(draftPath(slug, locale)))?.text ?? null,
-    writeDraftRaw: async (slug: string, raw: string, locale?: string) =>
-      putFile(draftPath(slug, locale), slug, raw, `content: draft ${slug}`),
+    writeDraftRaw: async (slug: string, raw: string, locale?: string, opts?: { expectedVersion?: string }) =>
+      putFile(draftPath(slug, locale), slug, raw, `content: draft ${slug}`, opts),
     deleteDraft: async (slug: string, locale?: string) =>
       deleteFile(draftPath(slug, locale), slug, `content: discard draft ${slug}`),
     hasDraft: async (slug: string, locale?: string) => fileExists(draftPath(slug, locale)),

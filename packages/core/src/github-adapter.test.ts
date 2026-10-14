@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { createContentAdapterContractSuite } from "@typren/contract-tests";
 import { createGithubAdapter, isAllowedRepoPath } from "./github-adapter";
-import { ConflictError } from "./version";
+import { createStore } from "./store";
+import { ConflictError, versionOf } from "./version";
 
 // --- a tiny in-memory fake of the GitHub Contents API, driving the adapter
 // through a real fetch-shaped function so tests exercise the actual request/
@@ -200,6 +201,69 @@ describe("createGithubAdapter: compare-and-swap", () => {
     await adapter.writeRaw("first-write", "content");
     const getCalls = fetchImpl.mock.calls.filter(([, init]) => (init?.method ?? "GET") === "GET");
     expect(getCalls.length).toBeGreaterThan(0);
+  });
+});
+
+describe("createGithubAdapter: opts.expectedVersion CAS", () => {
+  it("writes through when expectedVersion matches the path's current content version", async () => {
+    const { adapter, files } = makeAdapter();
+    await adapter.writeDraftRaw("about", "v1");
+    const v1 = versionOf("v1");
+    await adapter.writeDraftRaw("about", "v2", undefined, { expectedVersion: v1 });
+    expect(files.get("content/_drafts/about.md")?.content).toBe("v2");
+  });
+
+  it("rejects when expectedVersion doesn't match the path's current content version, without clobbering it", async () => {
+    const { adapter, files } = makeAdapter();
+    await adapter.writeDraftRaw("about", "v1");
+    await expect(adapter.writeDraftRaw("about", "v2", undefined, { expectedVersion: "not-the-real-version" })).rejects.toThrow(
+      ConflictError
+    );
+    expect(files.get("content/_drafts/about.md")?.content).toBe("v1");
+  });
+
+  it("never lets a cached sha from another path's write stand in for this write's checked version", async () => {
+    // Two different paths: writing "other" must not poison "about"'s cache
+    // entry, since the CAS check is per-path.
+    const { adapter } = makeAdapter();
+    await adapter.writeDraftRaw("about", "v1");
+    await adapter.writeDraftRaw("other", "unrelated");
+    const v1 = versionOf("v1");
+    await adapter.writeDraftRaw("about", "v2", undefined, { expectedVersion: v1 }); // still valid for "about"
+    expect(await adapter.readDraftRaw("about")).toBe("v2");
+  });
+
+  it("re-GETs and rejects when a concurrent write already moved the cache past expectedVersion", async () => {
+    // A first write updates the cache to v2's version; a second write still
+    // checked against v1 must re-fetch the server's current truth (not trust
+    // its own now-stale pre-write cache read) and reject.
+    const { adapter, files } = makeAdapter();
+    await adapter.writeDraftRaw("about", "v1");
+    const v1 = versionOf("v1");
+    await adapter.writeDraftRaw("about", "v2", undefined, { expectedVersion: v1 }); // cache now holds v2's version
+    await expect(adapter.writeDraftRaw("about", "v3", undefined, { expectedVersion: v1 })).rejects.toThrow(ConflictError);
+    expect(files.get("content/_drafts/about.md")?.content).toBe("v2");
+  });
+});
+
+describe("store.saveDraft against createGithubAdapter: the documented expectedVersion upgrade path", () => {
+  it("two interleaved saveDrafts with the same baseVersion: the second throws ConflictError", async () => {
+    // Integration check that store.saveDraft actually threads `baseVersion`
+    // through to the adapter as `opts.expectedVersion` (not just that store.ts's
+    // own pre-check catches a stale save, which store.test.ts already covers
+    // against a non-atomic adapter): request A's write moves the GitHub-side
+    // version; request B, built from the same stale `base`, must fail even
+    // though nothing here relies on B's own in-process pre-check timing.
+    const { adapter } = makeAdapter();
+    const store = createStore(adapter);
+    await store.saveDraft("about", { meta: {}, slices: [], body: "v1" });
+    const base = (await store.currentVersion("about"))!;
+
+    await store.saveDraft("about", { meta: {}, slices: [], body: "from request A" }, base);
+    await expect(store.saveDraft("about", { meta: {}, slices: [], body: "from request B" }, base)).rejects.toThrow(
+      ConflictError
+    );
+    expect((await store.getDraft("about"))!.body.trim()).toBe("from request A");
   });
 });
 
