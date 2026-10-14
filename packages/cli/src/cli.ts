@@ -818,7 +818,7 @@ Next steps:
 2. Render your content: import \`cmsStore\` from "@/cms.config" and
    \`SliceZone\` from "@/slices/slice-zone" into a page under ${appDir}/, e.g.:
 
-     const page = cmsStore.getPublished("home");
+     const page = await cmsStore.getPublished("home");
      return <SliceZone slices={page.slices} />;
 
 3. Start your dev server.

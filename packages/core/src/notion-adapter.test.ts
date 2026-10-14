@@ -1,13 +1,4 @@
 import { describe, it, expect, vi } from "vitest";
-
-// Only createFetchNotionClient's transport test below ever reaches spawnSync;
-// every other test injects the in-memory fakeClient and never spawns.
-vi.mock("node:child_process", () => {
-  const mock = { spawnSync: vi.fn() };
-  return { ...mock, default: mock };
-});
-
-import { spawnSync } from "node:child_process";
 import { createFetchNotionClient, createNotionAdapter, type NotionClient, type NotionPage } from "./notion-adapter";
 import type { NotionBlock } from "./notion-blocks";
 
@@ -24,24 +15,24 @@ function fakeClient(
   let nextId = 1;
   return {
     pages,
-    queryDatabase: () => pages.filter((p) => !p.archived),
-    retrievePage: (id) => pages.find((p) => p.id === id) ?? null,
-    createPage: (_databaseId, properties) => {
+    queryDatabase: async () => pages.filter((p) => !p.archived),
+    retrievePage: async (id) => pages.find((p) => p.id === id) ?? null,
+    createPage: async (_databaseId, properties) => {
       const page: NotionPage = { id: `page-${nextId++}`, archived: false, properties: { ...properties } };
       pages.push(page);
       return page;
     },
-    updatePage: (id, properties) => {
+    updatePage: async (id, properties) => {
       const page = pages.find((p) => p.id === id);
       if (!page) throw new Error(`no such page ${id}`);
       Object.assign(page.properties, properties);
       return page;
     },
-    archivePage: (id) => {
+    archivePage: async (id) => {
       const page = pages.find((p) => p.id === id);
       if (page) page.archived = true;
     },
-    ...(Object.keys(blocksByPageId).length ? { listBlockChildren: (id: string) => blocksByPageId[id] ?? [] } : {}),
+    ...(Object.keys(blocksByPageId).length ? { listBlockChildren: async (id: string) => blocksByPageId[id] ?? [] } : {}),
   };
 }
 
@@ -52,7 +43,7 @@ const properties = {
 };
 
 describe("notion-adapter list/read", () => {
-  it("lists and reads records keyed by page id when no slugProperty is set", () => {
+  it("lists and reads records keyed by page id when no slugProperty is set", async () => {
     const client = fakeClient([
       {
         id: "abc",
@@ -66,93 +57,93 @@ describe("notion-adapter list/read", () => {
     ]);
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties });
 
-    expect(adapter.listSlugs()).toEqual(["abc"]);
-    expect(adapter.exists("abc")).toBe(true);
-    expect(adapter.exists("missing")).toBe(false);
-    expect(adapter.listLocales("abc")).toEqual(["en"]);
-    expect(adapter.listLocales("missing")).toEqual([]);
+    expect(await adapter.listSlugs()).toEqual(["abc"]);
+    expect(await adapter.exists("abc")).toBe(true);
+    expect(await adapter.exists("missing")).toBe(false);
+    expect(await adapter.listLocales("abc")).toEqual(["en"]);
+    expect(await adapter.listLocales("missing")).toEqual([]);
 
-    const parsed = adapter.parse(adapter.readRaw("abc"));
+    const parsed = adapter.parse(await adapter.readRaw("abc"));
     expect(parsed).toEqual({ meta: { name: "Ada Lovelace", balance: 42, active: true }, slices: [], body: "" });
   });
 
-  it("throws reading a slug that doesn't exist", () => {
+  it("throws reading a slug that doesn't exist", async () => {
     const adapter = createNotionAdapter({ client: fakeClient(), databaseId: "db1", properties });
-    expect(() => adapter.readRaw("nope")).toThrow(/not found/);
+    await expect(adapter.readRaw("nope")).rejects.toThrow(/not found/);
   });
 
-  it("excludes archived rows from listSlugs/exists", () => {
+  it("excludes archived rows from listSlugs/exists", async () => {
     const client = fakeClient([{ id: "abc", archived: true, properties: {} }]);
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties });
-    expect(adapter.listSlugs()).toEqual([]);
-    expect(adapter.exists("abc")).toBe(false);
+    expect(await adapter.listSlugs()).toEqual([]);
+    expect(await adapter.exists("abc")).toBe(false);
   });
 
-  it("throws loud on a property-type mismatch against a real Notion response", () => {
+  it("throws loud on a property-type mismatch against a real Notion response", async () => {
     const client = fakeClient([{ id: "abc", archived: false, properties: { Balance: { type: "select", select: null } } }]);
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties: { balance: properties.balance } });
-    expect(() => adapter.readRaw("abc")).toThrow(/expected type "number" but got "select"/);
+    await expect(adapter.readRaw("abc")).rejects.toThrow(/expected type "number" but got "select"/);
   });
 });
 
 describe("notion-adapter write/delete round-trip", () => {
-  it("creates a new record via slugProperty, updates it, then deletes (archives) it", () => {
+  it("creates a new record via slugProperty, updates it, then deletes (archives) it", async () => {
     const client = fakeClient();
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties, slugProperty: "name" });
 
     const raw = adapter.serialize({ meta: { name: "ada-lovelace", balance: 10, active: false }, slices: [], body: "" });
-    adapter.writeRaw("ada-lovelace", raw);
-    expect(adapter.listSlugs()).toEqual(["ada-lovelace"]);
-    expect(adapter.exists("ada-lovelace")).toBe(true);
+    await adapter.writeRaw("ada-lovelace", raw);
+    expect(await adapter.listSlugs()).toEqual(["ada-lovelace"]);
+    expect(await adapter.exists("ada-lovelace")).toBe(true);
 
     const updated = adapter.serialize({ meta: { name: "ada-lovelace", balance: 25, active: true }, slices: [], body: "" });
-    adapter.writeRaw("ada-lovelace", updated);
-    expect(adapter.parse(adapter.readRaw("ada-lovelace")).meta).toEqual({
+    await adapter.writeRaw("ada-lovelace", updated);
+    expect(adapter.parse(await adapter.readRaw("ada-lovelace")).meta).toEqual({
       name: "ada-lovelace",
       balance: 25,
       active: true,
     });
     expect(client.pages).toHaveLength(1); // update, not a second create
 
-    adapter.deletePublished("ada-lovelace");
-    expect(adapter.exists("ada-lovelace")).toBe(false);
-    expect(adapter.listSlugs()).toEqual([]);
+    await adapter.deletePublished("ada-lovelace");
+    expect(await adapter.exists("ada-lovelace")).toBe(false);
+    expect(await adapter.listSlugs()).toEqual([]);
     expect(client.pages[0].archived).toBe(true); // archived, not removed from the "database"
 
     // Deleting an already-absent slug is a no-op, not a throw.
-    expect(() => adapter.deletePublished("ada-lovelace")).not.toThrow();
+    await expect(adapter.deletePublished("ada-lovelace")).resolves.not.toThrow();
   });
 
-  it("throws creating a new record when no slugProperty is configured", () => {
+  it("throws creating a new record when no slugProperty is configured", async () => {
     const adapter = createNotionAdapter({ client: fakeClient(), databaseId: "db1", properties });
     const raw = adapter.serialize({ meta: { name: "x", balance: 0, active: false }, slices: [], body: "" });
-    expect(() => adapter.writeRaw("some-slug", raw)).toThrow(/slugProperty/);
+    await expect(adapter.writeRaw("some-slug", raw)).rejects.toThrow(/slugProperty/);
   });
 });
 
 describe("notion-adapter draft write-through", () => {
-  it("aliases draft ops to published: writeDraftRaw writes through, readDraftRaw/hasDraft report no draft", () => {
+  it("aliases draft ops to published: writeDraftRaw writes through, readDraftRaw/hasDraft report no draft", async () => {
     const client = fakeClient();
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties, slugProperty: "name" });
     const raw = adapter.serialize({ meta: { name: "ada-lovelace", balance: 5, active: false }, slices: [], body: "" });
 
-    adapter.writeDraftRaw("ada-lovelace", raw);
-    expect(adapter.hasDraft("ada-lovelace")).toBe(false);
-    expect(adapter.readDraftRaw("ada-lovelace")).toBeNull();
-    expect(adapter.exists("ada-lovelace")).toBe(true); // the write-through already published it
-    expect(adapter.parse(adapter.readRaw("ada-lovelace")).meta.balance).toBe(5);
+    await adapter.writeDraftRaw("ada-lovelace", raw);
+    expect(await adapter.hasDraft("ada-lovelace")).toBe(false);
+    expect(await adapter.readDraftRaw("ada-lovelace")).toBeNull();
+    expect(await adapter.exists("ada-lovelace")).toBe(true); // the write-through already published it
+    expect((adapter.parse(await adapter.readRaw("ada-lovelace"))).meta.balance).toBe(5);
 
     // No-op, must not throw or touch the published row it aliases.
-    expect(() => adapter.deleteDraft("ada-lovelace")).not.toThrow();
-    expect(adapter.exists("ada-lovelace")).toBe(true);
+    await expect(adapter.deleteDraft("ada-lovelace")).resolves.not.toThrow();
+    expect(await adapter.exists("ada-lovelace")).toBe(true);
   });
 });
 
 describe("notion-adapter locale guard", () => {
-  it("throws on an unconfigured locale, matching markdown-adapter's traversal guard", () => {
+  it("throws on an unconfigured locale, matching markdown-adapter's traversal guard", async () => {
     const adapter = createNotionAdapter({ client: fakeClient(), databaseId: "db1", properties });
-    expect(() => adapter.listSlugs("fr")).toThrow(/unknown locale/);
-    expect(() => adapter.exists("abc", "fr")).toThrow(/unknown locale/);
+    await expect(adapter.listSlugs("fr")).rejects.toThrow(/unknown locale/);
+    await expect(adapter.exists("abc", "fr")).rejects.toThrow(/unknown locale/);
   });
 });
 
@@ -168,7 +159,7 @@ describe("notion-adapter property type mapping", () => {
     related: { name: "Related", type: "relation" as const },
   };
 
-  it("reads select/status/multi_select/date/relation properties off a Notion-shaped row", () => {
+  it("reads select/status/multi_select/date/relation properties off a Notion-shaped row", async () => {
     const client = fakeClient([
       {
         id: "row-1",
@@ -185,7 +176,7 @@ describe("notion-adapter property type mapping", () => {
     ]);
     const adapter = createNotionAdapter({ client, databaseId: "db-wide", properties: wideProperties });
 
-    expect(adapter.parse(adapter.readRaw("row-1")).meta).toEqual({
+    expect(adapter.parse(await adapter.readRaw("row-1")).meta).toEqual({
       category: "Alpha",
       score: -12.5,
       state: "Live",
@@ -195,11 +186,11 @@ describe("notion-adapter property type mapping", () => {
     });
   });
 
-  it("writes select/status/multi_select/date/relation properties back through an update", () => {
+  it("writes select/status/multi_select/date/relation properties back through an update", async () => {
     const client = fakeClient([{ id: "row-1", archived: false, properties: {} }]);
     const adapter = createNotionAdapter({ client, databaseId: "db-wide", properties: wideProperties });
 
-    adapter.writeRaw(
+    await adapter.writeRaw(
       "row-1",
       adapter.serialize({
         meta: { category: "Beta", score: 20, state: "Draft", labels: ["blue"], seenAt: null, related: [] },
@@ -208,7 +199,7 @@ describe("notion-adapter property type mapping", () => {
       })
     );
 
-    expect(adapter.parse(adapter.readRaw("row-1")).meta).toEqual({
+    expect(adapter.parse(await adapter.readRaw("row-1")).meta).toEqual({
       category: "Beta",
       score: 20,
       state: "Draft",
@@ -226,13 +217,13 @@ describe("notion-adapter contact-shaped property types", () => {
     site: { name: "Site", type: "url" as const },
   };
 
-  it("round-trips email/phone_number/url and defaults each to null when absent", () => {
+  it("round-trips email/phone_number/url and defaults each to null when absent", async () => {
     const client = fakeClient([{ id: "row-1", archived: false, properties: {} }]);
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties: contactProperties });
 
-    expect(adapter.parse(adapter.readRaw("row-1")).meta).toEqual({ email: null, phone: null, site: null });
+    expect(adapter.parse(await adapter.readRaw("row-1")).meta).toEqual({ email: null, phone: null, site: null });
 
-    adapter.writeRaw(
+    await adapter.writeRaw(
       "row-1",
       adapter.serialize({
         meta: { email: "a@x.test", phone: "+1 555", site: "https://x.test" },
@@ -240,7 +231,7 @@ describe("notion-adapter contact-shaped property types", () => {
         body: "",
       })
     );
-    expect(adapter.parse(adapter.readRaw("row-1")).meta).toEqual({
+    expect(adapter.parse(await adapter.readRaw("row-1")).meta).toEqual({
       email: "a@x.test",
       phone: "+1 555",
       site: "https://x.test",
@@ -251,14 +242,14 @@ describe("notion-adapter contact-shaped property types", () => {
 describe("notion-adapter content: \"blocks\"", () => {
   const nameOnly = { name: { name: "Name", type: "title" as const } };
 
-  it("reads body as the page's block children converted to markdown", () => {
+  it("reads body as the page's block children converted to markdown", async () => {
     const client = fakeClient(
       [{ id: "row-1", archived: false, properties: { Name: { title: [{ plain_text: "Doc" }] } } }],
       { "row-1": [{ id: "b1", type: "paragraph", paragraph: { rich_text: [{ plain_text: "hello" }] } }] }
     );
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "blocks" });
 
-    expect(adapter.parse(adapter.readRaw("row-1"))).toEqual({
+    expect(adapter.parse(await adapter.readRaw("row-1"))).toEqual({
       meta: { name: "Doc" },
       slices: [],
       body: "hello",
@@ -271,18 +262,18 @@ describe("notion-adapter content: \"blocks\"", () => {
     ).toThrow(/listBlockChildren/);
   });
 
-  it("warns once (not on every write) instead of silently dropping a body edit", () => {
+  it("warns once (not on every write) instead of silently dropping a body edit", async () => {
     const client = fakeClient([{ id: "row-1", archived: false, properties: {} }], { "row-1": [] });
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "blocks" });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc" }, slices: [], body: "edited body" }));
-    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc 2" }, slices: [], body: "edited again" }));
+    await adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc" }, slices: [], body: "edited body" }));
+    await adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc 2" }, slices: [], body: "edited again" }));
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/content:"blocks".*not written back/);
     // The property write itself still went through.
-    expect(adapter.parse(adapter.readRaw("row-1")).meta).toEqual({ name: "Doc 2" });
+    expect(adapter.parse(await adapter.readRaw("row-1")).meta).toEqual({ name: "Doc 2" });
     warn.mockRestore();
   });
 });
@@ -299,14 +290,14 @@ describe('notion-adapter content: "slices"', () => {
     { id: "b4", type: "callout", callout: { rich_text: [{ plain_text: "::totally-unknown-widget" }] } },
   ];
 
-  it("reads a page's block content as an ordered PageContent.slices, body always empty", () => {
+  it("reads a page's block content as an ordered PageContent.slices, body always empty", async () => {
     const client = fakeClient(
       [{ id: "row-1", archived: false, properties: { Name: { title: [{ plain_text: "Doc" }] } } }],
       { "row-1": pageBlocks }
     );
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "slices" });
 
-    expect(adapter.parse(adapter.readRaw("row-1"))).toEqual({
+    expect(adapter.parse(await adapter.readRaw("row-1"))).toEqual({
       meta: { name: "Doc" },
       slices: [
         { slice: "prose", markdown: "intro" },
@@ -318,14 +309,14 @@ describe('notion-adapter content: "slices"', () => {
     });
   });
 
-  it("passes an unregistered component name through untouched, never throwing — registry-fallback is the render layer's job (see SliceZone in templates/init.ts), not this adapter's", () => {
+  it("passes an unregistered component name through untouched, never throwing — registry-fallback is the render layer's job (see SliceZone in templates/init.ts), not this adapter's", async () => {
     const client = fakeClient([{ id: "row-1", archived: false, properties: {} }], {
       "row-1": [{ id: "b1", type: "callout", callout: { rich_text: [{ plain_text: "::mystery-widget" }] } }],
     });
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "slices" });
 
-    expect(() => adapter.readRaw("row-1")).not.toThrow();
-    expect(adapter.parse(adapter.readRaw("row-1")).slices).toEqual([{ slice: "mystery-widget" }]);
+    await expect(adapter.readRaw("row-1")).resolves.not.toThrow();
+    expect(adapter.parse(await adapter.readRaw("row-1")).slices).toEqual([{ slice: "mystery-widget" }]);
   });
 
   it("throws at construction when the client has no listBlockChildren", () => {
@@ -334,28 +325,28 @@ describe('notion-adapter content: "slices"', () => {
     ).toThrow(/listBlockChildren/);
   });
 
-  it("warns once (not on every write) instead of silently dropping slice edits; property writes still go through", () => {
+  it("warns once (not on every write) instead of silently dropping slice edits; property writes still go through", async () => {
     const client = fakeClient([{ id: "row-1", archived: false, properties: {} }], { "row-1": [] });
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "slices" });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const slices = [{ slice: "prose", markdown: "hi" }];
 
-    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc" }, slices, body: "" }));
-    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc 2" }, slices, body: "" }));
+    await adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc" }, slices, body: "" }));
+    await adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc 2" }, slices, body: "" }));
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/content:"slices".*not written back/);
     // The property write itself still went through.
-    expect(adapter.parse(adapter.readRaw("row-1")).meta).toEqual({ name: "Doc 2" });
+    expect(adapter.parse(await adapter.readRaw("row-1")).meta).toEqual({ name: "Doc 2" });
     warn.mockRestore();
   });
 
-  it("does not warn writing an empty slices array — nothing would be lost", () => {
+  it("does not warn writing an empty slices array — nothing would be lost", async () => {
     const client = fakeClient([{ id: "row-1", archived: false, properties: {} }], { "row-1": [] });
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties: nameOnly, content: "slices" });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc" }, slices: [], body: "" }));
+    await adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "Doc" }, slices: [], body: "" }));
 
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
@@ -368,18 +359,18 @@ describe("notion-adapter rich_text property + bodyProperty", () => {
     summary: { name: "Summary", type: "rich_text" as const },
   };
 
-  it("round-trips a rich_text property", () => {
+  it("round-trips a rich_text property", async () => {
     const client = fakeClient([{ id: "row-1", archived: false, properties: {} }]);
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties: noteProperties });
 
-    adapter.writeRaw(
+    await adapter.writeRaw(
       "row-1",
       adapter.serialize({ meta: { name: "n", summary: "a short summary" }, slices: [], body: "" })
     );
-    expect(adapter.parse(adapter.readRaw("row-1")).meta.summary).toBe("a short summary");
+    expect(adapter.parse(await adapter.readRaw("row-1")).meta.summary).toBe("a short summary");
   });
 
-  it("round-trips PageContent.body through a configured bodyProperty", () => {
+  it("round-trips PageContent.body through a configured bodyProperty", async () => {
     const client = fakeClient([{ id: "row-1", archived: false, properties: {} }]);
     const adapter = createNotionAdapter({
       client,
@@ -388,16 +379,16 @@ describe("notion-adapter rich_text property + bodyProperty", () => {
       bodyProperty: "summary",
     });
 
-    expect(adapter.parse(adapter.readRaw("row-1")).body).toBe("");
-    adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "n" }, slices: [], body: "the body text" }));
-    expect(adapter.parse(adapter.readRaw("row-1")).body).toBe("the body text");
+    expect(adapter.parse(await adapter.readRaw("row-1")).body).toBe("");
+    await adapter.writeRaw("row-1", adapter.serialize({ meta: { name: "n" }, slices: [], body: "the body text" }));
+    expect(adapter.parse(await adapter.readRaw("row-1")).body).toBe("the body text");
     // The property mapper's own type still wins over the bodyProperty default.
-    expect(adapter.parse(adapter.readRaw("row-1")).meta.summary).toBe("the body text");
+    expect(adapter.parse(await adapter.readRaw("row-1")).meta.summary).toBe("the body text");
   });
 });
 
 describe("notion-adapter listSlugs ordering", () => {
-  it("sorts more than one record's slugs", () => {
+  it("sorts more than one record's slugs", async () => {
     const client = fakeClient([
       { id: "row-1", archived: false, properties: { Name: { title: [{ plain_text: "Zed" }] } } },
       { id: "row-2", archived: false, properties: { Name: { title: [{ plain_text: "Ada" }] } } },
@@ -408,34 +399,31 @@ describe("notion-adapter listSlugs ordering", () => {
       properties: { name: { name: "Name", type: "title" as const } },
       slugProperty: "name",
     });
-    expect(adapter.listSlugs()).toEqual(["Ada", "Zed"]);
+    expect(await adapter.listSlugs()).toEqual(["Ada", "Zed"]);
   });
 });
 
 describe("createFetchNotionClient transport", () => {
-  it("keeps the integration token off the child process argv (stdin only)", () => {
-    const mocked = vi.mocked(spawnSync);
-    mocked.mockReturnValue({
-      error: undefined,
-      stdout: JSON.stringify({
-        status: 200,
-        text: JSON.stringify({ id: "p1", archived: false, properties: {} }),
-      }),
-      stderr: "",
-      status: 0,
-      signal: null,
-      output: [],
-      pid: 1,
-    } as unknown as ReturnType<typeof spawnSync>);
+  it("sends the integration token as a bearer header, never in the URL", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: "p1", archived: false, properties: {} }), { status: 200 });
+    }) as unknown as typeof fetch;
 
-    const page = createFetchNotionClient("secret_notion_token").retrievePage("p1");
+    const page = await createFetchNotionClient("secret_notion_token", fetchImpl).retrievePage("p1");
     expect(page).toEqual({ id: "p1", archived: false, properties: {} });
 
-    const call = mocked.mock.calls.at(-1)!;
-    const argv = call[1] as string[];
-    const opts = call[2] as { input?: string };
-    expect(argv.join(" ")).not.toContain("secret_notion_token");
-    expect(opts.input).toContain("secret_notion_token");
-    expect(argv.at(-1)).toBe("https://api.notion.com/v1/pages/p1");
+    const call = calls.at(-1)!;
+    expect(call.url).toBe("https://api.notion.com/v1/pages/p1");
+    expect(call.url).not.toContain("secret_notion_token");
+    const headers = new Headers(call.init?.headers);
+    expect(headers.get("authorization")).toBe("Bearer secret_notion_token");
+  });
+
+  it("returns null for a 404 (page absent)", async () => {
+    const fetchImpl = vi.fn(async () => new Response("", { status: 404 })) as unknown as typeof fetch;
+    const page = await createFetchNotionClient("secret_notion_token", fetchImpl).retrievePage("missing");
+    expect(page).toBeNull();
   });
 });

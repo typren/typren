@@ -38,24 +38,24 @@ export function scanContentStore(contentDir: string): ContentStore {
         .filter((slug: string) => Array.isArray(parseMatter(fs.readFileSync(path.join(contentDir, `${slug}.md`), "utf8")).data.slices))
     : [];
 
-  const notSupported = (op: string) => (): never => {
+  const notSupported = (op: string) => async (): Promise<never> => {
     throw new Error(`typren: scanContentStore is read-only, "${op}" is not supported`);
   };
 
   return {
-    listPages: () => slugs.map((slug) => ({ slug, title: slug, hasDraft: false, locales: ["default"] })),
-    getPublished: (slug: string) => {
+    listPages: async () => slugs.map((slug) => ({ slug, title: slug, hasDraft: false, locales: ["default"] })),
+    getPublished: async (slug: string) => {
       const { data } = parseMatter(fs.readFileSync(path.join(contentDir, `${slug}.md`), "utf8"));
       // The `slices` key is left in `meta` here (unlike packages/cli's parsePage,
       // which splits it out for its own diffing needs), buildRedirects only
       // ever reads `meta.aliases`, so there's nothing to gain from stripping it.
       return { meta: data as Record<string, unknown>, slices: [], body: "", locale: "default", isFallback: false };
     },
-    getDraft: () => null,
-    currentVersion: () => null,
+    getDraft: async () => null,
+    currentVersion: async () => null,
     saveDraft: notSupported("saveDraft"),
     discardDraft: notSupported("discardDraft"),
-    publish: async () => notSupported("publish")(),
+    publish: notSupported("publish"),
     createPage: notSupported("createPage"),
     renamePage: notSupported("renamePage"),
     duplicatePage: notSupported("duplicatePage"),

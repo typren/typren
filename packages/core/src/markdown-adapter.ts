@@ -44,6 +44,14 @@ export type MarkdownAdapterOptions = {
  * non-default locales live under `contentDir/<locale>/`. `parse`/`serialize`
  * are locale-agnostic. The locale never enters the file.
  */
+/** `createMarkdownAdapter`'s return type: `ContentAdapter` plus the one extra
+ *  the fs-backed adapter can offer that a network-backed one can't -- an
+ *  absolute on-disk root, for callers that need to site something beside it
+ *  (the `.typren/` settings dir, a collection's dir-overlap guard). Kept off
+ *  `ContentAdapter` itself (see that interface's doc comment) since neither
+ *  the GitHub nor Notion adapter has a real filesystem path to report. */
+export type MarkdownAdapter = ContentAdapter & { readonly root: string };
+
 export function createMarkdownAdapter({
   contentDir,
   draftDir,
@@ -52,7 +60,7 @@ export function createMarkdownAdapter({
   locales = [defaultLocale],
   draftSubdir = ".drafts",
   requireSliceArray = true,
-}: MarkdownAdapterOptions): ContentAdapter {
+}: MarkdownAdapterOptions): MarkdownAdapter {
   // Slugs flow in from client actions and become filesystem paths. Reject
   // anything that isn't a plain slug so "../" can't escape the content dir.
   const SAFE_SLUG = /^[a-z0-9][a-z0-9-]*$/i;
@@ -99,7 +107,7 @@ export function createMarkdownAdapter({
     parse,
     serialize,
 
-    listSlugs(locale = defaultLocale) {
+    async listSlugs(locale = defaultLocale) {
       const dir = localeDir(locale);
       if (!fs.existsSync(dir)) return []; // a locale with no content yet
       return fs
@@ -122,27 +130,36 @@ export function createMarkdownAdapter({
         .sort((a, b) => a.localeCompare(b));
     },
 
-    listLocales: (slug) => locales.filter((l) => fs.existsSync(pageFile(slug, l))),
+    async listLocales(slug) {
+      return locales.filter((l) => fs.existsSync(pageFile(slug, l)));
+    },
 
-    exists: (slug, locale) => fs.existsSync(pageFile(slug, locale)),
-    readRaw: (slug, locale) => fs.readFileSync(pageFile(slug, locale), "utf8"),
-    writeRaw: (slug, raw, locale) => {
+    async exists(slug, locale) {
+      return fs.existsSync(pageFile(slug, locale));
+    },
+    async readRaw(slug, locale) {
+      return fs.readFileSync(pageFile(slug, locale), "utf8");
+    },
+    async writeRaw(slug, raw, locale) {
       fs.mkdirSync(localeDir(locale ?? defaultLocale), { recursive: true });
       fs.writeFileSync(pageFile(slug, locale), raw);
     },
-    deletePublished: (slug, locale) => {
+    async deletePublished(slug, locale) {
       if (fs.existsSync(pageFile(slug, locale))) fs.rmSync(pageFile(slug, locale));
     },
 
-    readDraftRaw: (slug, locale) =>
-      fs.existsSync(draftFile(slug, locale)) ? fs.readFileSync(draftFile(slug, locale), "utf8") : null,
-    writeDraftRaw: (slug, raw, locale) => {
+    async readDraftRaw(slug, locale) {
+      return fs.existsSync(draftFile(slug, locale)) ? fs.readFileSync(draftFile(slug, locale), "utf8") : null;
+    },
+    async writeDraftRaw(slug, raw, locale) {
       fs.mkdirSync(localeDraftDir(locale ?? defaultLocale), { recursive: true });
       fs.writeFileSync(draftFile(slug, locale), raw);
     },
-    deleteDraft: (slug, locale) => {
+    async deleteDraft(slug, locale) {
       if (fs.existsSync(draftFile(slug, locale))) fs.rmSync(draftFile(slug, locale));
     },
-    hasDraft: (slug, locale) => fs.existsSync(draftFile(slug, locale)),
+    async hasDraft(slug, locale) {
+      return fs.existsSync(draftFile(slug, locale));
+    },
   };
 }

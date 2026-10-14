@@ -131,27 +131,23 @@ export interface ContentAdapter {
    *  store/actions read these instead of duplicating the config. */
   readonly locales: string[];
   readonly defaultLocale: string;
-  /** Absolute path to this adapter's content root. Lets callers that need to
-   *  site something beside it (the `.typren/` settings dir, a collection's
-   *  dir-overlap guard) do so without re-deriving or guessing the path. */
-  readonly root: string;
   /** Slugs of every editable (sliced) page in a locale (defaults to default). */
-  listSlugs(locale?: string): string[];
+  listSlugs(locale?: string): Promise<string[]>;
   /** Locales in which `slug` has a published file (switcher / translation status). */
-  listLocales(slug: string): string[];
-  exists(slug: string, locale?: string): boolean;
-  /** Raw published source (throws if absent; callers gate with `exists`). */
-  readRaw(slug: string, locale?: string): string;
-  writeRaw(slug: string, raw: string, locale?: string): void;
+  listLocales(slug: string): Promise<string[]>;
+  exists(slug: string, locale?: string): Promise<boolean>;
+  /** Raw published source (rejects if absent; callers gate with `exists`). */
+  readRaw(slug: string, locale?: string): Promise<string>;
+  writeRaw(slug: string, raw: string, locale?: string): Promise<void>;
   /** Delete the published source (and let the store also drop any draft). */
-  deletePublished(slug: string, locale?: string): void;
+  deletePublished(slug: string, locale?: string): Promise<void>;
   /** Raw draft source, or null when no draft is checked out. */
-  readDraftRaw(slug: string, locale?: string): string | null;
-  writeDraftRaw(slug: string, raw: string, locale?: string): void;
-  deleteDraft(slug: string, locale?: string): void;
-  hasDraft(slug: string, locale?: string): boolean;
+  readDraftRaw(slug: string, locale?: string): Promise<string | null>;
+  writeDraftRaw(slug: string, raw: string, locale?: string): Promise<void>;
+  deleteDraft(slug: string, locale?: string): Promise<void>;
+  hasDraft(slug: string, locale?: string): Promise<boolean>;
   /** Parse raw source into structured content, and back. Locale-agnostic: the
-   *  locale is a path segment, never inside the file. */
+   *  locale is a path segment, never inside the file. Pure/sync: no I/O. */
   parse(raw: string): PageContent;
   serialize(page: PageContent): string;
 }
@@ -202,6 +198,12 @@ export interface CmsConfig {
    *  tier in a private sibling dir, bootstrap tier in a root JSON file. No new
    *  adapter required to get Settings/onboarding working. */
   settingsAdapter?: SettingsAdapter;
+  /** Where the SiteSettings *content* doc itself is stored (distinct from
+   *  `settingsAdapter`'s bootstrap JSON above). Required when `adapter` has no
+   *  filesystem root to site a sibling `.typren/` dir next to (a GitHub or
+   *  Notion Pages adapter); omit for a markdown adapter, which keeps today's
+   *  derived location unchanged. */
+  settingsContentAdapter?: ContentAdapter;
   /** `false` disables first-run onboarding (embeds, tests, hosts that seed
    *  settings out-of-band). Omit = auto-detect via bootstrap `onboarded` flag. */
   onboarding?: false;

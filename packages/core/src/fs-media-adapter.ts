@@ -29,7 +29,7 @@ const mimeFromExt = (ext: string) => MIME_FROM_EXT[ext.toLowerCase()] ?? "applic
 /**
  * Filesystem media adapter over a flat directory (mirrors `markdown-adapter.ts`'s
  * conventions: a `create*Adapter(opts)` factory, a `SAFE_*` traversal guard,
- * idempotent delete). Async throughout (unlike `ContentAdapter`) because
+ * idempotent delete). Async throughout, same as `ContentAdapter` (issue #29):
  * `list()` probes image dimensions via sharp. See `types.ts`'s `MediaAdapter`.
  */
 export function createFsMediaAdapter({ dir, publicPath }: FsMediaAdapterOptions): MediaAdapter {

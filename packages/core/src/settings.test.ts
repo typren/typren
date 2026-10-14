@@ -63,9 +63,9 @@ describe("createSettingsStore", () => {
     expect(fs.existsSync(path.join(dir, ".typren"))).toBe(false); // not created until first write
   });
 
-  it("get() returns the empty default before any settings doc exists", () => {
+  it("get() returns the empty default before any settings doc exists", async () => {
     const store = createSettingsStore(makeConfig());
-    expect(store.get()).toEqual({ brand: { name: "" }, seo: {} });
+    expect(await store.get()).toEqual({ brand: { name: "" }, seo: {} });
   });
 
   it("saveDraft then publish round-trips runtime settings, never touching the Pages dir", async () => {
@@ -78,18 +78,18 @@ describe("createSettingsStore", () => {
     const published = await store.publish();
     expect(published.ok).toBe(true);
 
-    expect(store.get()).toMatchObject(draft);
+    expect(await store.get()).toMatchObject(draft);
     expect(fs.readdirSync(contentDir)).toEqual([]); // Pages dir untouched
     expect(fs.existsSync(path.join(dir, ".typren", "settings.md"))).toBe(true);
   });
 
   it("reports the draft's version before the first publish, so the next save can conflict-detect", async () => {
     const store = createSettingsStore(makeConfig());
-    expect(store.currentVersion()).toBeNull();
+    expect(await store.currentVersion()).toBeNull();
 
     const saved = await store.saveDraft({ brand: { name: "Acme" }, seo: {} });
     expect(saved.ok).toBe(true);
-    expect(store.currentVersion()).toBe((saved as { version: string }).version);
+    expect(await store.currentVersion()).toBe((saved as { version: string }).version);
   });
 
   it("falls back to the default locale's settings for a locale with no translation", async () => {
@@ -104,8 +104,41 @@ describe("createSettingsStore", () => {
     await store.saveDraft({ brand: { name: "Acme" }, seo: {} });
     await store.publish();
 
-    expect(store.get("fr")).toMatchObject({ brand: { name: "Acme" } });
-    expect(store.get("fr")).not.toEqual({ brand: { name: "" }, seo: {} });
+    expect(await store.get("fr")).toMatchObject({ brand: { name: "Acme" } });
+    expect(await store.get("fr")).not.toEqual({ brand: { name: "" }, seo: {} });
+  });
+
+  it("throws a clear error when the Pages adapter has no root and no settingsContentAdapter is given", () => {
+    const noRootAdapter = { ...createMarkdownAdapter({ contentDir }) };
+    delete (noRootAdapter as { root?: string }).root;
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: noRootAdapter,
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+    };
+    expect(() => createSettingsStore(config)).toThrow(/settingsContentAdapter/);
+  });
+
+  it("uses the explicit settingsContentAdapter when the Pages adapter has no root", async () => {
+    const noRootAdapter = { ...createMarkdownAdapter({ contentDir }) };
+    delete (noRootAdapter as { root?: string }).root;
+    const settingsDir = path.join(dir, "settings-content");
+    fs.mkdirSync(settingsDir, { recursive: true });
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: noRootAdapter,
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+      settingsContentAdapter: createMarkdownAdapter({ contentDir: settingsDir }),
+    };
+    const store = createSettingsStore(config);
+    expect(await store.get()).toEqual({ brand: { name: "" }, seo: {} });
+    const saved = await store.saveDraft({ brand: { name: "Acme" }, seo: {} });
+    expect(saved.ok).toBe(true);
+    expect(fs.existsSync(path.join(settingsDir, ".drafts", "settings.md"))).toBe(true);
   });
 
   it("gates writes on the distinct 'admin' auth action, not the content-write action", async () => {
