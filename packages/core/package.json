@@ -58,6 +58,10 @@
       "types": "./dist/auth/better-auth.d.ts",
       "default": "./dist/auth/better-auth.js"
     },
+    "./auth/supabase": {
+      "types": "./dist/auth/supabase.d.ts",
+      "default": "./dist/auth/supabase.js"
+    },
     "./templates/init": {
       "types": "./dist/templates/init.d.ts",
       "default": "./dist/templates/init.js"
