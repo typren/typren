@@ -102,6 +102,13 @@ on just this bucket.
 
 ## Known limits
 
+- **`publicBaseUrl` MUST be a separate origin from the site/editor.** `upload()`
+  allowlists only `image/webp`, `image/avif` and `image/svg+xml`, and sets
+  `content-disposition: inline` for SVG — but `inline` does not neutralize script
+  an SVG can carry. If `publicBaseUrl` shared an origin with the site or editor, a
+  stored SVG could run script with that origin's cookies/DOM (stored XSS). Serving
+  media from a distinct domain (a CDN domain, R2.dev, Supabase's storage host) means
+  a malicious SVG only ever executes in its own, cookie-less origin.
 - **`prefix`, if set, MUST end in `/`.** Construction throws otherwise. A prefix
   without a trailing slash is a shared-bucket collision risk: `"siteA"` also matches
   the key `"siteAB/x"` (plain `startsWith`), so one site's adapter could list or

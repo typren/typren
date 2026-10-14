@@ -32,6 +32,15 @@ const MIME_FROM_EXT: Record<string, string> = {
 };
 const mimeFromExt = (ext: string) => MIME_FROM_EXT[ext.toLowerCase()] ?? "application/octet-stream";
 
+// Upload-time allowlist, deliberately narrower than MIME_FROM_EXT (which only
+// labels whatever list() finds already in the bucket): these are the formats
+// Typren's own pipeline produces. Anything else is rejected rather than
+// stored, since an arbitrary uploaded MIME (e.g. text/html) served back from
+// publicBaseUrl would be a stored-content risk.
+const ALLOWED_UPLOAD_MIME = new Set(["image/webp", "image/avif", "image/svg+xml"]);
+
+const MAX_LIST_PAGES = 100;
+
 const BUCKET_RE = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 const PREFIX_RE = /^[a-zA-Z0-9/_-]*$/;
 // Ids/keys reach the DELETE/GET path straight from a Server Action argument,
@@ -115,10 +124,20 @@ export function createS3MediaAdapter(opts: S3MediaAdapterOptions): MediaAdapter 
   const base = `${endpoint.replace(/\/$/, "")}/${bucket}`;
 
   return {
+    // ponytail: full bucket scan every time list() is called, regardless of
+    // library size. Add pagination to MediaAdapter.list (cursor/limit) once a
+    // library is large enough for this to matter, past roughly 5k objects.
     async list(): Promise<MediaAsset[]> {
       const assets: MediaAsset[] = [];
       let continuationToken: string | undefined;
-      do {
+      const seenTokens = new Set<string>();
+      for (let page = 1; ; page++) {
+        if (page > MAX_LIST_PAGES) {
+          throw new Error(
+            `typren: adapter-media-s3 list() exceeded ${MAX_LIST_PAGES} pages for prefix "${prefix}"; ` +
+              "the bucket/prefix is too large to list in one call"
+          );
+        }
         const qs = new URLSearchParams({ "list-type": "2", prefix });
         if (continuationToken) qs.set("continuation-token", continuationToken);
         const res = await aws.fetch(`${base}?${qs.toString()}`);
@@ -138,18 +157,38 @@ export function createS3MediaAdapter(opts: S3MediaAdapterOptions): MediaAdapter 
             createdAt: e.lastModified,
           });
         }
+        if (!nextContinuationToken) break;
+        // A provider returning the same token twice would otherwise loop
+        // forever (or until MAX_LIST_PAGES) re-fetching the same page.
+        if (seenTokens.has(nextContinuationToken)) {
+          throw new Error("typren: adapter-media-s3 list() got a repeated continuation token from the provider");
+        }
+        seenTokens.add(nextContinuationToken);
         continuationToken = nextContinuationToken;
-      } while (continuationToken);
+      }
 
       return assets.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); // newest first
     },
 
     async upload(file: PreparedFile): Promise<MediaAsset> {
+      if (!ALLOWED_UPLOAD_MIME.has(file.mime)) {
+        throw new Error(`typren: adapter-media-s3 upload() rejects mime "${file.mime}" (allowed: ${[...ALLOWED_UPLOAD_MIME].join(", ")})`);
+      }
       // Unconditional random suffix, same reasoning as fs-media-adapter: no
       // existence-check-then-write race, collisions are structurally impossible instead.
       const [root, ext] = splitExt(file.name);
       const key = assertSafe(`${prefix}${root}-${randomSuffix()}${ext}`);
-      const headers: Record<string, string> = { "content-type": file.mime };
+      const headers: Record<string, string> = {
+        "content-type": file.mime,
+        // Keys are immutable (random suffix per upload, never overwritten): safe to
+        // cache forever rather than revalidate on every request.
+        "cache-control": "public, max-age=31536000, immutable",
+      };
+      // SVG can carry script; `inline` alone does not neutralize that (see
+      // README: publicBaseUrl MUST be a separate origin from the site/editor
+      // so a same-origin stored SVG can never run with that origin's cookies
+      // or DOM). This only picks a sane default disposition, not a sanitizer.
+      if (file.mime === "image/svg+xml") headers["content-disposition"] = "inline";
       if (file.width !== undefined) headers["x-amz-meta-width"] = String(file.width);
       if (file.height !== undefined) headers["x-amz-meta-height"] = String(file.height);
 
