@@ -106,7 +106,10 @@ function buildOidcAdapter(opts: OidcOpts, emailTrusted = false): AuthAdapter {
       discoveryPromise = (async () => {
         // Some issuers end in "/" (Auth0); strip it for the URL only, since
         // jwtVerify still matches `iss` against the issuer exactly as given.
-        const res = await fetch(`${opts.issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`, {
+        let base = opts.issuer;
+        // A loop, not /\/+$/: that regex backtracks polynomially on a long run of "/".
+        while (base.endsWith("/")) base = base.slice(0, -1);
+        const res = await fetch(`${base}/.well-known/openid-configuration`, {
           signal: AbortSignal.timeout(5000),
         });
         if (!res.ok) throw new Error(`typren: OIDC discovery failed for ${opts.issuer} (${res.status})`);
