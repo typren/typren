@@ -69,4 +69,18 @@ describe("validate", () => {
   it("ignores fields the schema does not declare", () => {
     expect(validate(schema, { ...valid, extra: "whatever" }).ok).toBe(true);
   });
+
+  // Regression: `ref` declares a pattern but no maxLength. Without a default
+  // cap applied before the pattern test, an attacker-chosen length reaches
+  // the schema author's regex unbounded.
+  it("applies a default 10,000-char maxLength to a field with no maxLength of its own", () => {
+    const result = validate(schema, { ...valid, ref: `${"a".repeat(10001)}` });
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContainEqual({ field: "ref", code: "too_long" });
+  });
+
+  it("still accepts a field at exactly the default cap", () => {
+    const result = validate(schema, { ...valid, ref: "a".repeat(10000) });
+    expect(result.ok).toBe(true);
+  });
 });
