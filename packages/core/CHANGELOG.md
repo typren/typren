@@ -1,5 +1,16 @@
 # @typren/core
 
+## 0.5.2
+
+### Patch Changes
+
+- 20e0cf5: `typren migrate` resolved the installed `@typren/core`'s `package.json` with `require.resolve(..., { paths: [cwd] })`, which throws `ERR_PACKAGE_PATH_NOT_EXPORTED` because core's `exports` map never listed `./package.json` — crashing `migrate` on every project. It now locates the file by walking `node_modules` directly. `@typren/core`'s `exports` map also now lists `./package.json`, for any other caller relying on Node's own resolution.
+- 2272c4b: Fixes for low-severity findings from the security review: `buildRedirects` now refuses a frontmatter alias that would claim "/", a `/.well-known/*` path, a path with a file extension, or a host-declared `reservedPrefixes` entry (another locale or collection), warning and skipping it instead of letting it become a permanent edge redirect; slice-name lookups in the scaffolded `SliceZone`, `collectSliceJsonLd`, and `renderSlicesAsMarkdown`'s override registry now use `Object.hasOwn` so a slice named `constructor`/`toString`/`__proto__` can't resolve an inherited `Object.prototype` member; the API's read authorization now passes `slug`, `collectionId`, and `locale` into `AuthContext` the same way writes pass `slug`, so a per-slug/per-collection `AuthAdapter` policy can actually see what's being read; `GET /pages` and `GET /collections/:id` now send `Cache-Control: no-store` like the other draft-state endpoints; and `validateBootstrap` now rejects a non-boolean `onboarded`, matching what the docs already claimed `PUT /settings/bootstrap` enforced.
+- 1aa05a6: `localAuth()` accepts an `isBoundToLoopback` option, so non-Next hosts such as Astro can supply the loopback-bind proof (alongside `getHost` for the Host header) instead of having every write denied. Next hosts need no change. A throw from any check now denies instead of propagating.
+- e860046: `handleMediaUpload` no longer echoes a `MediaAdapter.upload()` failure's raw message to the client (it can carry storage paths, bucket names, or other backend detail); it now returns a generic "Upload failed" with the original status code and logs the detail via `console.error`. `processUpload`'s own validation errors (unsupported format, size limit, SVG disabled) are unchanged, since those are deliberately user-facing.
+- 7489416: Notion-to-markdown conversion now escapes `|` and a line made entirely of `=` or `-` characters, so plain Notion text can no longer render as a GFM table column, a setext heading underline, or a thematic break it never asked for. Asterisk/underscore thematic breaks were already covered by the existing metacharacter escaping.
+- 8f9c06e: SVG upload sanitization now strips `style` attributes and `<style>` elements, and drops any attribute whose value contains an external `url(...)` reference (a `fill`, `filter`, `clip-path`, `mask`, etc. pointing off-document). A same-document fragment reference (`url(#id)`) is kept. Closes a CSS-based tracking/exfiltration vector that survived the existing `<script>`/event-handler/`href` sanitization.
+
 ## 0.5.1
 
 ### Patch Changes

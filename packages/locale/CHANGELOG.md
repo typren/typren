@@ -1,5 +1,11 @@
 # @typren/locale
 
+## 0.3.2
+
+### Patch Changes
+
+- 8cc34e6: `createExportApiSourceProvider` now fetches the TMS bundle with `redirect: "manual"` and refuses any 3xx response, so a bundle host that redirects elsewhere can no longer bypass the `bundleOrigins` allowlist on a later hop.
+
 ## 0.3.1
 
 ### Patch Changes

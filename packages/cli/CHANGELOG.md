@@ -1,5 +1,21 @@
 # typren
 
+## 0.5.2
+
+### Patch Changes
+
+- 63b4357: `typren init` now refuses to write a scaffold file when the target or one of its parent directories is a symlink, instead of writing through a symlinked parent or, with `--force`, overwriting whatever a symlinked target points at.
+- 20e0cf5: `typren migrate` resolved the installed `@typren/core`'s `package.json` with `require.resolve(..., { paths: [cwd] })`, which throws `ERR_PACKAGE_PATH_NOT_EXPORTED` because core's `exports` map never listed `./package.json` — crashing `migrate` on every project. It now locates the file by walking `node_modules` directly. `@typren/core`'s `exports` map also now lists `./package.json`, for any other caller relying on Node's own resolution.
+- 718167e: `typren migrate --remote` now validates a remote note's `version` against a full semver-ish pattern instead of only checking its prefix, so a value like `0.6.0` followed by a terminal escape sequence is rejected rather than printed. It also strips control characters from untrusted index URLs and fetch/parse error messages before they reach the terminal, matching the stripping already done for a note's title and body.
+- c455817: `typren review` scraped slice keys from the project's `seo-registry.ts` with a single regex over the whole (repo-controlled) file. It now scans the file line by line with plain string operations instead, so parsing it can't regress into regex backtracking blowup on adversarial content.
+- Updated dependencies [20e0cf5]
+- Updated dependencies [2272c4b]
+- Updated dependencies [1aa05a6]
+- Updated dependencies [e860046]
+- Updated dependencies [7489416]
+- Updated dependencies [8f9c06e]
+  - @typren/core@0.5.2
+
 ## 0.5.1
 
 ### Patch Changes
