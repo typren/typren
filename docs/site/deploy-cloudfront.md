@@ -17,9 +17,10 @@ infrastructure-as-code: it never creates a bucket or a distribution.
 `readFunctionSource()`) does three jobs in one CloudFront Function, since a
 distribution can attach only one:
 
-- **KVS-backed redirect lookup → 301.** The map lives in a CloudFront
+- **KVS-backed redirect lookup → redirect.** The map lives in a CloudFront
   KeyValueStore, not in the function, so a redirect edit never needs a
-  function deploy, only a KVS sync.
+  function deploy, only a KVS sync. Defaults to 301; a per-entry `status` of
+  302, 307, or 308 (see below) rides along as a prefix on the stored value.
 - **Directory-index rewrite.** An S3 REST origin has no index-document
   behavior: `/about/` asks for the key `about/` and 404s unless rewritten to
   `about/index.html`. With `trailingSlash: true` every page is a directory
@@ -41,15 +42,18 @@ npx typren-cloudfront sync-redirects --store my-site-redirects --dry-run
 ```
 
 Redirects come from two mergeable sources: `@typren/core`'s `redirects()`
-(page frontmatter `aliases:`) and an optional `--map` file (`.json` array of
-`{ "from": "/old", "to": "/new" }`, or `.mjs`/`.js` default or named
-`REDIRECTS` export of the same shape) for legacy platform URLs, removed
-pages, and paths that moved off-site. Validation fails loud on a `from`
-declared by both sources, a self-redirect, a map `from` that shadows a live
-page's path, and any protocol-relative, backslash, or control-character
-value. An empty desired state refuses to delete every live key unless you
-pass `--allow-empty`. A site with no Typren content at all can sync from the
-map alone.
+(page frontmatter `aliases:`, always a 301) and an optional `--map` file
+(`.json` array of `{ "from": "/old", "to": "/new" }`, or `.mjs`/`.js` default
+or named `REDIRECTS` export of the same shape) for legacy platform URLs,
+removed pages, and paths that moved off-site. A map entry may add a `status`
+of `302`, `307`, or `308` (e.g. migrating a `_redirects`/`vercel.json` file
+that distinguishes temporary from permanent redirects) — omit it for the
+default, 301. Validation fails loud on a `from` declared by both sources, a
+self-redirect, a map `from` that shadows a live page's path, an unrecognized
+`status`, and any protocol-relative, backslash, or control-character value.
+An empty desired state refuses to delete every live key unless you pass
+`--allow-empty`. A site with no Typren content at all can sync from the map
+alone.
 
 This requires the `aws` CLI on `PATH` with credentials for the target
 account (run once per account — prod and staging are usually separate
@@ -57,12 +61,21 @@ accounts). Required IAM: `cloudfront:DescribeKeyValueStore`,
 `cloudfront-keyvaluestore:DescribeKeyValueStore`,
 `cloudfront-keyvaluestore:ListKeys`, `cloudfront-keyvaluestore:UpdateKeys`.
 
-**Site shapes.** The canonical function serves the trailing-slash,
+**Site shapes.** The default function serves the trailing-slash,
 directory-index static-export shape on an S3 REST origin. A bare-URL-canonical
-site (Next's `trailingSlash: false`, Hugo `uglyURLs`, plain `.html` files)
-should not attach this function — bring your own viewer-request function for
-that shape and sync with `--trailing-slash false`, which emits map targets
-verbatim instead of slash-canonicalized.
+site (Next's `trailingSlash: false`, Hugo `uglyURLs`, plain `.html` files) uses
+the bare-URL function instead: pass `--trailing-slash false` to **both**
+`bootstrap` (selects the bare-URL function) and `sync-redirects` (emits map
+targets verbatim instead of slash-canonicalized) — the two must agree, or
+redirects will be stored in the wrong shape for the function serving them.
+
+**Extra passthrough segments.** Both functions treat a small set of Next.js
+static-export metadata routes (`/opengraph-image`, `/twitter-image`, `/icon`,
+`/apple-icon`) and anything under `/.well-known/` as real objects, never
+redirected or rewritten. A site with its own extensionless file-convention
+routes (e.g. a custom `/feed`) adds them with `bootstrap`'s
+`--extra-passthrough feed,manifest` (comma-separated), templated into the
+published function at bootstrap time.
 
 ## Bootstrap
 
@@ -93,10 +106,23 @@ you pass `--force`, after you've read what it does.
 - Exact-path matches only — the KeyValueStore is an exact-key lookup, no
   wildcards or splats. Migrating a `_redirects`-style wildcard file means
   enumerating the real paths.
-- Bootstrap touches the default cache behavior only. Distributions with
-  extra cache behaviors (`/assets/*`, `/api/*`) need the function attached
-  via your own IaC, or requests they match skip redirects and the index
-  rewrite.
+- Bootstrap attaches to the default cache behavior by default. A
+  distribution with extra cache behaviors (`/assets/*`, `/api/*`) needs
+  `--behavior <path-pattern>` (repeatable, each pattern must already exist
+  on the distribution) or `--all-behaviors` to also cover them — otherwise
+  requests matching an un-attached behavior skip redirects and the index
+  rewrite. The already-attached guard always reads every behavior on the
+  distribution, regardless of which ones a given run targets, so a
+  different function parked on an untouched behavior still blocks without
+  `--force`.
+- **Continuous deployment / staging distributions.** A CloudFront
+  continuous-deployment setup (a staging distribution plus traffic-config
+  promotion) is two separate distribution IDs as far as this package is
+  concerned: bootstrap it once per distribution ID (staging first, promote,
+  then production) with the same flags. This package does not read or
+  manage the traffic-config/promotion itself — that stays IaC/console
+  territory — and is untested against it beyond "two distributions, called
+  twice."
 - Error pages are distribution config, not this package: an S3 REST origin
   returns XML `AccessDenied` for a missing page — set `CustomErrorResponses`
   for 403/404 → your `/404.html` in your IaC.

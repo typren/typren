@@ -426,7 +426,7 @@ When `config.adapter` carries a filesystem `root` (a markdown adapter), the sett
 | `homeSlug` | `string` | none | Slug that maps to `"/"` instead of `"/<slug>"`. |
 | `maxEntries` | `number` | `1000` | Hard ceiling on total alias entries; a safety valve, not a realistic target. |
 
-`PageRedirectMeta`: `{ aliases?: string[] }`, lives inside a page's existing `meta`. `RedirectEntry`: `{ from: string; to: string; slug: string }`.
+`PageRedirectMeta`: `{ aliases?: string[] }`, lives inside a page's existing `meta`. `RedirectEntry`: `{ from: string; to: string; slug: string; status?: RedirectStatus }` (`status` undefined means 301; frontmatter aliases never set it, only a `--map` entry can, see redirect-sources.js below).
 
 #### Errors (fail loud, never silently drops a bad entry)
 
@@ -444,14 +444,14 @@ When `config.adapter` carries a filesystem `root` (a markdown adapter), the sett
 | `scanContentStore(contentDir)` | `(contentDir: string) => ContentStore` | Minimal read-only `ContentStore` built by scanning a content directory's flat `*.md` files directly, rather than importing a host's `cms.config.ts` (which would throw outside a React Server Component build). Only `listPages`/`getPublished` are real. |
 | `loadRedirectMap(cwd, file)` | `(cwd: string, file: string) => Promise<RedirectEntry[]>` | Loads a host-supplied redirect map file (`.json`, or `.mjs`/`.js` exporting the array) into validated `RedirectEntry[]`. |
 | `mergeRedirectEntries(content, map, pagePaths?)` | `(content: RedirectEntry[], map: RedirectEntry[], pagePaths?: string[]) => RedirectEntry[]` | Merges content-derived entries with map-file entries, refusing a `from` claimed by both sources or one that shadows a live page's canonical path. |
-| `toRedirectPairs(entries, opts?)` | `(entries: RedirectEntry[], opts?: ToRedirectPairsOptions) => { key: string; value: string }[]` | Converts validated entries into key/value pairs: `from` percent-encoded, `to` canonicalized to the site's trailing-slash convention (`opts.appendSlash`, default `true`). |
+| `toRedirectPairs(entries, opts?)` | `(entries: RedirectEntry[], opts?: ToRedirectPairsOptions) => { key: string; value: string }[]` | Converts validated entries into key/value pairs: `from` percent-encoded, `to` canonicalized to the site's trailing-slash convention (`opts.appendSlash`, default `true`), with a non-301 `status` encoded as a `"<status> "` prefix on `value` (decoded back by `resolveStaticHostRequest`). |
 
-`RedirectMapEntry`: `{ from: string; to: string }`.
+`RedirectMapEntry`: `{ from: string; to: string; status?: 301 | 302 | 307 | 308 }` (`status` omitted means 301).
 
 #### Errors
 
 - `scanContentStore`'s returned store throws `typren: javascript front-matter is not supported` and `typren: scanContentStore is read-only, "<op>" is not supported` for any write attempt.
-- `loadRedirectMap` throws `typren: map file not found: <path>` for a missing file, `typren: <file> must export an array of { from, to } entries` for a malformed export, `typren: <file> entry <i>: 'from' must be an absolute on-site path, got <value>` / the equivalent `'to'` message for invalid paths, `typren: <file> entry <i>: 'to' must not be protocol-relative` for a `//host` target, `typren: <file> declares <key> twice` for a duplicate, `typren: <file> entry <i>: <key> redirects to itself` for a self-redirect, and `typren: unsupported map format "<ext>" (use .json, .mjs or .js)` for any other extension.
+- `loadRedirectMap` throws `typren: map file not found: <path>` for a missing file, `typren: <file> must export an array of { from, to } entries` for a malformed export, `typren: <file> entry <i>: 'from' must be an absolute on-site path, got <value>` / the equivalent `'to'` message for invalid paths, `typren: <file> entry <i>: 'to' must not be protocol-relative` for a `//host` target, `typren: <file> entry <i>: 'status' must be one of 301, 302, 307, 308, got <value>` for an invalid status, `typren: <file> declares <key> twice` for a duplicate, `typren: <file> entry <i>: <key> redirects to itself` for a self-redirect, and `typren: unsupported map format "<ext>" (use .json, .mjs or .js)` for any other extension.
 - `mergeRedirectEntries` throws `typren: <from> is declared by both "<owner>" (frontmatter) and "<slug>"` and `typren: <slug> redirects <from>, which is a live page's own path`.
 
 ### static-host.js
@@ -497,14 +497,15 @@ Request routing for a fully static export (no server at request time): redirect/
 | Export | Signature | Notes |
 |---|---|---|
 | `STATIC_HOST_PASSTHROUGH` | `ReadonlySet<string>` | |
-| `isUnsafeRedirectTarget(target)` | `(target: string) => boolean` | True for a protocol-relative target (`"//host"`), one using a backslash (URL parsers read `\` as `/`), or one carrying control characters (header injection). A redirect target arrives from a store an operator with write access can edit directly, so this refusal is the trust boundary. |
-| `resolveStaticHostRequest(path, query, lookup, opts?)` | `(path: string, query: string, lookup: RedirectLookup, opts?: StaticHostOptions) => Promise<StaticHostDecision>` | `path` is the request path exactly as received (percent-encoded); `query` is the raw query string without a leading `?`. |
+| `REDIRECT_STATUSES` | `readonly [301, 302, 307, 308]` | The allowlisted redirect statuses; `RedirectStatus` is the union of its members. |
+| `isUnsafeRedirectTarget(target)` | `(target: string) => boolean` | True for a protocol-relative target (`"//host"`), one using a backslash (URL parsers read `\` as `/`), or one carrying control characters (header injection). A redirect target arrives from a store an operator with write access can edit directly, so this refusal is the trust boundary. Checked against the target AFTER any status prefix (below) is stripped. |
+| `resolveStaticHostRequest(path, query, lookup, opts?)` | `(path: string, query: string, lookup: RedirectLookup, opts?: StaticHostOptions) => Promise<StaticHostDecision>` | `path` is the request path exactly as received (percent-encoded); `query` is the raw query string without a leading `?`. A lookup result may carry a status prefix (`"<301\|302\|307\|308> <target>"`); a bare value defaults to 301, and a recognized-shape prefix outside that allowlist (e.g. `"404 /x"`) is an invalid entry, treated as "no redirect" (fails open). |
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
 | `trailingSlash` | `boolean` | `true` | The export's URL shape (Next's `trailingSlash`). `true`: `/about/` serves `about/index.html`. `false`: `/about` serves `about.html`. |
 
-`StaticHostDecision` is `{ kind: "redirect"; status: 301; location: string } | { kind: "rewrite"; path: string } | { kind: "pass" }`. `RedirectLookup` is `(key: string) => Promise<string | null | undefined> | string | null | undefined`; a throw/rejection and a null/undefined/empty result both mean "no redirect here".
+`StaticHostDecision` is `{ kind: "redirect"; status: RedirectStatus; location: string } | { kind: "rewrite"; path: string } | { kind: "pass" }`. `RedirectLookup` is `(key: string) => Promise<string | null | undefined> | string | null | undefined`; a throw/rejection and a null/undefined/empty result both mean "no redirect here".
 
 ### Errors
 

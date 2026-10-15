@@ -42,8 +42,8 @@ function runWith(vars: Partial<Env>): StaticHostRunner {
     const { env, requested } = fakeEnv(redirects, storeDown, vars);
     const request = new Request(`https://example.com${path}${query ? `?${query}` : ""}`);
     const response = await worker.fetch(request, env);
-    if (response.status === 301) {
-      return { status: 301, location: response.headers.get("Location")! };
+    if (response.status >= 300 && response.status < 400) {
+      return { status: response.status as 301 | 302 | 307 | 308, location: response.headers.get("Location")! };
     }
     const served = requested.at(-1);
     if (!served) throw new Error("ASSETS.fetch was never called");

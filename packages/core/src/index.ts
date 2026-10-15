@@ -112,6 +112,8 @@ export {
   resolveStaticHostRequest,
   isUnsafeRedirectTarget,
   STATIC_HOST_PASSTHROUGH,
+  REDIRECT_STATUSES,
   type StaticHostDecision,
   type RedirectLookup,
+  type RedirectStatus,
 } from "./static-host";

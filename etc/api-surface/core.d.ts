@@ -901,7 +901,7 @@ export { createSettingsStore, createFsSettingsAdapter, validateBootstrap, BOOTST
 export { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection.js";
 export { buildRedirects, type RedirectEntry, type BuildRedirectsOptions, type PageRedirectMeta } from "./redirects.js";
 export { scanContentStore, loadRedirectMap, mergeRedirectEntries, toRedirectPairs, type RedirectMapEntry, type ToRedirectPairsOptions, } from "./redirect-sources.js";
-export { resolveStaticHostRequest, isUnsafeRedirectTarget, STATIC_HOST_PASSTHROUGH, type StaticHostDecision, type RedirectLookup, } from "./static-host.js";
+export { resolveStaticHostRequest, isUnsafeRedirectTarget, STATIC_HOST_PASSTHROUGH, REDIRECT_STATUSES, type StaticHostDecision, type RedirectLookup, type RedirectStatus, } from "./static-host.js";
 
 // ---- dist/localize.d.ts ----
 import type { PageContent } from "./types.js";
@@ -1260,6 +1260,7 @@ export declare function typrenBlocksDirectEditorAccess(url: URL | string, opts?:
 // ---- dist/redirect-sources.d.ts ----
 import type { ContentStore } from "./store.js";
 import type { RedirectEntry } from "./redirects.js";
+import { type RedirectStatus } from "./static-host.js";
 /**
  * Minimal read-only `ContentStore` built by scanning a content directory's
  * flat `*.md` files directly, rather than importing a host's `cms.config.ts`
@@ -1274,10 +1275,13 @@ import type { RedirectEntry } from "./redirects.js";
  */
 export declare function scanContentStore(contentDir: string): ContentStore;
 /** One entry in a host-supplied redirect map file: an incoming on-site path
- *  and where it should 301 to (an on-site path or an absolute http(s) URL). */
+ *  and where it should redirect to (an on-site path or an absolute http(s)
+ *  URL). `status` defaults to 301 (migrators from `_redirects`/`vercel.json`
+ *  expect per-entry 302/307/308; see static-host.ts's REDIRECT_STATUSES). */
 export type RedirectMapEntry = {
     from: string;
     to: string;
+    status?: RedirectStatus;
 };
 /**
  * Loads a host-supplied redirect map file into validated `RedirectEntry[]`,
@@ -1296,9 +1300,10 @@ export type RedirectMapEntry = {
  *
  * Validation (fail loud, never silently drop, matching buildRedirects):
  * `from` must be an absolute on-site path; `to` must be an absolute on-site
- * path or an absolute http(s) URL; duplicate `from`s (after trailing-slash
- * normalization) throw. Entry `slug`s carry the map file's name so a merge
- * collision names its source.
+ * path or an absolute http(s) URL; `status`, if present, must be one of
+ * REDIRECT_STATUSES; duplicate `from`s (after trailing-slash normalization)
+ * throw. Entry `slug`s carry the map file's name so a merge collision names
+ * its source.
  */
 export declare function loadRedirectMap(cwd: string, file: string): Promise<RedirectEntry[]>;
 /**
@@ -1334,6 +1339,7 @@ export declare function toRedirectPairs(entries: RedirectEntry[], opts?: ToRedir
 
 // ---- dist/redirects.d.ts ----
 import type { ContentStore } from "./store.js";
+import type { RedirectStatus } from "./static-host.js";
 /** Per-page redirect frontmatter. Lives inside a page's existing `meta`
  *  (frontmatter minus `slices:`), no new file format, same convention as
  *  seo/types.ts's PageSeoMeta. Each alias is an absolute, on-site path that
@@ -1348,6 +1354,10 @@ export type RedirectEntry = {
     to: string;
     /** Slug that declared the alias, for a host's own error/log messages. */
     slug: string;
+    /** HTTP status this redirect should be served with. `undefined` means the
+     *  default, 301. Frontmatter aliases never set this (always 301); only a
+     *  `--map` entry (see redirect-sources.ts's loadRedirectMap) can. */
+    status?: RedirectStatus;
 };
 export type BuildRedirectsOptions = {
     /** Slug that maps to the site root ("/") instead of "/<slug>", e.g. "home"
@@ -1830,9 +1840,13 @@ export interface SettingsStore {
 export declare function createSettingsStore(config: CmsConfig): SettingsStore;
 
 // ---- dist/static-host.d.ts ----
+/** Migrators from `_redirects`/`vercel.json` expect per-entry 301/302/307/308,
+ *  not a hardcoded 301 (see parseRedirectValue). */
+export declare const REDIRECT_STATUSES: readonly [301, 302, 307, 308];
+export type RedirectStatus = (typeof REDIRECT_STATUSES)[number];
 export type StaticHostDecision = {
     kind: "redirect";
-    status: 301;
+    status: RedirectStatus;
     location: string;
 } | {
     kind: "rewrite";
