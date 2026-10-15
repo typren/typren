@@ -56,6 +56,32 @@ describe("markdown-adapter listSlugs", () => {
   });
 });
 
+describe("markdown-adapter locale validation", () => {
+  // Regression: `locales` (and `defaultLocale`) become path segments
+  // (localeDir/localeSubdir), so an unsafe entry in the allowlist ITSELF --
+  // not just an unlisted locale passed at call time -- must be rejected at
+  // construction, before any read/write can turn it into a traversal.
+  it("rejects a path-traversal locale in the locales array", () => {
+    expect(() => createMarkdownAdapter({ contentDir: "/unused", locales: ["en", "../../etc"] })).toThrow(
+      /unsafe locale/
+    );
+  });
+
+  it("rejects a path-traversal defaultLocale", () => {
+    expect(() => createMarkdownAdapter({ contentDir: "/unused", defaultLocale: "../escape" })).toThrow(
+      /unsafe locale/
+    );
+  });
+
+  it("rejects an absolute-path locale", () => {
+    expect(() => createMarkdownAdapter({ contentDir: "/unused", locales: ["/etc/passwd"] })).toThrow(/unsafe locale/);
+  });
+
+  it("accepts ordinary BCP-47-ish locales, including region subtags", () => {
+    expect(() => createMarkdownAdapter({ contentDir: "/unused", locales: ["en", "en-US", "pt-BR"] })).not.toThrow();
+  });
+});
+
 describe("markdown-adapter contract", () => {
   let contractDir: string;
   beforeEach(() => {

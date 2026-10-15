@@ -8,9 +8,10 @@ type Session = {
 } | null;
 
 /**
- * DEFAULT-OPEN CAVEAT: with neither `allowedEmails` nor `allowedRoles` set,
- * ANY signed-in user is authorized. For a public editor that is almost never
- * what you want. Require at least one allowlist in production.
+ * REQUIRES AN ALLOWLIST: `allowedEmails` or `allowedRoles` must be set, or
+ * construction throws, matching better-auth.ts. A signed-in session with
+ * neither would authorize anyone who can sign in, which is almost never the
+ * intended policy for an editor.
  *
  * "admin" (settings/onboarding/bootstrap writes; they reparameterize what the
  * next boot trusts) is gated separately from ordinary content writes: it needs
@@ -28,6 +29,11 @@ export function nextAuthAdapter(opts: {
   /** Any-intersection with session.user.roles, required for the "admin" action. */
   adminRoles?: string[];
 }): AuthAdapter {
+  if (!opts.allowedEmails?.length && !opts.allowedRoles?.length) {
+    throw new Error(
+      "typren: nextAuthAdapter requires an allowlist (allowedEmails or allowedRoles); without one any signed-in user could edit"
+    );
+  }
   const toUser = (s: Session): AuthUser | null =>
     s?.user?.email || s?.user?.id
       ? {

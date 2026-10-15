@@ -3,9 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createMarkdownAdapter } from "./markdown-adapter";
-import { createFsSettingsAdapter, createSettingsStore } from "./settings";
+import { createFsSettingsAdapter, createSettingsStore, validateBootstrap } from "./settings";
 import type { CmsConfig } from "./types";
 import type { AuthAdapter, AuthAction } from "./auth-adapter";
+import type { SiteSettingsBootstrap } from "./settings";
 
 let dir: string;
 let contentDir: string;
@@ -194,6 +195,25 @@ describe("createSettingsStore", () => {
     expect(() => createSettingsStore(config)).not.toThrow();
   });
 
+  // Regression: a hosted/multi-tenant config (siteId set) with no explicit
+  // settingsAdapter used to silently fall through to the single-process
+  // default (one typren.config.json at process.cwd()), so every tenant's
+  // bootstrap read/write hit the SAME file -- a structural tenant-isolation
+  // break, not a mere misconfiguration.
+  it("throws when siteId is set but no settingsAdapter is given", () => {
+    const config: CmsConfig = { ...makeConfig(), siteId: "tenant-a" };
+    expect(() => createSettingsStore(config)).toThrow(/settingsAdapter/);
+  });
+
+  it("does not throw when siteId is set AND an explicit settingsAdapter is given", () => {
+    const config: CmsConfig = {
+      ...makeConfig(),
+      siteId: "tenant-a",
+      settingsAdapter: createFsSettingsAdapter({ file: path.join(dir, "tenant-a.json") }),
+    };
+    expect(() => createSettingsStore(config)).not.toThrow();
+  });
+
   it("gates writes on the distinct 'admin' auth action, not the content-write action", async () => {
     const actions: AuthAction[] = [];
     const denyAdmin: AuthAdapter = {
@@ -205,5 +225,43 @@ describe("createSettingsStore", () => {
     const store = createSettingsStore(makeConfig(denyAdmin));
     await expect(store.saveDraft({ brand: { name: "X" }, seo: {} })).rejects.toThrow(/unauthorized/);
     expect(actions).toContain("admin");
+  });
+});
+
+describe("validateBootstrap", () => {
+  const valid: SiteSettingsBootstrap = {
+    adminRoute: "editor",
+    locales: ["en"],
+    defaultLocale: "en",
+    routing: "prefix-except-default",
+    onboarded: false,
+  };
+
+  it("accepts a well-formed bootstrap", () => {
+    expect(validateBootstrap(valid)).toBeNull();
+  });
+
+  it("rejects an unsafe-shaped adminRoute", () => {
+    expect(validateBootstrap({ ...valid, adminRoute: "../etc" })).toMatch(/adminRoute/);
+  });
+
+  it("rejects a reserved adminRoute", () => {
+    expect(validateBootstrap({ ...valid, adminRoute: "api" })).toMatch(/reserved/);
+  });
+
+  it("rejects a non-BCP-47-ish locale", () => {
+    expect(validateBootstrap({ ...valid, locales: ["en", "../x"] })).toMatch(/locales/);
+  });
+
+  it("rejects an empty locales array", () => {
+    expect(validateBootstrap({ ...valid, locales: [] })).toMatch(/locales/);
+  });
+
+  it("rejects an unknown routing mode", () => {
+    expect(validateBootstrap({ ...valid, routing: "bogus" as never })).toMatch(/routing/);
+  });
+
+  it("rejects a defaultLocale not present in locales", () => {
+    expect(validateBootstrap({ ...valid, locales: ["en", "fr"], defaultLocale: "de" })).toMatch(/defaultLocale/);
   });
 });

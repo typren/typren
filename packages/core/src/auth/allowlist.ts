@@ -20,7 +20,7 @@ import type { AuthContext, AuthUser } from "../auth-adapter";
 // make an email compare unequal or equal depending on the host's locale. An
 // email containing any non-ASCII byte is deliberately never matched, rather
 // than risk a locale-dependent false match.
-const toAsciiLower = (s: string): string | null => {
+export const toAsciiLower = (s: string): string | null => {
   let out = "";
   for (let i = 0; i < s.length; i++) {
     const code = s.charCodeAt(i);

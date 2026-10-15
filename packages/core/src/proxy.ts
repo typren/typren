@@ -29,10 +29,19 @@
  *
  * Auth is unchanged by this module: whatever gate the host mounts in front of
  * its editor routes (a layout calling `resolveAuth(config).authorize(...)`)
- * still runs exactly as today. This only rewrites
- * the URL an already-authorized request resolves to. Renaming the admin route
- * makes `/editor/**` itself 404 for anyone hitting it directly post-rename
- * (URL hygiene), it does not touch the auth boundary.
+ * still runs exactly as today. This only rewrites the URL an already-authorized
+ * request resolves to; `typrenBlocksDirectEditorAccess` (below) is what makes
+ * `/editor/**` itself 404 for anyone hitting it directly post-rename (URL
+ * hygiene), it does not touch the auth boundary. A proxy wires both:
+ *
+ * ```ts
+ * export function proxy(request: NextRequest) {
+ *   if (typrenBlocksDirectEditorAccess(request.nextUrl)) return NextResponse.rewrite(new URL("/404", request.url));
+ *   const rewritten = typrenProxyRewrite(request.nextUrl);
+ *   if (rewritten) return NextResponse.rewrite(new URL(rewritten, request.url));
+ *   // ...
+ * }
+ * ```
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -85,4 +94,18 @@ export function typrenProxyRewrite(url: URL | string, opts?: { configFile?: stri
   const prefix = `/${adminRoute}`;
   if (pathname !== prefix && !pathname.startsWith(`${prefix}/`)) return null;
   return `/editor${pathname.slice(prefix.length)}`;
+}
+
+/**
+ * True when `url` hits `/editor/**` directly while a renamed `adminRoute`
+ * means that's no longer the live admin path. A host wires this ahead of
+ * `typrenProxyRewrite` (see the module doc comment) to 404 it: without this,
+ * renaming the admin route for URL hygiene was purely cosmetic -- the OLD
+ * path kept serving the editor side by side with the new one, forever.
+ */
+export function typrenBlocksDirectEditorAccess(url: URL | string, opts?: { configFile?: string }): boolean {
+  const pathname = typeof url === "string" ? url.split("?")[0] : url.pathname;
+  const adminRoute = currentAdminRoute(opts?.configFile);
+  if (adminRoute === "editor") return false; // "/editor" IS the live admin route
+  return pathname === "/editor" || pathname.startsWith("/editor/");
 }
