@@ -39,6 +39,12 @@ describe("buildCatalogs", () => {
     );
   });
 
+  it.each(["__proto__", "constructor", "prototype"])("refuses the unsafe app name %s before writing anything", async (app) => {
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Greeting: "Hi" }));
+    await expect(buildCatalogs(sourceDir, { app, buildVersion: "v1", outDir })).rejects.toThrow(/unsafe app name/);
+    expect(existsSync(join(outDir, "catalog"))).toBe(false);
+  });
+
   it("writes immutable catalog files + a manifest with matching hashes", async () => {
     const en: Catalog = { Greeting: { Hello: "Hi {name}" } };
     const fr: Catalog = { Greeting: { Hello: "Salut {name}" } };

@@ -128,6 +128,11 @@ export async function buildCatalogs(
   source: string | SourceConfig | LocaleSourceProvider,
   options: BuildOptions,
 ): Promise<BuildResult> {
+  // `app` keys manifest.apps below; literal comparisons, like the locale-key
+  // check further down, so the prototype-pollution sanitizer is statically provable.
+  if (options.app === "__proto__" || options.app === "constructor" || options.app === "prototype") {
+    throw new Error(`buildCatalogs: unsafe app name "${options.app}"`);
+  }
   const outDir = options.outDir ?? "dist";
   const deltaHistorySize = options.deltaHistorySize ?? 5;
   const provider = resolveProvider(source);
