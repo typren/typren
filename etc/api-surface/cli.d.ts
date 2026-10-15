@@ -1,5 +1,4 @@
 // ---- dist/cli.d.ts ----
-#!/usr/bin/env node
 import { type SiteSettingsBootstrap } from "@typren/core";
 export type ScaffoldResult = {
     ok: true;

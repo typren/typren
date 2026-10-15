@@ -93,7 +93,10 @@ function collectSurface(entries) {
   return [...seen].sort();
 }
 
-const normalize = (file) => readFileSync(file, "utf8").replace(/[ \t]+$/gm, "").trim() + "\n";
+// A bin entry's .d.ts keeps the source's shebang; mid-file it is a syntax error
+// that makes CodeQL skip the whole snapshot.
+const normalize = (file) =>
+  readFileSync(file, "utf8").replace(/^#!.*\n/, "").replace(/[ \t]+$/gm, "").trim() + "\n";
 
 mkdirSync(OUT_DIR, { recursive: true });
 
