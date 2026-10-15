@@ -121,14 +121,38 @@ export async function processUpload(
   return { name: `${slugifyBase(input.name)}${EXT_FOR_MIME[mime]}`, mime, buffer, width, height };
 }
 
+/** CSRF check for an unsafe request: true when it comes from the request's
+ *  own host or an `allowed` origin. A request with no `Origin` header and no
+ *  cross-site `Sec-Fetch-Site` is a non-browser caller, with no ambient
+ *  credentials to abuse. */
+export function sameOrigin(request: Request, allowed: string[]): boolean {
+  const origin = request.headers.get("origin");
+  if (origin && allowed.includes(origin)) return true;
+  if (request.headers.get("sec-fetch-site") === "cross-site") return false;
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === new URL(request.url).host;
+  } catch {
+    return false;
+  }
+}
+
 /** Route Handler body. The host's route.ts is a thin wrapper, the same
  *  "host owns the boundary, package supplies the logic" split actions.ts
  *  already uses for Server Actions.
  *
  *  Route Handlers never run through a parent layout's auth gate (a
  *  `route.ts` renders no layout tree at all), so this re-checks auth itself
- *  via the same `resolveAuth` the action guard uses. */
-export async function handleMediaUpload(config: CmsConfig, request: Request): Promise<Response> {
+ *  via the same `resolveAuth` the action guard uses, and refuses a
+ *  cross-origin request itself: a multipart POST needs no CORS preflight, so
+ *  any page could otherwise drive a loopback dev server's upload. A host
+ *  serving the editor from another origin passes it in `allowedOrigins`. */
+export async function handleMediaUpload(
+  config: CmsConfig,
+  request: Request,
+  allowedOrigins: string[] = []
+): Promise<Response> {
+  if (!sameOrigin(request, allowedOrigins)) return new Response("Cross-origin request refused", { status: 403 });
   if (
     !(await resolveAuth(config).authorize({
       action: "uploadMedia",

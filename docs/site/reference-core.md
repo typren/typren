@@ -211,7 +211,7 @@ Writes (`writeRaw`, `writeDraftRaw`, `deletePublished`, `deleteDraft`) are seria
 |---|---|---|
 | `MAX_UPLOAD_BYTES` | `number` | Pre-conversion upload cap. Sharp's own `limitInputPixels` default (~268 megapixels) is relied on for decompression-bomb protection. |
 | `processUpload(input)` | `(input: { name: string; buffer: Buffer }) => Promise<PreparedFile>` | Validates + web-optimizes a raw upload; sniffs actual bytes via `sharp.metadata()`, never trusts the client-supplied mime/extension. |
-| `handleMediaUpload(config, request)` | `(config: CmsConfig, request: Request) => Promise<Response>` | Route Handler body; re-checks auth itself via `resolveAuth` since a Route Handler never runs through a parent layout's auth gate. |
+| `handleMediaUpload(config, request, allowedOrigins?)` | `(config: CmsConfig, request: Request, allowedOrigins?: string[]) => Promise<Response>` | Route Handler body; re-checks auth itself via `resolveAuth` since a Route Handler never runs through a parent layout's auth gate, and refuses a cross-origin request with 403 (a cross-site `Sec-Fetch-Site`, or an `Origin` whose host isn't the request's), since a multipart POST needs no CORS preflight. `allowedOrigins` lists extra origins to accept, as in `createTyprenApi`. |
 
 #### Errors
 

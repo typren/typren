@@ -433,6 +433,21 @@ describe("media resource", () => {
     expect(await res.json()).toMatchObject({ error: expect.stringMatching(/no file/i) });
   });
 
+  it("lets an allowedOrigins origin through to the upload's own origin check", async () => {
+    const studioApi = createTyprenApi(
+      { ...makeConfig(), mediaAdapter: createFsMediaAdapter({ dir: mediaDir, publicPath: "/img" }) },
+      { basePath: BASE, allowedOrigins: ["https://studio.test"] }
+    );
+    const post = () =>
+      new Request(`https://example.test${BASE}/media`, {
+        method: "POST",
+        headers: { origin: "https://studio.test", "sec-fetch-site": "cross-site" },
+        body: new FormData(),
+      });
+    expect((await studioApi.handler(post())).status).toBe(400);
+    expect((await mediaApi.handler(post())).status).toBe(403);
+  });
+
   it("lists and deletes a media asset (delete is idempotent)", async () => {
     fs.mkdirSync(mediaDir, { recursive: true });
     fs.writeFileSync(path.join(mediaDir, "photo.webp"), "fake-webp-bytes");

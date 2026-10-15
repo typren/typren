@@ -1003,14 +1003,22 @@ export declare function processUpload(input: {
 }, opts?: {
     allowSvg?: boolean;
 }): Promise<PreparedFile>;
+/** CSRF check for an unsafe request: true when it comes from the request's
+ *  own host or an `allowed` origin. A request with no `Origin` header and no
+ *  cross-site `Sec-Fetch-Site` is a non-browser caller, with no ambient
+ *  credentials to abuse. */
+export declare function sameOrigin(request: Request, allowed: string[]): boolean;
 /** Route Handler body. The host's route.ts is a thin wrapper, the same
  *  "host owns the boundary, package supplies the logic" split actions.ts
  *  already uses for Server Actions.
  *
  *  Route Handlers never run through a parent layout's auth gate (a
  *  `route.ts` renders no layout tree at all), so this re-checks auth itself
- *  via the same `resolveAuth` the action guard uses. */
-export declare function handleMediaUpload(config: CmsConfig, request: Request): Promise<Response>;
+ *  via the same `resolveAuth` the action guard uses, and refuses a
+ *  cross-origin request itself: a multipart POST needs no CORS preflight, so
+ *  any page could otherwise drive a loopback dev server's upload. A host
+ *  serving the editor from another origin passes it in `allowedOrigins`. */
+export declare function handleMediaUpload(config: CmsConfig, request: Request, allowedOrigins?: string[]): Promise<Response>;
 
 // ---- dist/notion-adapter.d.ts ----
 import type { ContentAdapter } from "./types.js";

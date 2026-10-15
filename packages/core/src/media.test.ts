@@ -141,6 +141,27 @@ describe("handleMediaUpload", () => {
     return { req: { headers: new Headers(headers), formData } as unknown as Request, formData };
   };
 
+  it("refuses a cross-site upload with 403 before reading the body", async () => {
+    const cross = (headers: Record<string, string>) => {
+      const r = request(headers);
+      return { req: Object.assign(r.req, { url: "http://127.0.0.1:3000/api/typren/media" }), formData: r.formData };
+    };
+    const refused: Record<string, string>[] = [
+      { origin: "https://evil.test" },
+      { "sec-fetch-site": "cross-site" },
+      { origin: "null" },
+    ];
+    for (const headers of refused) {
+      const { req, formData } = cross(headers);
+      expect((await handleMediaUpload(config(), req)).status).toBe(403);
+      expect(formData).not.toHaveBeenCalled();
+    }
+    // Same host, or an explicitly allowed origin, still reaches the upload.
+    expect((await handleMediaUpload(config(), cross({ origin: "http://127.0.0.1:3000" }).req)).status).toBe(400);
+    const allowed = cross({ origin: "https://editor.test", "sec-fetch-site": "cross-site" }).req;
+    expect((await handleMediaUpload(config(), allowed, ["https://editor.test"])).status).toBe(400);
+  });
+
   it("refuses a declared oversize body with 413 before buffering it", async () => {
     const { req, formData } = request({ "content-length": String(MAX_UPLOAD_BYTES + 1024 * 1024) });
     const res = await handleMediaUpload(config(), req);
