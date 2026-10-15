@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { publishUnpublished } from "./publish-unpublished.mjs";
+import { npmPublishArgs, publishUnpublished } from "./publish-unpublished.mjs";
 
 let root;
 
@@ -63,5 +63,20 @@ describe("publishUnpublished", () => {
     });
     expect(calls).toEqual([]);
     expect(result.failed).toEqual(["@typren/core@1.0.0"]);
+  });
+});
+
+describe("npmPublishArgs", () => {
+  it("publishes a stable version with no tag override", () => {
+    expect(npmPublishArgs("1.0.0")).toEqual(["publish", "--access", "public"]);
+  });
+
+  it("tags a prerelease version with its first prerelease identifier", () => {
+    expect(npmPublishArgs("1.0.0-beta.1")).toEqual(["publish", "--access", "public", "--tag", "beta"]);
+    expect(npmPublishArgs("2.3.0-rc.0")).toEqual(["publish", "--access", "public", "--tag", "rc"]);
+  });
+
+  it("tags a single-identifier prerelease with the whole identifier", () => {
+    expect(npmPublishArgs("1.0.0-next")).toEqual(["publish", "--access", "public", "--tag", "next"]);
   });
 });
