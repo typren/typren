@@ -49,9 +49,10 @@ async function defaultGetHost(): Promise<string | null> {
 /**
  * Dev-only gate (entry `@typren/core/auth/local`, no peer deps outside the
  * `getHost` default above). Refuses in production unless `allowInProduction`
- * is explicitly set, refuses unless the Next server is bound to loopback
- * (`next dev -H 127.0.0.1`, which `typren init` scaffolds), and refuses a
- * non-loopback Host even then. The editor writes files, so never ship it open
+ * is explicitly set, refuses unless the server is bound to loopback (Next:
+ * `next dev -H 127.0.0.1`, which `typren init` scaffolds; other hosts pass
+ * `isBoundToLoopback` and `getHost`), and refuses a non-loopback Host even
+ * then. Any throw from a check denies. The editor writes files, so never ship it open
  * by omission. Doesn't branch on `ctx.action`, so "admin"
  * (settings/onboarding/bootstrap writes) gets the exact same local-only gate
  * as every other write. There's only one tier in local dev.
@@ -65,14 +66,24 @@ export function localAuth(
     /** Resolve the request's Host header. Default: Next's `headers()` (see
      *  `defaultGetHost`). Override in tests. Only ever narrows access. */
     getHost?: () => Promise<string | null>;
+    /** True only when the server is listening on loopback alone. Default:
+     *  Next's startup state (see `isBoundToLoopback`). A non-Next host must
+     *  supply it from the address its server actually bound -- e.g. Astro's
+     *  `astro:server:start` hook -- never from anything a request carries. */
+    isBoundToLoopback?: () => boolean;
   } = {}
 ): AuthAdapter {
   const predicate = opts.predicate ?? (() => process.env.NODE_ENV === "development");
   const getHost = opts.getHost ?? defaultGetHost;
+  const boundToLoopback = opts.isBoundToLoopback ?? isBoundToLoopback;
   const allowed = async (): Promise<boolean> => {
-    if (process.env.NODE_ENV === "production" && !opts.allowInProduction) return false;
-    if (!predicate() || !isBoundToLoopback()) return false;
-    return isLoopbackHost(await getHost());
+    try {
+      if (process.env.NODE_ENV === "production" && !opts.allowInProduction) return false;
+      if (!predicate() || boundToLoopback() !== true) return false;
+      return isLoopbackHost(await getHost());
+    } catch {
+      return false;
+    }
   };
   return {
     getUser: async () => ((await allowed()) ? { id: "local-dev", name: "Local dev" } : null),

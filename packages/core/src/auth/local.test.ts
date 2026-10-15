@@ -84,4 +84,58 @@ describe("localAuth", () => {
     const adapter = localAuth({ predicate: () => false, getHost: async () => "localhost" });
     expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
   });
+
+  // Non-Next hosts (Astro) prove the bind themselves; the Next env var is
+  // then irrelevant either way.
+  describe("isBoundToLoopback option", () => {
+    it("allows when the host reports a loopback bind, even without Next's env var", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("__NEXT_PRIVATE_ORIGIN", "");
+      const adapter = localAuth({ isBoundToLoopback: () => true, getHost: async () => "localhost:4321" });
+      expect(await adapter.authorize({ action: "saveDraft" })).toBe(true);
+      expect(await adapter.getUser!({ action: "read" })).toEqual({ id: "local-dev", name: "Local dev" });
+    });
+
+    it("denies when the host reports no loopback bind, even if Next's env var says loopback", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      const adapter = localAuth({ isBoundToLoopback: () => false, getHost: async () => "localhost:4321" });
+      expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
+    });
+
+    it("denies a truthy non-boolean, so a stray address string can't pass as proof", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      const adapter = localAuth({
+        isBoundToLoopback: (() => "0.0.0.0") as unknown as () => boolean,
+        getHost: async () => "localhost",
+      });
+      expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
+    });
+
+    it("denies a non-loopback Host on a loopback bind", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      const adapter = localAuth({ isBoundToLoopback: () => true, getHost: async () => "evil.example:4321" });
+      expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
+    });
+
+    it("denies in production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const adapter = localAuth({ isBoundToLoopback: () => true, getHost: async () => "localhost" });
+      expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
+    });
+
+    it("denies rather than throws when a check throws", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      const boom = () => {
+        throw new Error("boom");
+      };
+      for (const adapter of [
+        localAuth({ isBoundToLoopback: boom, getHost: async () => "localhost" }),
+        localAuth({ isBoundToLoopback: () => true, getHost: async () => boom() }),
+        localAuth({ predicate: boom, isBoundToLoopback: () => true, getHost: async () => "localhost" }),
+      ]) {
+        expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
+        expect(await adapter.getUser!({ action: "read" })).toBeNull();
+      }
+    });
+  });
 });
