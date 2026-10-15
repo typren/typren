@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import matter from "gray-matter";
-import { parseMatter } from "./safe-matter";
+import { parseMatter, stringifyMatter } from "./safe-matter";
 import type { ContentAdapter, PageContent, Slice } from "./types";
 import { localeSubdir } from "./localize";
 
@@ -111,7 +110,7 @@ export function createMarkdownAdapter({
 
   const serialize = (page: PageContent): string =>
     // gray-matter puts the YAML delimiters back and dumps frontmatter via js-yaml.
-    matter.stringify(page.body ?? "", { ...page.meta, [frontmatterKey]: page.slices });
+    stringifyMatter(page.body ?? "", { ...page.meta, [frontmatterKey]: page.slices });
 
   return {
     locales,

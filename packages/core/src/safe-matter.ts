@@ -25,3 +25,20 @@ const yaml = (src: string): object => {
 const SAFE_ENGINES = { js: refuse, javascript: refuse, yaml };
 
 export const parseMatter = (raw: string) => matter(raw, { engines: SAFE_ENGINES });
+
+// gray-matter's default YAML dump re-encodes a shared object reference (e.g. two
+// slices with the same nested prop) as a `&ref`/`*ref` anchor pair, which
+// parseMatter's engine refuses on read (aliases are disabled above, deliberately,
+// against billion-laughs). noRefs forces a full inline dump instead, so every
+// write here stays within what this file's own parser accepts. Reading the
+// result back before returning it catches that, and the size cap, before
+// anything is written to disk.
+export const stringifyMatter = (body: string, data: object): string => {
+  // gray-matter forwards unknown stringify options straight through to its
+  // bundled js-yaml dump (its own docs: "options to pass to gray-matter and
+  // js-yaml"), but its shipped .d.ts doesn't declare js-yaml's own options.
+  const noRefs = { noRefs: true } as Parameters<typeof matter.stringify>[2];
+  const raw = matter.stringify(body, data, noRefs);
+  parseMatter(raw);
+  return raw;
+};

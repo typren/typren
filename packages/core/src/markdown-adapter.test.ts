@@ -27,6 +27,26 @@ describe("markdown-adapter parse/serialize", () => {
     const serialized = adapter.serialize(parsed);
     expect(adapter.parse(serialized)).toEqual(parsed);
   });
+
+  // Regression: the editor's duplicate() shallow-copies a slice (`{...slice}`),
+  // so a duplicated page can carry two slices pointing at the very same nested
+  // object. Before noRefs, gray-matter dumped that as a YAML anchor/alias pair,
+  // which parse() (via parseMatter) refuses, making the duplicated page, and
+  // every site listing/build that parses it, permanently unreadable.
+  it("round-trips a page whose slices share a nested object reference (the Duplicate path)", () => {
+    const cta = { label: "Buy now", href: "/buy" };
+    const page = { meta: {}, slices: [{ slice: "hero", cta }, { slice: "hero", cta }], body: "" };
+
+    const serialized = adapter.serialize(page);
+    // gray-matter's dump adds a trailing newline to an empty body; trimmed
+    // comparison keeps this test about the slices surviving, not whitespace.
+    expect({ ...adapter.parse(serialized), body: adapter.parse(serialized).body.trim() }).toEqual(page);
+  });
+
+  it("refuses to serialize front matter over the parser's size cap, so nothing is ever written", () => {
+    const page = { meta: { title: "x".repeat(256 * 1024) }, slices: [], body: "" };
+    expect(() => adapter.serialize(page)).toThrow(/front matter exceeds 256 KB/);
+  });
 });
 
 describe("markdown-adapter listSlugs", () => {
