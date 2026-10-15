@@ -64,20 +64,86 @@ Other protections baked into the handler:
   (possibly wrong) partial path list, telling the host to invalidate
   everything.
 
+## Front matter: no YAML aliases
+
+`safe-matter` (shared by `@typren/core` and the CLI) parses front matter
+with alias expansion disabled (`maxAliasCount: 0`) and a hard cap on the raw
+front-matter block's size (256 KB). YAML's `&anchor`/`*alias` syntax lets a
+small document expand into an exponential one at parse time ("billion
+laughs"); refusing aliases outright, rather than trying to bound expansion,
+removes the attack surface instead of tuning around it. A page's front
+matter is author-controlled content, so this applies to every parse, not
+only ones from an untrusted source.
+
 ## SVG sanitization
 
-Uploaded SVGs go through `processUpload` → `sanitizeSvg`, which runs
-DOMPurify's `svg`/`svgFilters` profiles (an allowlist, via `jsdom`) to strip
-`<script>` tags, event-handler attributes (`onload`, `onclick`, ...), and
-`javascript:`/`data:text-html` URIs, while keeping the rest of the markup
-intact. This replaced an earlier blocklist-regex approach: a blocklist only
-ever covers the bypasses someone already thought of, which stopped being
-good enough once upload access could extend beyond an `authorize()`-gated
-author (a hosted, multi-tenant setup).
+`processUpload` rejects `image/svg+xml` outright unless the caller opts in
+with `allowSvg: true` — SVG is the one upload format that can carry a script,
+so it's the one format the framework doesn't accept by default.
 
-All uploads are additionally mime-sniffed from actual bytes
-(`sharp(...).metadata()`), never trusted from the client's `Content-Type`
-header or filename extension, both of which are attacker-controlled.
+When a site does opt in, the upload still goes through `processUpload` →
+`sanitizeSvg`, which runs DOMPurify's `svg`/`svgFilters` profiles (an
+allowlist, via `jsdom`) to strip `<script>` tags, event-handler attributes
+(`onload`, `onclick`, ...), and `javascript:`/`data:text-html` URIs, hardened
+beyond the stock profile: `<style>` and `<image>` are added to
+`FORBID_TAGS` (both are live script/exfiltration vectors inside an SVG —
+`<style>` can carry `@import`/expression-based CSS, `<image>` can point at
+an arbitrary URL), and `href`/`xlink:href` are added to `FORBID_ATTR` for
+any value that isn't a same-document fragment (`#id`). This replaced an
+earlier blocklist-regex approach: a blocklist only ever covers the bypasses
+someone already thought of, which stopped being good enough once upload
+access could extend beyond an `authorize()`-gated author (a hosted,
+multi-tenant setup).
+
+WebP and AVIF uploads are always re-encoded through `sharp` rather than
+stored as the client sent them, which strips EXIF/GPS metadata and caps the
+maximum dimension. All uploads are additionally mime-sniffed from actual
+bytes (`sharp(...).metadata()`), never trusted from the client's
+`Content-Type` header or filename extension, both of which are
+attacker-controlled, and the upload route checks the request's
+`Content-Length` before buffering the body.
+
+## Preview iframe isolation
+
+The editor's live preview renders the draft in an `<iframe sandbox="allow-scripts
+allow-forms">` — deliberately without `allow-same-origin`, since combining
+it with `allow-scripts` would let the framed page escape the sandbox
+entirely (a sandboxed-but-same-origin frame can still reach and script its
+parent). The cost is that the frame's origin becomes the opaque string
+`"null"`, so the preview bridge can't check `event.origin` the way a
+same-origin postMessage protocol normally would. Instead, every message is
+checked against `event.source === iframeRef.current?.contentWindow` (so only
+the specific frame instance the editor created is trusted, not any other
+window) and a `__typren` marker on the message payload. Outbound messages to
+the frame use `targetOrigin: "*"`, which is safe here only because nothing
+sent to the preview frame is sensitive — it's editable-field content the
+author already has, not a credential or session token.
+
+If a future preview route needs same-origin access (cookies, to render a
+draft that depends on the visitor's session), the fallback is to drop
+`sandbox` entirely and rely on `event.source === iframe.contentWindow` alone
+to reject other same-origin windows/frames, plus restricting "edit" messages
+to string fields that already exist on the page — never accepting a new
+field name or a non-string value from a message. This is a materially
+weaker boundary than the sandboxed default and should only be adopted with
+that trade-off understood.
+
+## Settings bootstrap validation
+
+`PUT /settings/bootstrap` reparameterizes what the *next* boot trusts (the
+admin route, the locale list, the routing mode), so the route validates the
+patch server-side rather than trusting whatever the "admin"-gated caller
+sends: only known `SiteSettingsBootstrap` keys are accepted, `locales` must
+be BCP-47-ish strings with `defaultLocale` among them, `adminRoute` must
+match `^[a-z0-9-]+$` and not collide with a reserved path (`api`, `_next`),
+and `routing`/`onboarded` must be a recognized enum value / boolean. This is
+the same check `typren apply-settings` already ran against
+`typren.config.json` at the CLI layer; the server route now enforces it too,
+since a hosted deployment's bootstrap write doesn't go through the CLI at
+all. `createSettingsStore` also throws at construction if `siteId` (or
+another multi-tenant/factory signal) is set without a `settingsAdapter` —
+a multi-tenant config with no distinct settings storage would otherwise
+silently share one site's settings across every tenant.
 
 ## A separate origin for media
 

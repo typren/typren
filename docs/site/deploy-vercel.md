@@ -44,6 +44,24 @@ no separate branch to ignore, and every draft save lands on your production
 branch and triggers a production build. Keep the default `draftBranch` unless
 you have a reason not to.
 
+> **Security:** the Ignored Build Step above stops a *production* deploy from
+> picking up drafts, but Vercel still builds the `typren-drafts` branch as a
+> **Preview Deployment** by default, and a Preview Deployment URL is public
+> unless you've changed that. An unpublished draft is reachable by anyone who
+> has (or guesses) the preview URL, even though it never reaches production.
+> Close this with one or both of:
+>
+> - Also exclude the drafts branch from Preview Deployments: **Settings →
+>   Git → Preview Deployment Suppression**, add the `typren-drafts` branch
+>   (or set Preview Deployments to only build specific branches and leave it
+>   out).
+> - Turn on **Settings → Deployment Protection** (Vercel Authentication or
+>   Password Protection) so every preview, drafts branch or not, requires
+>   auth to view.
+>
+> Either is enough on its own; doing both is the belt-and-suspenders option
+> if some drafts are sensitive enough to warrant it.
+
 ## Auth and media
 
 Vercel doesn't constrain which `AuthAdapter` or media backend you use. See

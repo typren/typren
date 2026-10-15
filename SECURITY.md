@@ -30,25 +30,22 @@ a pluggable auth adapter, so the things we care most about are:
   on a thrown error is a bug.
 - **Privilege escalation through content**, in particular anything that lets an
   editor modify configuration that determines what the next boot trusts.
-- **Stored XSS** through uploaded media or authored content. Note the SVG check
-  in `media.ts` is currently a blocklist and is documented as such. See the
-  known-limitations note below.
+- **Stored XSS** through uploaded media or authored content. SVG uploads are
+  rejected unless a site opts in (`allowSvg: true`), and an allowed SVG is
+  sanitized with DOMPurify's SVG profile (an allowlist, not a blocklist)
+  before storage.
 - **Secret disclosure** in logs, error messages, or published artifacts.
 
 ## Known limitations
 
 We would rather write these down than have you rediscover them:
 
-- **SVG upload sanitization is a blocklist**, not a parser-based sanitizer. It
-  is marked in `media.ts` as adequate only while upload access is gated to
-  trusted authors. Do not expose uploads to untrusted users on the current
-  implementation.
 - **The version check in `store.ts` has a TOCTOU window.** It is marked in the
   source with its ceiling. A Git-backed adapter closes it, since the Contents
   API takes a blob SHA and rejects a stale one.
 
-Reports about these are still welcome, especially if you can show impact worse
-than what is documented, but they are known rather than novel.
+A report about this is still welcome, especially if you can show impact worse
+than what is documented, but it is known rather than novel.
 
 ## Supply chain
 

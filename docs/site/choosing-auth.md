@@ -14,29 +14,32 @@ it, and pass it as `auth` to `makeActions`/`CmsConfig`.
 
 | Your project already has | Use | Allowlist required to construct? |
 |---|---|---|
-| Nothing yet, just developing locally | `@typren/core/auth/local` | No — dev-only, gated on `NODE_ENV` |
-| NextAuth v5 | `@typren/core/auth/next-auth` | No, but default-open without one |
-| Clerk | `@typren/core/auth/clerk` | No, but default-open without one |
+| Nothing yet, just developing locally | `@typren/core/auth/local` | No — dev-only, gated on `NODE_ENV` and a loopback request |
+| NextAuth v5 | `@typren/core/auth/next-auth` | **Yes — throws without one** |
+| Clerk | `@typren/core/auth/clerk` | **Yes — throws without one** (`allowedUserIds` also counts) |
 | Better Auth | `@typren/core/auth/better-auth` | **Yes — throws without one** |
 | Supabase Auth | `@typren/core/auth/supabase` | **Yes — throws without one** |
 | A generic OIDC/JWT issuer (Okta, Entra ID, Auth0, Keycloak, Google Workspace SSO) | `@typren/core/auth/oidc` | **Yes — throws without one** |
 | Cloudflare Access | `@typren/core/auth/oidc`'s `cfAccessAuthAdapter` | No — Access's own per-application policy already allowlists the request |
 
-"Allowlist" means `allowedEmails` and/or `allowedRoles`. `next-auth` and
-`clerk` stay default-open for back-compat with existing configs; every other
-mapping added since (`better-auth`, `supabase`, `oidc`) throws at construction
-if you pass neither, because a signed-in session with no allowlist would
-authorize anyone who can sign in — almost never the intended policy for a
-public editor.
+"Allowlist" means `allowedEmails` and/or `allowedRoles` (Clerk also accepts
+`allowedUserIds`). Every mapping throws at construction if you pass none of
+these, because a signed-in session with no allowlist would authorize anyone
+who can sign in — almost never the intended policy for a public editor.
+`cfAccessAuthAdapter` is the one exception: Access already gated the request
+against its own per-application policy before issuing the token.
 
 ## The verified-email rule
 
 Every mapping that can satisfy `allowedEmails` only lets a **provider-verified**
 email match it:
 
-- `next-auth` and `clerk`: no verification signal is checked (the session
-  shape doesn't carry one), so `allowedEmails` there just matches whatever
-  email the session carries.
+- `next-auth`: no verification signal is checked (the session shape doesn't
+  carry one), so `allowedEmails` there just matches whatever email the
+  session carries. Prefer `allowedRoles` if your NextAuth config can supply
+  one.
+- `clerk`: only the user's **primary** email, and only when
+  `primaryEmailAddress?.verification?.status === "verified"`.
 - `better-auth`: only when `session.user.emailVerified === true`.
 - `supabase`: only when `user.email_confirmed_at` is set.
 - `oidc`: only when the token's `email_verified` claim is `true` (or, for
@@ -72,6 +75,13 @@ import { localAuth } from "@typren/core/auth/local";
 const auth = localAuth(); // refuses in production unless allowInProduction is set
 ```
 
+`localAuth()` also refuses any request whose `Host` isn't loopback
+(`localhost`, `127.0.0.1`, `[::1]`, or a `*.localhost` name) — a `NODE_ENV`
+check alone doesn't stop a production build accidentally started with
+`NODE_ENV=development`. `typren init` scaffolds the dev script as
+`next dev -H 127.0.0.1` so the dev server itself never binds a
+non-loopback interface.
+
 ### NextAuth
 
 ```ts
@@ -97,7 +107,10 @@ const auth = clerkAuthAdapter({
 ```
 
 `getUser`/`authorize` read Clerk's own `auth()`/`currentUser()` globals
-directly; nothing is injected.
+directly; nothing is injected. Throws at construction unless at least one of
+`allowedEmails`, `allowedRoles`, or `allowedUserIds` is set. `allowedEmails`
+is matched against the user's primary email only, and only when Clerk reports
+it as verified.
 
 ### Better Auth
 

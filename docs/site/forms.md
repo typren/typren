@@ -48,6 +48,13 @@ Fields are extracted from the untrusted request body by iterating the
 null-prototype record, so `__proto__`/`constructor`/`prototype` are refused
 outright and a crafted payload degrades to "field absent."
 
+The handler caps the request body at 64 KB by default (configurable), read
+as a bounded stream rather than buffered in full before the cap is checked.
+Every field also gets a default `maxLength` of 10,000 characters, applied
+before any `pattern` is tested against the value, regardless of whether the
+schema sets its own `maxLength` — a field with no explicit limit isn't a
+field with no limit.
+
 Every sink receives the same canonical shape:
 
 ```ts
@@ -82,6 +89,18 @@ a literal `"${VAR}"` reference resolved against `process.env` (or a custom
 fails fast instead of landing in version control. See the sink table in
 [reference-forms](./reference-forms.md) for every sink's config shape.
 
+A HubSpot sink's `hutk` must come from the `hubspotutk` cookie, read
+server-side off the incoming request — never from a value the client puts in
+the form body, since that would let any submitter claim an arbitrary
+tracking identity.
+
+The `webhook` sink follows redirects manually (`redirect: "manual"`) and
+treats any `3xx` response as a delivery failure rather than following it:
+a webhook endpoint that silently redirects elsewhere is not the endpoint the
+site owner configured. The `file` sink caps the size of each appended line,
+so one oversized submission can't balloon the JSONL file or stall a reader
+that assumes bounded lines.
+
 A custom vendor implements `FormSink` directly and is passed in place of a
 config entry:
 
@@ -104,7 +123,11 @@ never loses the submission for the others.
 > bot is given no signal it was detected. A throwing `spamVerifier` rejects
 > the submission (fails closed), the same doctrine as `AuthAdapter.authorize`.
 > Submission field values are never logged; log lines carry only the form id
-> and per-sink outcome.
+> and per-sink outcome. The response the caller sees reports only
+> `{ type, ok }` per sink — never the sink's error detail (an HTTP status, a
+> provider error message, a stack trace), since that detail can leak
+> endpoint internals to whoever submitted the form; the full detail is only
+> ever logged server-side.
 
 ## The client helper
 
