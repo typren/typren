@@ -53,6 +53,13 @@ export interface ExportApiSourceConfig {
    */
   zipLocaleFrom?: "filename" | "dir";
   langMap?: Record<string, string>;
+  /**
+   * Origins (e.g. `"https://exports.tms.example"`) the bundle URL may point at, besides the create
+   * endpoint's own origin, which is always allowed. The URL comes from the TMS response, so without
+   * this list a hostile or spoofed response could aim the fetch anywhere. TMSes that hand out a
+   * storage/CDN link need that origin listed here.
+   */
+  bundleOrigins?: string[];
 }
 
 export interface ExportApiProviderOptions {
@@ -72,6 +79,7 @@ interface ResolvedConfig {
   bundle: "zip" | "json";
   zipLocaleFrom: "filename" | "dir";
   langMap?: Record<string, string>;
+  bundleOrigins: string[];
 }
 
 function mergeShallow<T extends object>(base: T | undefined, override: T | undefined): T | undefined {
@@ -97,7 +105,44 @@ function resolveConfig(config: ExportApiSourceConfig): ResolvedConfig {
     bundle: config.bundle ?? preset?.bundle ?? "json",
     zipLocaleFrom: config.zipLocaleFrom ?? preset?.zipLocaleFrom ?? "filename",
     langMap: config.langMap,
+    bundleOrigins: config.bundleOrigins ?? preset?.bundleOrigins ?? [],
   };
+}
+
+function assertBundleOrigin(bundleUrl: string, createUrl: string, bundleOrigins: string[]): void {
+  let origin: string;
+  try {
+    origin = new URL(bundleUrl, createUrl).origin;
+  } catch {
+    throw new Error(`export-api: bundle URL "${bundleUrl}" is not a valid URL`);
+  }
+  const allowed = [new URL(createUrl).origin, ...bundleOrigins.map((o) => new URL(o).origin)];
+  if (!allowed.includes(origin)) {
+    throw new Error(
+      `export-api: bundle URL origin "${origin}" is not allowed (allowed: ${allowed.join(", ")}); add it to "bundleOrigins" if this TMS serves exports from it`,
+    );
+  }
+}
+
+// A zip bomb inflates a few KB into gigabytes in memory, and a real TMS export is nowhere near either cap.
+const MAX_ZIP_BYTES = 50 * 1024 * 1024;
+const MAX_ZIP_ENTRIES = 1000;
+
+function unzipCapped(bytes: Uint8Array): Record<string, Uint8Array> {
+  let total = 0;
+  let count = 0;
+  const entries = unzipSync(bytes, {
+    filter: (file) => {
+      total += file.originalSize;
+      if (++count > MAX_ZIP_ENTRIES) throw new Error(`export-api: zip bundle has more than ${MAX_ZIP_ENTRIES} entries`);
+      if (total > MAX_ZIP_BYTES) throw new Error(`export-api: zip bundle inflates past ${MAX_ZIP_BYTES} bytes`);
+      return true;
+    },
+  });
+  // The declared sizes come from the archive itself; recheck what was actually inflated.
+  const actual = Object.values(entries).reduce((sum, data) => sum + data.length, 0);
+  if (actual > MAX_ZIP_BYTES) throw new Error(`export-api: zip bundle inflates past ${MAX_ZIP_BYTES} bytes`);
+  return entries;
 }
 
 const ENV_REF_PATTERN = /\$\{[A-Za-z_][A-Za-z0-9_]*\}/;
@@ -214,7 +259,7 @@ function parseZipBundle(
   localeFrom: "filename" | "dir",
   langMap: Record<string, string> | undefined,
 ): Record<string, Catalog> {
-  const entries = unzipSync(bytes);
+  const entries = unzipCapped(bytes);
   const catalogs: Record<string, Catalog> = {};
   for (const [filename, contents] of Object.entries(entries).sort(([a], [b]) => a.localeCompare(b))) {
     if (filename.endsWith("/")) continue; // directory marker
@@ -281,6 +326,7 @@ export function createExportApiSourceProvider(
         if (typeof bundleUrl !== "string" || !bundleUrl) {
           throw new Error(`export-api: could not read bundle URL at "${urlPath}"`);
         }
+        assertBundleOrigin(bundleUrl, createUrl, resolved.bundleOrigins);
         const bundleResponse = await fetchImpl(bundleUrl);
         if (!bundleResponse.ok) {
           throw new Error(`export-api: bundle request failed (${bundleResponse.status} ${bundleResponse.statusText}): ${bundleUrl}`);

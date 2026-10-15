@@ -407,6 +407,53 @@ describe("createExportApiSourceProvider", () => {
     );
   });
 
+  function zipProvider(zipped: Uint8Array, bundleUrl = `${BASE_URL}/bundle.zip`, bundleOrigins?: string[]) {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === `${BASE_URL}/export`) return new Response(JSON.stringify({ url: bundleUrl }), { status: 200 });
+      if (url === bundleUrl) return new Response(zipped as Uint8Array<ArrayBuffer>, { status: 200 });
+      throw new Error(`unexpected url in test fetch: ${url}`);
+    });
+    const provider = createExportApiSourceProvider(
+      {
+        type: "export-api",
+        baseUrl: BASE_URL,
+        projectId: "proj-1",
+        token: `\${${TOKEN_ENV_VAR}}`,
+        create: { path: "/export" },
+        response: { urlPath: "url" },
+        bundle: "zip",
+        bundleOrigins,
+      },
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    return { provider, fetchImpl };
+  }
+
+  const smallZip = () => zipSync({ "en.json": strToU8(JSON.stringify({ Greeting: "Hi" })) });
+
+  it("a bundle URL on a foreign origin is refused before it is fetched", async () => {
+    const { provider, fetchImpl } = zipProvider(smallZip(), "https://attacker.example/bundle.zip");
+    await expect(provider.loadSource()).rejects.toThrow(/origin "https:\/\/attacker\.example" is not allowed/);
+    expect(fetchImpl).not.toHaveBeenCalledWith("https://attacker.example/bundle.zip");
+  });
+
+  it("bundleOrigins admits a TMS's separate export host", async () => {
+    const { provider } = zipProvider(smallZip(), "https://exports.tms.example/b.zip", ["https://exports.tms.example/"]);
+    await expect(provider.loadSource()).resolves.toEqual({ en: { Greeting: "Hi" } });
+  });
+
+  it("a zip bomb past the 50 MB inflate cap is refused", async () => {
+    const bomb = zipSync({ "en.json": new Uint8Array(51 * 1024 * 1024) }, { level: 9 });
+    await expect(zipProvider(bomb).provider.loadSource()).rejects.toThrow(/inflates past/);
+  });
+
+  it("a zip with more than 1000 entries is refused", async () => {
+    const files: Record<string, Uint8Array> = {};
+    for (let i = 0; i < 1001; i++) files[`en/${i}.json`] = strToU8("{}");
+    await expect(zipProvider(zipSync(files)).provider.loadSource()).rejects.toThrow(/more than 1000 entries/);
+  });
+
   it('a literal-looking token (no "${}") is rejected with a clear error', async () => {
     const provider = createExportApiSourceProvider(
       { type: "export-api", baseUrl: BASE_URL, projectId: "proj-1", token: "sk-literal-secret", create: { path: "/export" }, bundle: "json" },
