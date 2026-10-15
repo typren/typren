@@ -21,8 +21,10 @@ interface AuthAdapter {
 `AuthContext` carries the `action` being attempted (`"read"`, `"saveDraft"`,
 `"discardDraft"`, `"publish"`, `"createPage"`, `"renamePage"`,
 `"deletePage"`, `"uploadMedia"`, `"deleteMedia"`, or `"admin"`), the target
-`slug` when there is one, and (for a hosted/multi-tenant setup) `siteId`/
-`accountId`.
+`slug` and `collectionId` when there are any, the `locale` the request
+resolved, and (for a hosted/multi-tenant setup) `siteId`/`accountId`. The API
+routes (`api/routes.ts`) pass all of these for both reads and writes, so a
+policy can grant or deny per slug, per collection, or per locale.
 
 **`authorize()` must fail closed.** Every adapter shipped in `@typren/core`
 wraps its identity resolution in a try/catch and returns `false` on any
