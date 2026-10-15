@@ -83,6 +83,16 @@ function json(body: unknown, status = 200): Response {
   return Response.json(body as Record<string, unknown>, { status });
 }
 
+/** Draft content, settings, and the media library are per-request/per-user
+ *  reads that a shared cache (CDN, browser back/forward cache) must never
+ *  store: an intermediary caching an unpublished draft or another editor's
+ *  settings snapshot would leak it to the next viewer of that URL. */
+function jsonNoStore(body: unknown, status = 200): Response {
+  const res = Response.json(body as Record<string, unknown>, { status });
+  res.headers.set("Cache-Control", "private, no-store");
+  return res;
+}
+
 /** Unauthorized from an action guard is a thrown Error, not a status. Map it
  *  to 403 and let anything else surface as a 500 rather than being swallowed. */
 function isUnauthorized(e: unknown): boolean {
@@ -216,7 +226,11 @@ export function createTyprenApi(config: CmsConfig | CmsConfigFactory, options: T
       return json({ error: "Not found" }, 404);
     } catch (e) {
       if (isUnauthorized(e)) return json({ error: "Unauthorized" }, 403);
-      return json({ error: e instanceof Error ? e.message : "Internal error" }, 500);
+      // Never echo e.message to the client: an adapter/filesystem error can carry
+      // absolute paths, slugs, or other internals a public API response shouldn't
+      // leak. Full detail still reaches the server's own logs.
+      console.error("typren: unhandled API error", e);
+      return json({ error: "Internal error" }, 500);
     }
   }
 
@@ -270,7 +284,7 @@ async function pages(
         store.getPublished(slug, locale),
         store.currentVersion(slug, locale),
       ]);
-      return json({
+      return jsonNoStore({
         page: draft ?? published,
         version,
         hasDraft: Boolean(draft),
@@ -371,7 +385,7 @@ async function collections(
         collectionStore.getPublished(slug, locale),
         collectionStore.currentVersion(slug, locale),
       ]);
-      return json({
+      return jsonNoStore({
         page: draft ?? published,
         version,
         hasDraft: Boolean(draft),
@@ -409,7 +423,7 @@ async function media(built: Built, request: Request, method: string, rest: strin
   const { config, actions } = built;
   const [id] = rest;
   if (!id) {
-    if (method === "GET") return json({ media: await actions.listMedia() });
+    if (method === "GET") return jsonNoStore({ media: await actions.listMedia() });
     // Delegated: upload owns its own validation, conversion and auth action.
     if (method === "POST") return handleMediaUpload(config, request);
     return json({ error: "Method not allowed" }, 405);
@@ -437,7 +451,7 @@ async function settingsRoutes(
     // it, so its first save sent no baseVersion and could not conflict-detect.
     if (denied) return denied;
     const [current, version] = await Promise.all([settings.get(locale), settings.currentVersion(locale)]);
-    return json({ ...current, bootstrap: settings.bootstrap.readBootstrap(), version });
+    return jsonNoStore({ ...current, bootstrap: settings.bootstrap.readBootstrap(), version });
   }
   if (sub === "draft" && method === "PUT") {
     const { settings: next, baseVersion } = await body<{

@@ -147,6 +147,31 @@ describe("typren HTTP API", () => {
   it("404s media when no adapter is configured", async () => {
     expect((await api.handler(req("GET", "/media"))).status).toBe(500); // listMedia throws: not configured
   });
+
+  // Regression: a 500 used to echo e.message straight into the response body.
+  // An adapter/filesystem error can carry absolute paths, slugs, or other
+  // server internals that a public API response must never leak.
+  it("never echoes the thrown error's message in a 500 response", async () => {
+    const res = await api.handler(req("GET", "/media"));
+    expect(res.status).toBe(500);
+    const payload = await res.json();
+    expect(payload.error).toBe("Internal error");
+    expect(payload.error).not.toMatch(/mediaAdapter|not configured/i);
+  });
+
+  it("marks draft/published page reads private, no-store", async () => {
+    const res = await api.handler(req("GET", "/pages/home"));
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("marks the media listing private, no-store", async () => {
+    const mediaApi = createTyprenApi(
+      { ...makeConfig(), mediaAdapter: createFsMediaAdapter({ dir, publicPath: "/img" }) },
+      { basePath: BASE }
+    );
+    const res = await mediaApi.handler(req("GET", "/media"));
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
 });
 
 // The hosted model needs siteId/accountId on every AuthContext the package
@@ -448,6 +473,11 @@ describe("settings resource", () => {
     const res = await createTyprenApi(settingsConfig(), { basePath: BASE }).handler(req("GET", "/settings"));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ brand: { name: "" }, bootstrap: { adminRoute: "editor" } });
+  });
+
+  it("marks the settings read private, no-store", async () => {
+    const res = await createTyprenApi(settingsConfig(), { basePath: BASE }).handler(req("GET", "/settings"));
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("saves a settings draft then publishes it", async () => {
