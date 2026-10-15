@@ -102,7 +102,8 @@ export function run(argv = process.argv.slice(2), cwd = process.cwd()) {
   const head = git(["rev-parse", "--verify", "--end-of-options", `${headRef}^{commit}`], cwd).trim();
   const dir = path.join(cwd, RECORD_DIR);
   const records = (fs.existsSync(dir) ? fs.readdirSync(dir) : [])
-    .filter((f) => f.endsWith(".md") && f !== "README.md")
+    // README and the _TEMPLATE-* files are guidance, not records.
+    .filter((f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith("_"))
     .sort()
     .reverse()
     .map((f) => ({ file: `${RECORD_DIR}/${f}`, rec: parseRecord(fs.readFileSync(path.join(dir, f), "utf8")) }));

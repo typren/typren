@@ -69,6 +69,14 @@ provider, translation service, Notion, HubSpot, webhook receiver).
 
 Then write the record yourself in the format below, with `method: runbook` (or `manual`).
 
+## Templates
+
+- `security-reviews/_TEMPLATE-review.md`: copy to `security-reviews/<date>-<slug>.md` for a review record.
+- `security-reviews/_TEMPLATE-waiver.md`: copy for a waiver.
+- `.github/PULL_REQUEST_TEMPLATE/promotion.md`: the promotion PR checklist. Open the PR with `?template=promotion.md`.
+
+The gate ignores `README.md` and any file starting with `_`.
+
 ## Record format
 
 ```markdown
