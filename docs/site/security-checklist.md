@@ -39,6 +39,10 @@ guide that explains the reasoning; this page is the checklist form.
       `onboarded` is a boolean. `createSettingsStore` throws at construction
       if `siteId` (or another multi-tenant/factory signal) is set with no
       `settingsAdapter` configured.
+- [ ] If you renamed `adminRoute`, the old `/editor/**` path still serves the
+      editor unless your proxy opts in: call `typrenBlocksDirectEditorAccess(url)`
+      from `@typren/core/proxy` ahead of `typrenProxyRewrite` and return a 404
+      when it is true. Renaming alone hides nothing.
 
 See [auth-model](./auth-model.md) and [choosing-auth](./choosing-auth.md).
 
