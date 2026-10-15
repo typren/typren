@@ -376,6 +376,11 @@ import type { AuthAdapter } from "../auth-adapter.js";
  * Unlike next-auth's injected `auth()`, Clerk's `auth()`/`currentUser()` are
  * global request-scoped helpers, so they're imported directly.
  *
+ * REQUIRES AN ALLOWLIST: `allowedEmails`, `allowedRoles`, or `allowedUserIds`
+ * must be set, or construction throws, matching next-auth.ts/better-auth.ts.
+ * `allowedUserIds` counts as an allowlist on its own (a fixed roster of Clerk
+ * user ids is a legitimate, closed policy) even with no email/role check.
+ *
  * "admin" (settings/onboarding/bootstrap writes) is gated separately from
  * ordinary content writes: it needs `adminRoles` set and a matching org role
  * claim, full stop. Unmapped (no `adminRoles` configured) denies rather than
@@ -383,6 +388,8 @@ import type { AuthAdapter } from "../auth-adapter.js";
  * gets to reconfigure the site.
  */
 export declare function clerkAuthAdapter(opts?: {
+    /** Case-insensitive match on the user's verified primary email. */
+    allowedEmails?: string[];
     /** Org role claim, e.g. "org:admin". */
     allowedRoles?: string[];
     allowedUserIds?: string[];
@@ -393,17 +400,22 @@ export declare function clerkAuthAdapter(opts?: {
 // ---- dist/auth/local.d.ts ----
 import type { AuthAdapter } from "../auth-adapter.js";
 /**
- * Dev-only gate (entry `@typren/core/auth/local`, no peer deps). Refuses in
- * production unless `allowInProduction` is explicitly set. The editor writes
- * files, so never ship it open by omission. Doesn't branch on `ctx.action`, so
- * "admin" (settings/onboarding/bootstrap writes) gets the exact same local-only
- * gate as every other write. There's only one tier in local dev.
+ * Dev-only gate (entry `@typren/core/auth/local`, no peer deps outside the
+ * `getHost` default above). Refuses in production unless `allowInProduction`
+ * is explicitly set, AND refuses any non-loopback Host even in development.
+ * The editor writes files, so never ship it open by omission. Doesn't branch
+ * on `ctx.action`, so "admin" (settings/onboarding/bootstrap writes) gets the
+ * exact same local-only gate as every other write. There's only one tier in
+ * local dev.
  */
 export declare function localAuth(opts?: {
     /** default: NODE_ENV === "development" */
     predicate?: () => boolean;
     /** default: false */
     allowInProduction?: boolean;
+    /** Resolve the request's Host header. Default: Next's `headers()` (see
+     *  `defaultGetHost`). Override for a non-Next host, or in tests. */
+    getHost?: () => Promise<string | null>;
 }): AuthAdapter;
 
 // ---- dist/auth/next-auth.d.ts ----
@@ -419,9 +431,10 @@ type Session = {
     };
 } | null;
 /**
- * DEFAULT-OPEN CAVEAT: with neither `allowedEmails` nor `allowedRoles` set,
- * ANY signed-in user is authorized. For a public editor that is almost never
- * what you want. Require at least one allowlist in production.
+ * REQUIRES AN ALLOWLIST: `allowedEmails` or `allowedRoles` must be set, or
+ * construction throws, matching better-auth.ts. A signed-in session with
+ * neither would authorize anyone who can sign in, which is almost never the
+ * intended policy for an editor.
  *
  * "admin" (settings/onboarding/bootstrap writes; they reparameterize what the
  * next boot trusts) is gated separately from ordinary content writes: it needs
@@ -884,7 +897,7 @@ export { filePolicy, type AccessPolicyFile } from "./file-policy.js";
 export { versionOf, ConflictError } from "./version.js";
 export { serializeFieldSchema, parseFieldSchema, isFieldSchema, type SerializedFieldSchema, } from "./field-schema.js";
 export { resolveSections, DEFAULT_SECTIONS, SECTION_API_VERSION, type Section, type SectionKind, type SectionCtx, type ResolvedSection, type PagesSection, type MediaSection, type SettingsSection, type CollectionSection, type CustomSection, type FieldFormMedia, } from "./sections.js";
-export { createSettingsStore, createFsSettingsAdapter, type SiteSettings, type SiteSettingsRuntime, type SiteSettingsBootstrap, type SettingsAdapter, type SettingsStore, } from "./settings.js";
+export { createSettingsStore, createFsSettingsAdapter, validateBootstrap, BOOTSTRAP_KEYS, type SiteSettings, type SiteSettingsRuntime, type SiteSettingsBootstrap, type SettingsAdapter, type SettingsStore, } from "./settings.js";
 export { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection.js";
 export { buildRedirects, type RedirectEntry, type BuildRedirectsOptions, type PageRedirectMeta } from "./redirects.js";
 export { scanContentStore, loadRedirectMap, mergeRedirectEntries, toRedirectPairs, type RedirectMapEntry, type ToRedirectPairsOptions, } from "./redirect-sources.js";
@@ -1230,6 +1243,16 @@ export declare function previewPathFor(adminRoute: string): string;
 export declare function typrenProxyRewrite(url: URL | string, opts?: {
     configFile?: string;
 }): string | null;
+/**
+ * True when `url` hits `/editor/**` directly while a renamed `adminRoute`
+ * means that's no longer the live admin path. A host wires this ahead of
+ * `typrenProxyRewrite` (see the module doc comment) to 404 it: without this,
+ * renaming the admin route for URL hygiene was purely cosmetic -- the OLD
+ * path kept serving the editor side by side with the new one, forever.
+ */
+export declare function typrenBlocksDirectEditorAccess(url: URL | string, opts?: {
+    configFile?: string;
+}): boolean;
 
 // ---- dist/redirect-sources.d.ts ----
 import type { ContentStore } from "./store.js";
@@ -1771,6 +1794,19 @@ export interface SettingsAdapter {
     readBootstrap(): SiteSettingsBootstrap;
     writeBootstrap(patch: Partial<SiteSettingsBootstrap>): void;
 }
+/** Keys `PUT /settings/bootstrap` may patch (see api/routes.ts settingsRoutes).
+ *  Anything else in the patch is rejected before it ever reaches
+ *  `writeBootstrap`, since that adapter has no key allowlist of its own. */
+export declare const BOOTSTRAP_KEYS: ReadonlySet<string>;
+/**
+ * Validates a FULL bootstrap (not a partial patch): the one check shared by
+ * the Settings "Advanced" panel, the onboarding wizard's admin-route step,
+ * `typren apply-settings` (packages/cli/src/cli.ts), and the settings API's
+ * bootstrap write (api/routes.ts), so a config that passes one passes all
+ * four. Returns an error string, or null when valid. Reuses `resolveI18n`'s
+ * own defaultLocale-in-locales check rather than re-deriving it.
+ */
+export declare function validateBootstrap(bs: SiteSettingsBootstrap): string | null;
 /** Default bootstrap adapter: one root JSON, atomic tmp+rename write so no
  *  reader ever observes a half-written config that gates server boot. */
 export declare function createFsSettingsAdapter(opts: {
