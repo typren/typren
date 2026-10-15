@@ -46,7 +46,8 @@ bun run verify     # everything the pre-push gate runs
 
 There are no GitHub Actions for tests. `pre-push` gates on typecheck, lint,
 tests with coverage, the new-code coverage threshold, secret scanning, and the
-build. It then posts a `ci/local` commit status so results still appear in the
+build. Once the push lands, a background retry posts a `ci/local` commit status
+(GitHub only accepts it after the commits arrive) so results still appear in the
 GitHub UI.
 
 There are two workflows in `.github/`, and both are there because they cannot

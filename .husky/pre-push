@@ -40,16 +40,26 @@ fi
 
 # Best-effort: post a commit status (with the coverage number in its
 # description) so CI is still visible in the GitHub UI, even though it ran
-# locally. Never blocks the push on failure here, because the checks above are the
-# actual gate.
+# locally. Never blocks the push, because the checks above are the actual gate.
+# pre-push runs before git transfers any objects, so GitHub doesn't know these
+# commits yet and an immediate POST fails with 422. Post from a detached retry
+# loop that outlives the hook instead (24 tries, 5 s apart). The description
+# goes in as $0, never spliced into the sh -c string.
 coverage_pct=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json','utf8')).total.lines.pct)}catch{}" 2>/dev/null)
 description="local CI passed"
 [ -n "$coverage_pct" ] && description="local CI passed · coverage ${coverage_pct}%"
 
-echo "$pushed_refs" | while read -r local_ref local_sha remote_ref remote_sha; do
-  [ -z "$local_sha" ] && continue
-  GH_TOKEN=$(gh auth token --user mataleogml 2>/dev/null) \
-    gh api -X POST "repos/typren/typren/statuses/$local_sha" \
-      -f state=success -f context=ci/local -f description="$description" \
-      >/dev/null 2>&1 || true
-done
+shas=$(echo "$pushed_refs" | while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$local_sha" ] && [ "$local_sha" != "0000000000000000000000000000000000000000" ] && echo "$local_sha"
+done)
+[ -n "$shas" ] || exit 0
+token=$(gh auth token --user mataleogml 2>/dev/null) || exit 0
+GH_TOKEN=$token nohup sh -c '
+  for sha in '"$(echo $shas)"'; do
+    i=0
+    until gh api -X POST "repos/typren/typren/statuses/$sha" \
+        -f state=success -f context=ci/local -f description="$0" >/dev/null 2>&1; do
+      i=$((i + 1)); [ $i -ge 24 ] && break; sleep 5
+    done
+  done' "$description" >/dev/null 2>&1 &
+exit 0
