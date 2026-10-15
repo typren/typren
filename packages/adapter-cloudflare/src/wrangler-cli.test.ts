@@ -21,7 +21,17 @@ describe("runWrangler", () => {
   it("runs wrangler via npx and returns stdout", () => {
     mocked.mockReturnValue("ok" as never);
     expect(runWrangler(["--version"])).toBe("ok");
-    expect(mocked).toHaveBeenCalledWith("npx", ["wrangler", "--version"], expect.any(Object));
+    expect(mocked).toHaveBeenCalledWith("npx", ["--no-install", "wrangler", "--version"], expect.any(Object));
+  });
+
+  // --no-install is the whole point of this flag: without it, npx silently
+  // fetches and executes whatever package is published under the name
+  // "wrangler" when the site never installed it as a devDependency.
+  it("always passes --no-install, so a missing local wrangler is never fetched from the registry", () => {
+    mocked.mockReturnValue("ok" as never);
+    runWrangler(["deploy"]);
+    const args = mocked.mock.calls[0][1] as string[];
+    expect(args[0]).toBe("--no-install");
   });
 
   // The ENOENT-wrapping and error-propagation branches of runWrangler's catch
@@ -38,15 +48,19 @@ describe("createWranglerKvClient", () => {
     mocked.mockReturnValue(JSON.stringify([{ name: "/old" }, { name: "/other" }]) as never);
     const keys = await createWranglerKvClient().listKeys();
     expect(keys).toEqual(["/old", "/other"]);
-    expect(mocked).toHaveBeenCalledWith("npx", ["wrangler", "kv", "key", "list", "--binding", REDIRECTS_BINDING, "--remote"], expect.any(Object));
+    expect(mocked).toHaveBeenCalledWith(
+      "npx",
+      ["--no-install", "wrangler", "kv", "key", "list", "--binding", REDIRECTS_BINDING, "--remote"],
+      expect.any(Object)
+    );
   });
 
   it("putMany writes pairs to a temp file and calls bulk put with --remote", async () => {
     let written: unknown;
     mocked.mockImplementation(((...call: unknown[]) => {
       const args = (call[1] ?? []) as string[];
-      if (args[2] === "bulk" && args[3] === "put") {
-        written = JSON.parse(fs.readFileSync(args[4], "utf8"));
+      if (args[3] === "bulk" && args[4] === "put") {
+        written = JSON.parse(fs.readFileSync(args[5], "utf8"));
       }
       return "" as unknown as Buffer;
     }) as typeof execFileSync);
@@ -67,8 +81,8 @@ describe("createWranglerKvClient", () => {
     let written: unknown;
     mocked.mockImplementation(((...call: unknown[]) => {
       const args = (call[1] ?? []) as string[];
-      if (args[2] === "bulk" && args[3] === "delete") {
-        written = JSON.parse(fs.readFileSync(args[4], "utf8"));
+      if (args[3] === "bulk" && args[4] === "delete") {
+        written = JSON.parse(fs.readFileSync(args[5], "utf8"));
       }
       return "" as unknown as Buffer;
     }) as typeof execFileSync);
@@ -92,7 +106,7 @@ describe("createRedirectsNamespace", () => {
     createRedirectsNamespace();
     expect(mocked).toHaveBeenCalledWith(
       "npx",
-      ["wrangler", "kv", "namespace", "create", REDIRECTS_NAMESPACE, "--binding", REDIRECTS_BINDING, "--update-config"],
+      ["--no-install", "wrangler", "kv", "namespace", "create", REDIRECTS_NAMESPACE, "--binding", REDIRECTS_BINDING, "--update-config"],
       expect.any(Object)
     );
   });
@@ -102,6 +116,6 @@ describe("deploy", () => {
   it("calls wrangler deploy", () => {
     mocked.mockReturnValue("" as never);
     deploy();
-    expect(mocked).toHaveBeenCalledWith("npx", ["wrangler", "deploy"], expect.any(Object));
+    expect(mocked).toHaveBeenCalledWith("npx", ["--no-install", "wrangler", "deploy"], expect.any(Object));
   });
 });

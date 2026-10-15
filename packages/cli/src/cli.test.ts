@@ -195,6 +195,26 @@ describe("scaffold", () => {
     expect(fs.readFileSync(path.join(dir, "src/cms.config.ts"), "utf8")).not.toContain("// stale");
   });
 
+  it("does not write through a dangling symlink at a scaffold target (skips it like an existing file)", () => {
+    fs.mkdirSync(path.join(dir, "src", "app"), { recursive: true });
+    const outside = path.join(dir, "..", `typren-outside-${path.basename(dir)}.json`);
+    fs.symlinkSync(outside, path.join(dir, "typren.config.json"));
+    try {
+      const result = scaffold(dir);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      // fs.existsSync on a dangling symlink reports false, which used to make
+      // scaffold treat the target as "doesn't exist" and write through the
+      // link; lstatSync sees the symlink itself and skips it instead.
+      expect(result.skipped).toContain("typren.config.json");
+      expect(result.created).not.toContain("typren.config.json");
+      expect(fs.existsSync(outside)).toBe(false);
+    } finally {
+      fs.rmSync(path.join(dir, "typren.config.json"), { force: true });
+      fs.rmSync(outside, { force: true });
+    }
+  });
+
   it("places next.config.ts and typren.config.json at the project root even with a src/ layout", () => {
     fs.mkdirSync(path.join(dir, "src", "app"), { recursive: true });
     const result = scaffold(dir);
@@ -411,6 +431,14 @@ describe("review", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.briefs[0].checks).toContainEqual({ id: "aio.entity.description-present", status: "pass" });
+  });
+
+  it("rejects a --base ref starting with \"-\" instead of handing it to git as an option", () => {
+    fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+    const result = review(dir, { base: "--upload-pack=touch /tmp/pwned" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("not a valid --base ref");
   });
 
   describe("with no slug", () => {
@@ -684,6 +712,91 @@ describe("main", () => {
           });
         } finally {
           vi.unstubAllEnvs();
+          fs.rmSync(origin, { recursive: true, force: true });
+        }
+      });
+
+      it("widens the PR-body JSON fence past a backtick run already present in the diff", () => {
+        initGitRepo(dir);
+        fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\nplain body\n");
+        commitAll(dir, "base");
+        const origin = fs.mkdtempSync(path.join(os.tmpdir(), "typren-origin-"));
+        execFileSync("git", ["init", "-q", "--bare", origin], { env: envWithoutGit() });
+        execFileSync("git", ["remote", "add", "origin", origin], { cwd: dir, env: envWithoutGit() });
+        // A writer's markdown containing its own fenced code block: the diff
+        // of this change embeds a ``` run inside the JSON the PR body wraps.
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\n```js\nconsole.log(1)\n```\n");
+
+        const result = review(dir, { slug: "home", base: "HEAD" });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        const binDir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-fakegh-fence-"));
+        const capture = path.join(binDir, "captured-body.md");
+        fs.writeFileSync(
+          path.join(binDir, "gh"),
+          [
+            "#!/bin/sh",
+            'case "$1 $2" in',
+            '  "--version ") exit 0 ;;',
+            '  "pr list") echo "[]"; exit 0 ;;',
+            // Fixed argv shape from openOrUpdateContentPr: $6 is the --body-file path.
+            `  "pr create") cp "$6" "${capture}"; echo "https://github.com/example/repo/pull/1"; exit 0 ;;`,
+            '  "label list") echo "[]"; exit 0 ;;',
+            '  "label create") exit 0 ;;',
+            "  *) exit 1 ;;",
+            "esac",
+          ].join("\n"),
+          { mode: 0o755 }
+        );
+        const originalPath = process.env.PATH;
+        process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+        try {
+          const prResult = openOrUpdateContentPr(dir, result.briefs[0]);
+          expect(prResult).toMatchObject({ ok: true, action: "created" });
+          const body = fs.readFileSync(capture, "utf8");
+          // The JSON itself still carries the diff's literal ``` run (escaped
+          // newlines keep it on one line); the opening fence around that JSON
+          // must be longer than any backtick run found anywhere in it, or a
+          // fixed "```json" fence would be no longer than content it wraps.
+          const openingFence = body.match(/^(`{3,})json$/m)?.[1];
+          expect(openingFence).toBeDefined();
+          expect(openingFence!.length).toBeGreaterThan(3);
+        } finally {
+          process.env.PATH = originalPath;
+          fs.rmSync(binDir, { recursive: true, force: true });
+          fs.rmSync(origin, { recursive: true, force: true });
+        }
+      });
+
+      it("writes the PR body file under a private mkdtemp directory, not a predictable shared-tmp path", () => {
+        initGitRepo(dir);
+        fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\n");
+        commitAll(dir, "base");
+        const origin = fs.mkdtempSync(path.join(os.tmpdir(), "typren-origin-"));
+        execFileSync("git", ["init", "-q", "--bare", origin], { env: envWithoutGit() });
+        execFileSync("git", ["remote", "add", "origin", origin], { cwd: dir, env: envWithoutGit() });
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home Updated\n---\n");
+
+        const result = review(dir, { slug: "home", base: "HEAD" });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        // A fixed `typren-review-<slug>-<timestamp>.md` name directly under
+        // os.tmpdir() is guessable, so another local process could pre-place
+        // a symlink at that exact path before writeFileSync runs. Asserting
+        // mkdtempSync is used proves the body file instead lands in a
+        // freshly-random, unpredictable directory.
+        const mkdtempSpy = vi.spyOn(fs, "mkdtempSync");
+        try {
+          withFakeGhForPr(() => {
+            const prResult = openOrUpdateContentPr(dir, result.briefs[0]);
+            expect(prResult).toMatchObject({ ok: true, action: "created" });
+          });
+          expect(mkdtempSpy).toHaveBeenCalledWith(expect.stringContaining("typren-review-"));
+        } finally {
           fs.rmSync(origin, { recursive: true, force: true });
         }
       });

@@ -23,13 +23,19 @@ export const REDIRECTS_NAMESPACE = "typren-redirects";
 /** Runs `wrangler <args>` via `npx` (rather than requiring it on PATH):
  *  every quickstart in this package's README already has the site install
  *  `wrangler` as a devDependency, and `npx` resolves that local install the
- *  same way `npx typren-cloudflare` itself is invoked. */
+ *  same way `npx typren-cloudflare` itself is invoked. `--no-install` is
+ *  load-bearing: without it, a site that never installed `wrangler`
+ *  silently has npx fetch and run whatever package is published under that
+ *  name on the configured registry, executing it with this process's
+ *  permissions. With `--no-install`, npx refuses when it isn't already in
+ *  node_modules, which is the surfaced error below. */
 export function runWrangler(args: string[]): string {
   try {
-    return execFileSync("npx", ["wrangler", ...args], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+    return execFileSync("npx", ["--no-install", "wrangler", ...args], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
   } catch (e) {
-    const err = e as NodeJS.ErrnoException & { stderr?: string };
-    if (err.code === "ENOENT") {
+    const err = e as NodeJS.ErrnoException & { stderr?: string | Buffer };
+    const stderr = err.stderr?.toString() ?? "";
+    if (err.code === "ENOENT" || /missing packages/i.test(stderr)) {
       throw new Error("typren-cloudflare: could not run `npx wrangler`. Install wrangler as a devDependency and run `wrangler login` first.", { cause: e });
     }
     throw e;
