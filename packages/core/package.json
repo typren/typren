@@ -78,7 +78,8 @@
     "./ui/*": {
       "types": "./dist/ui/*.d.ts",
       "default": "./dist/ui/*.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"

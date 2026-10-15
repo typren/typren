@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { createRequire } from "node:module";
 import { parseMatter } from "./safe-matter";
 
 export interface MigrationDetectPattern {
@@ -136,10 +135,25 @@ export function fromVersionFromGit(cwd: string): string | null {
 }
 
 /** Resolves the installed `@typren/core` from the TARGET project (`cwd`),
- *  never from this CLI's own install, and returns its package.json path. */
+ *  never from this CLI's own install, and returns its package.json path.
+ *  Walks `node_modules` by hand instead of `require.resolve`/`exports`
+ *  resolution: an installed core whose `exports` map doesn't list
+ *  `./package.json` (true of every published core before this fix) makes
+ *  Node's resolver throw ERR_PACKAGE_PATH_NOT_EXPORTED even though the file
+ *  is right there on disk, which crashed `migrate` on every project. */
 function resolveInstalledCore(cwd: string): string {
-  const require = createRequire(path.join(cwd, "package.json"));
-  return require.resolve("@typren/core/package.json", { paths: [cwd] });
+  let dir = path.resolve(cwd);
+  for (;;) {
+    const candidate = path.join(dir, "node_modules", "@typren", "core", "package.json");
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(
+    `typren migrate: cannot find @typren/core installed above ${cwd} (no node_modules/@typren/core/package.json). ` +
+      "Install your project's dependencies first."
+  );
 }
 
 const PACKAGE_NAME_RE = /^@?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/i;

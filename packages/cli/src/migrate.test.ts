@@ -84,7 +84,31 @@ describe("fromVersionFromGit", () => {
   });
 });
 
+describe("migrate: @typren/core not installed", () => {
+  it("throws a clear error instead of crashing when no node_modules/@typren/core exists above cwd", async () => {
+    await expect(migrate({ cwd: dir, from: "0.4.0" })).rejects.toThrow(/cannot find @typren\/core installed/);
+  });
+});
+
 describe("migrate: version range selection", () => {
+  // Regression for a crash seen with every published @typren/core: its
+  // `exports` map never listed `./package.json`, so resolving the installed
+  // core's package.json via `require.resolve(..., { paths: [cwd] })` threw
+  // ERR_PACKAGE_PATH_NOT_EXPORTED even though the file is right there on
+  // disk. migrate() must read it directly off the filesystem instead.
+  it("resolves the installed core's package.json even when its exports map doesn't list it", async () => {
+    const coreDir = path.join(dir, "node_modules", "@typren", "core");
+    fs.mkdirSync(path.join(coreDir, "migrations"), { recursive: true });
+    fs.writeFileSync(
+      path.join(coreDir, "package.json"),
+      JSON.stringify({ name: "@typren/core", version: "0.5.0", exports: { ".": "./dist/index.js" } })
+    );
+    fs.writeFileSync(path.join(coreDir, "migrations", "core-0.5.0.md"), FIXTURE_NOTE);
+    const result = await migrate({ cwd: dir, from: "0.4.0" });
+    expect(result.to).toBe("0.5.0");
+    expect(result.notes).toHaveLength(1);
+  });
+
   it("selects a note strictly after `from` and up to (inclusive) `to`", async () => {
     installFakeCore(dir, "0.5.0");
     const result = await migrate({ cwd: dir, from: "0.4.0" });
