@@ -9,7 +9,7 @@
 # coverage:new gates CHANGED LINES at 90% (scripts/coverage-new-code.mjs); the
 # whole-repo floor is enforced by vitest's own ratcheting thresholds inside
 # test:coverage. Two different questions, both worth asking.
-bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold
+bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:migrations
 status=$?
 if [ $status -ne 0 ]; then
   exit $status

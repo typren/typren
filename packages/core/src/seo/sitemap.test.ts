@@ -12,9 +12,9 @@ const config: SeoConfig = {
 };
 
 describe("buildSitemap", () => {
-  it("maps homeSlug to the bare site root at priority 1/weekly; other pages get the defaults", () => {
+  it("maps homeSlug to the bare site root at priority 1/weekly; other pages get the defaults", async () => {
     const store = fakeStore([{ slug: "home" }, { slug: "about" }]);
-    const entries = buildSitemap(store, config, { homeSlug: "home" });
+    const entries = await buildSitemap(store, config, { homeSlug: "home" });
 
     const home = entries.find((e) => e.url === config.siteUrl);
     expect(home).toMatchObject({ priority: 1, changeFrequency: "weekly" });
@@ -23,37 +23,37 @@ describe("buildSitemap", () => {
     expect(about).toMatchObject({ priority: 0.7, changeFrequency: "monthly" });
   });
 
-  it("excludes pages with noindex frontmatter", () => {
+  it("excludes pages with noindex frontmatter", async () => {
     const store = fakeStore([{ slug: "hidden", meta: { noindex: true } }]);
-    expect(buildSitemap(store, config)).toHaveLength(0);
+    expect(await buildSitemap(store, config)).toHaveLength(0);
   });
 
-  it("honors per-page sitemap frontmatter overrides", () => {
+  it("honors per-page sitemap frontmatter overrides", async () => {
     const store = fakeStore([
       { slug: "rare", meta: { sitemap: { priority: 0.2, changeFrequency: "yearly" } } },
     ]);
-    const [entry] = buildSitemap(store, config);
+    const [entry] = await buildSitemap(store, config);
     expect(entry).toMatchObject({ priority: 0.2, changeFrequency: "yearly" });
   });
 
-  it("passes a frontmatter lastModified through verbatim", () => {
+  it("passes a frontmatter lastModified through verbatim", async () => {
     const store = fakeStore([
       { slug: "post", meta: { sitemap: { lastModified: "2026-05-07" } } },
     ]);
-    const [entry] = buildSitemap(store, config);
+    const [entry] = await buildSitemap(store, config);
     expect(entry.lastModified).toBe("2026-05-07");
   });
 
-  it("omits lastModified entirely when the page declares none — never build time", () => {
+  it("omits lastModified entirely when the page declares none — never build time", async () => {
     const store = fakeStore([{ slug: "about" }]);
-    const [entry] = buildSitemap(store, config);
+    const [entry] = await buildSitemap(store, config);
     expect("lastModified" in entry).toBe(false);
   });
 
-  it("multi-locale: one entry per locale with hreflang alternates, page overrides on each", () => {
+  it("multi-locale: one entry per locale with hreflang alternates, page overrides on each", async () => {
     const store = fakeStore([{ slug: "about", meta: { sitemap: { lastModified: "2026-01-02" } } }]);
     const i18n = { locales: ["en", "es"], defaultLocale: "en", routing: "prefix-except-default" as const };
-    const entries = buildSitemap(store, config, { i18n });
+    const entries = await buildSitemap(store, config, { i18n });
 
     expect(entries.map((e) => e.url)).toEqual([
       `${config.siteUrl}/about`, // default locale unprefixed
@@ -66,5 +66,11 @@ describe("buildSitemap", () => {
       });
       expect(entry.lastModified).toBe("2026-01-02");
     }
+  });
+
+  it("uses listSlugs, not listPages (no hasDraft/listLocales fan-out)", async () => {
+    const store = fakeStore([{ slug: "about" }]);
+    await buildSitemap(store, config);
+    expect(store.listPagesCalls).toBe(0);
   });
 });

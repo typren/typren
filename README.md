@@ -31,8 +31,12 @@ your site still builds.
 | [`@typren/core`](packages/core) | the engine: content store, adapters, HTTP API, SEO |
 | [`typren`](packages/cli) | the CLI: scaffolding, content review |
 | [`@typren/editor`](packages/editor) | the editor UI (React), in progress and not yet published |
+| [`@typren/forms`](packages/forms) | form handling: server-authoritative validation, spam checks, pluggable delivery sinks (webhook, HubSpot, Google Sheets, file) |
+| [`@typren/locale`](packages/locale) | localization delivery: baked catalogs at build plus an OTA delta channel |
+| [`@typren/adapter-media-s3`](packages/adapter-media-s3) | S3 API-compatible `MediaAdapter` (Cloudflare R2, Supabase Storage, AWS S3, MinIO) |
 | [`@typren/adapter-cloudfront`](packages/adapter-cloudfront) | CloudFront host adapter: the canonical viewer-request function + a `sync-redirects` CLI for `redirects()` |
 | [`@typren/adapter-cloudflare`](packages/adapter-cloudflare) | Cloudflare Workers + Static Assets host adapter: the canonical Worker + an `init`/`bootstrap`/`sync-redirects` CLI for `redirects()` |
+| [`@typren/contract-tests`](packages/contract-tests) | conformance suite factories for Typren's cross-repo contracts (not published, internal) |
 
 ## Architecture
 

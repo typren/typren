@@ -1,4 +1,4 @@
-import { resolveProvider } from "../build";
+import { createNodePurifier, resolveProvider } from "../build";
 import { assertNoHtml } from "../no-html";
 import type { Catalog } from "../types";
 import { readConfigFile } from "./config-file";
@@ -73,7 +73,7 @@ export async function runDoctor(configPath: string): Promise<DoctorResult> {
         checks.push({ id: `gate.no-dotted-keys.${lang}`, status: "fail", message: dotted.join(", ") });
       }
       try {
-        assertNoHtml(catalog, { label: lang });
+        assertNoHtml(catalog, { label: lang, purifier: createNodePurifier() });
       } catch (e) {
         gatesOk = false;
         checks.push({ id: `gate.no-html.${lang}`, status: "fail", message: e instanceof Error ? e.message : String(e) });

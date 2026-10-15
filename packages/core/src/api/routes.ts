@@ -3,7 +3,7 @@ import { resolveAuth } from "../auth-adapter";
 import { buildCollectionActions, listCollectionRecords, makeCollectionAdapter } from "../collection";
 import { handleMediaUpload } from "../media";
 import { resolveSections, type CollectionSection } from "../sections";
-import { createSettingsStore } from "../settings";
+import { BOOTSTRAP_KEYS, createSettingsStore, validateBootstrap } from "../settings";
 import { createStore, type ContentStore } from "../store";
 import type { CmsConfig, ContentAdapter, PageContent } from "../types";
 import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
@@ -81,6 +81,16 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 function json(body: unknown, status = 200): Response {
   return Response.json(body as Record<string, unknown>, { status });
+}
+
+/** Draft content, settings, and the media library are per-request/per-user
+ *  reads that a shared cache (CDN, browser back/forward cache) must never
+ *  store: an intermediary caching an unpublished draft or another editor's
+ *  settings snapshot would leak it to the next viewer of that URL. */
+function jsonNoStore(body: unknown, status = 200): Response {
+  const res = Response.json(body as Record<string, unknown>, { status });
+  res.headers.set("Cache-Control", "private, no-store");
+  return res;
 }
 
 /** Unauthorized from an action guard is a thrown Error, not a status. Map it
@@ -216,7 +226,11 @@ export function createTyprenApi(config: CmsConfig | CmsConfigFactory, options: T
       return json({ error: "Not found" }, 404);
     } catch (e) {
       if (isUnauthorized(e)) return json({ error: "Unauthorized" }, 403);
-      return json({ error: e instanceof Error ? e.message : "Internal error" }, 500);
+      // Never echo e.message to the client: an adapter/filesystem error can carry
+      // absolute paths, slugs, or other internals a public API response shouldn't
+      // leak. Full detail still reaches the server's own logs.
+      console.error("typren: unhandled API error", e);
+      return json({ error: "Internal error" }, 500);
     }
   }
 
@@ -250,7 +264,7 @@ async function pages(
   if (!slug) {
     if (method === "GET") {
       const denied = await requireRead(built);
-      return denied ?? json({ pages: store.listPages(locale) });
+      return denied ?? json({ pages: await store.listPages(locale) });
     }
     if (method === "POST") {
       const { title } = await body<{ title?: string }>(request);
@@ -264,12 +278,15 @@ async function pages(
     if (method === "GET") {
       const denied = await requireRead(built);
       if (denied) return denied;
-      if (!config.adapter.exists(slug, config.adapter.defaultLocale)) return json({ error: "Not found" }, 404);
-      const draft = store.getDraft(slug, locale);
-      const published = store.getPublished(slug, locale);
-      return json({
+      if (!(await config.adapter.exists(slug, config.adapter.defaultLocale))) return json({ error: "Not found" }, 404);
+      const [draft, published, version] = await Promise.all([
+        store.getDraft(slug, locale),
+        store.getPublished(slug, locale),
+        store.currentVersion(slug, locale),
+      ]);
+      return jsonNoStore({
         page: draft ?? published,
-        version: store.currentVersion(slug, locale),
+        version,
         hasDraft: Boolean(draft),
       });
     }
@@ -346,7 +363,7 @@ async function collections(
   if (!slug) {
     if (method === "GET") {
       const denied = await requireRead(built);
-      return denied ?? json({ records: listCollectionRecords(config, section, locale) });
+      return denied ?? json({ records: await listCollectionRecords(config, section, locale) });
     }
     if (method === "POST") {
       const { title } = await body<{ title?: string }>(request);
@@ -361,13 +378,16 @@ async function collections(
       const denied = await requireRead(built);
       if (denied) return denied;
       const adapter = collectionAdapters.get(id)!;
-      if (!adapter.exists(slug, adapter.defaultLocale)) return json({ error: "Not found" }, 404);
+      if (!(await adapter.exists(slug, adapter.defaultLocale))) return json({ error: "Not found" }, 404);
       const collectionStore = collectionStores.get(id)!;
-      const draft = collectionStore.getDraft(slug, locale);
-      const published = collectionStore.getPublished(slug, locale);
-      return json({
+      const [draft, published, version] = await Promise.all([
+        collectionStore.getDraft(slug, locale),
+        collectionStore.getPublished(slug, locale),
+        collectionStore.currentVersion(slug, locale),
+      ]);
+      return jsonNoStore({
         page: draft ?? published,
-        version: collectionStore.currentVersion(slug, locale),
+        version,
         hasDraft: Boolean(draft),
       });
     }
@@ -403,7 +423,7 @@ async function media(built: Built, request: Request, method: string, rest: strin
   const { config, actions } = built;
   const [id] = rest;
   if (!id) {
-    if (method === "GET") return json({ media: await actions.listMedia() });
+    if (method === "GET") return jsonNoStore({ media: await actions.listMedia() });
     // Delegated: upload owns its own validation, conversion and auth action.
     if (method === "POST") return handleMediaUpload(config, request);
     return json({ error: "Method not allowed" }, 405);
@@ -429,14 +449,9 @@ async function settingsRoutes(
     const denied = await requireRead(built);
     // `version` completes the optimistic-lock loop: a client had no way to read
     // it, so its first save sent no baseVersion and could not conflict-detect.
-    return (
-      denied ??
-      json({
-        ...settings.get(locale),
-        bootstrap: settings.bootstrap.readBootstrap(),
-        version: settings.currentVersion(locale),
-      })
-    );
+    if (denied) return denied;
+    const [current, version] = await Promise.all([settings.get(locale), settings.currentVersion(locale)]);
+    return jsonNoStore({ ...current, bootstrap: settings.bootstrap.readBootstrap(), version });
   }
   if (sub === "draft" && method === "PUT") {
     const { settings: next, baseVersion } = await body<{
@@ -457,6 +472,14 @@ async function settingsRoutes(
       return json({ error: "Unauthorized" }, 403);
     const { patch } = await body<{ patch?: Partial<SiteSettingsBootstrap> }>(request);
     if (!patch) return json({ error: "patch is required" }, 400);
+    const unknownKey = Object.keys(patch).find((k) => !BOOTSTRAP_KEYS.has(k));
+    if (unknownKey) return json({ error: `unknown bootstrap key "${unknownKey}"` }, 400);
+    // Validate the MERGED result, not just the patch: a patch that only
+    // touches `locales` must still leave defaultLocale/routing consistent,
+    // and writeBootstrap merges the same way (see createFsSettingsAdapter).
+    const merged = { ...settings.bootstrap.readBootstrap(), ...patch };
+    const error = validateBootstrap(merged);
+    if (error) return json({ error }, 400);
     settings.bootstrap.writeBootstrap(patch);
     return json({ ok: true });
   }

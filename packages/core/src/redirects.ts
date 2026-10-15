@@ -1,4 +1,7 @@
 import type { ContentStore } from "./store";
+import { mapLimit } from "./concurrency";
+
+const FANOUT_LIMIT = 8;
 
 /** Per-page redirect frontmatter. Lives inside a page's existing `meta`
  *  (frontmatter minus `slices:`), no new file format, same convention as
@@ -60,19 +63,23 @@ const canonicalPath = (slug: string, homeSlug?: string): string => (slug === hom
  * be a redirect loop), a duplicate alias claimed by two pages, or more total
  * aliases than `maxEntries`.
  */
-export function buildRedirects(store: ContentStore, opts: BuildRedirectsOptions = {}): RedirectEntry[] {
+export async function buildRedirects(store: ContentStore, opts: BuildRedirectsOptions = {}): Promise<RedirectEntry[]> {
   const { homeSlug, maxEntries = DEFAULT_MAX_ENTRIES } = opts;
-  const pages = store.listPages();
+  const slugs = await store.listSlugs();
 
   // Every real route on the site, so an alias can never shadow one of them.
-  const canonicalPaths = new Map(pages.map(({ slug }) => [canonicalPath(slug, homeSlug), slug]));
+  const canonicalPaths = new Map(slugs.map((slug) => [canonicalPath(slug, homeSlug), slug]));
+
+  // Reads are independent (bounded concurrency), but validation below must
+  // run in `slugs` order so a duplicate-alias error always names the same
+  // "first" owner regardless of which read happened to finish first.
+  const metas = await mapLimit(slugs, FANOUT_LIMIT, async (slug) => (await store.getPublished(slug)).meta as PageRedirectMeta);
 
   const entries: RedirectEntry[] = [];
   const claimedBy = new Map<string, string>(); // normalized `from` -> owning slug
 
-  for (const { slug } of pages) {
-    const meta = store.getPublished(slug).meta as PageRedirectMeta;
-    const aliases = meta.aliases;
+  for (const [i, slug] of slugs.entries()) {
+    const aliases = metas[i].aliases;
     if (aliases === undefined) continue;
     if (!Array.isArray(aliases)) {
       throw new Error(`typren: "${slug}" frontmatter "aliases" must be an array of paths`);

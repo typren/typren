@@ -104,8 +104,8 @@ describe("makeCollectionActions round-trip", () => {
     await actions.publish(slug);
 
     const collectionAdapter = createMarkdownAdapter({ contentDir: authorsDir });
-    expect(collectionAdapter.listSlugs()).toEqual(["gabriel-lam"]);
-    expect(config.adapter.listSlugs()).toEqual([]); // Pages dir never sees the record
+    expect(await collectionAdapter.listSlugs()).toEqual(["gabriel-lam"]);
+    expect(await config.adapter.listSlugs()).toEqual([]); // Pages dir never sees the record
   });
 });
 
@@ -142,7 +142,7 @@ describe("listCollectionRecords", () => {
     // hasDraft is the separate signal that unpublished work is pending.
     await actions.saveDraft(second, { meta: { name: "Ada Lovelace" }, slices: [], body: "Draft bio." });
 
-    const records = listCollectionRecords(config, section);
+    const records = await listCollectionRecords(config, section);
     expect(records).toEqual([
       { slug: "ada-lovelace", meta: { title: "Ada Lovelace" }, body: "\n", hasDraft: true, locale: undefined },
       {
@@ -159,7 +159,7 @@ describe("listCollectionRecords", () => {
   // by a collection, carry no `slices:` key at all. The Pages listSlugs filter
   // treats "carries a slice array" as "is a page", which would hide every one
   // of them and report the collection as empty.
-  it("lists hand-authored records that carry no slices key", () => {
+  it("lists hand-authored records that carry no slices key", async () => {
     const authorsDir = path.join(dir, "authors");
     fs.mkdirSync(authorsDir, { recursive: true });
     fs.writeFileSync(
@@ -170,7 +170,7 @@ describe("listCollectionRecords", () => {
     const config = makeConfig();
     const section = { ...authorsSection, dir: authorsDir };
 
-    expect(listCollectionRecords(config, section)).toEqual([
+    expect(await listCollectionRecords(config, section)).toEqual([
       {
         slug: "ada-lovelace",
         meta: { name: "Ada Lovelace", role: "Mathematician" },
@@ -181,9 +181,9 @@ describe("listCollectionRecords", () => {
     ]);
   });
 
-  it("returns an empty list for a collection with no records yet", () => {
+  it("returns an empty list for a collection with no records yet", async () => {
     const config = makeConfig();
     const section = { ...authorsSection, dir: path.join(dir, "authors") };
-    expect(listCollectionRecords(config, section)).toEqual([]);
+    expect(await listCollectionRecords(config, section)).toEqual([]);
   });
 });

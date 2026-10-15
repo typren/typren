@@ -55,13 +55,18 @@ function validateDomain(domain: string): void {
  * "404-page"` serves the static export's own `404.html`.
  */
 export function renderWranglerConfig(opts: RenderWranglerConfigOptions): string {
-  const { name, assetsDir = "./out", domains = [], compatibilityDate, accountId, trailingSlash = true, canonicalHost } = opts;
+  const { name, assetsDir = "./out", domains = [], compatibilityDate, accountId, trailingSlash = true } = opts;
   validateName(name);
   for (const domain of domains) validateDomain(domain);
-  if (canonicalHost !== undefined) validateDomain(canonicalHost);
+  if (opts.canonicalHost !== undefined) validateDomain(opts.canonicalHost);
   if (accountId !== undefined && !ACCOUNT_ID_PATTERN.test(accountId)) {
     throw new Error(`typren-cloudflare: "${accountId}" is not a valid Cloudflare account id (32 lowercase hex characters)`);
   }
+  // DOMAIN_PATTERN is case-insensitive, but the Worker compares this value
+  // against `url.hostname`, which the URL parser always lowercases. An
+  // un-lowercased canonicalHost would never equal the request's own
+  // (canonical) hostname, redirecting the canonical host to itself forever.
+  const canonicalHost = opts.canonicalHost?.toLowerCase();
 
   const vars: Record<string, string> = {};
   if (!trailingSlash) vars.TYPREN_TRAILING_SLASH = "false";

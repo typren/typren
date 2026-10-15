@@ -89,10 +89,10 @@ export async function runSyncRedirects(cwd: string, opts: SyncRedirectsCliOption
   try {
     const contentDir = opts.contentDir ? path.resolve(cwd, opts.contentDir) : detectContentDir(cwd);
     const store = scanContentStore(contentDir);
-    const fromContent = buildRedirects(store, { homeSlug: opts.homeSlug });
+    const fromContent = await buildRedirects(store, { homeSlug: opts.homeSlug });
     // Canonical public paths of the scanned pages, so a map entry can't
     // silently 301 a live page away (mergeRedirectEntries refuses shadows).
-    const pagePaths = store.listPages().map((p) => (p.slug === opts.homeSlug ? "/" : `/${p.slug}`));
+    const pagePaths = (await store.listPages()).map((p) => (p.slug === opts.homeSlug ? "/" : `/${p.slug}`));
     const entries = opts.map ? mergeRedirectEntries(fromContent, await loadRedirectMap(cwd, opts.map), pagePaths) : fromContent;
     const want = new Map(toKvEntries(entries, { appendSlash: opts.trailingSlash !== false }).map(({ key, value }) => [key, value]));
     const result = await syncRedirects(client, want, { dryRun: opts.dryRun, allowEmpty: opts.allowEmpty });

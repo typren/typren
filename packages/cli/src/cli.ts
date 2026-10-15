@@ -4,20 +4,25 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import matter from "gray-matter";
-
-// gray-matter ships a `javascript` front-matter engine that eval()s the block
-// when a file opens with `---javascript`. `typren review` runs on freshly
-// merged, writer-supplied markdown: content is data, never code. Refuse it.
-const SAFE_ENGINES = {
-  javascript: (): never => {
-    throw new Error("typren: javascript front-matter is not supported");
-  },
-};
-const parseMatter = (raw: string) => matter(raw, { engines: SAFE_ENGINES });
 import { buildTemplates, TYPREN_BOOTSTRAP_MARKER, TYPREN_REWRITE_MARKER } from "@typren/core/templates/init";
-import { createFsSettingsAdapter, resolveI18n, type SiteSettingsBootstrap, type Slice } from "@typren/core";
+import { createFsSettingsAdapter, validateBootstrap, type SiteSettingsBootstrap, type Slice } from "@typren/core";
 import { firstRunNotice, isEnabled, readCliVersion, record, setEnabled } from "./telemetry";
+import { parseMatter } from "./safe-matter";
+import { envWithoutGit, migrate, printMigrateReport, parseMigrateArgs } from "./migrate";
+
+/** `fs.existsSync` follows symlinks, so a dangling symlink at a scaffold
+ *  target reads as "doesn't exist" and `writeFileSync` then creates a file at
+ *  wherever the link points, which may be outside the project. `lstatSync`
+ *  sees the link itself, so a dangling (or any) symlink counts as "exists"
+ *  and is left alone unless `--force`. */
+function pathExists(p: string): boolean {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export type ScaffoldResult =
   | { ok: true; baseDir: string; created: string[]; skipped: string[] }
@@ -52,7 +57,7 @@ export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldR
     // the project root, never under baseDir. See buildTemplates' doc comment.
     const abs = relPath.startsWith("/") ? path.join(cwd, relPath.slice(1)) : path.join(cwd, baseDir, relPath);
     const rel = path.relative(cwd, abs);
-    if (fs.existsSync(abs) && !opts.force) {
+    if (pathExists(abs) && !opts.force) {
       skipped.push(rel);
       continue;
     }
@@ -62,32 +67,6 @@ export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldR
   }
 
   return { ok: true, baseDir, created, skipped };
-}
-
-// Same SAFE_SLUG-shaped route rule markdown-adapter.ts uses for slugs, plus
-// the reserved-word check, kept as its own copy (not imported) rather than a
-// shared export: this is a Node-side CLI concern, an admin-route settings UI
-// would own its own equivalent, and duplicating one regex + one Set is
-// cheaper than coupling the two layers.
-const SAFE_ROUTE = /^[a-z0-9][a-z0-9-]*$/i;
-const RESERVED_ROUTES = new Set(["api", "_next"]);
-
-/** Validates a bootstrap config against the same rules the Settings "Advanced"
- *  panel and the onboarding wizard's admin-route step enforce, so a config
- *  that passes one passes all three. Returns an error string, or null when
- *  valid. Reuses `resolveI18n`'s own defaultLocale-in-locales check rather
- *  than re-deriving it. */
-function validateBootstrap(bs: SiteSettingsBootstrap): string | null {
-  if (!SAFE_ROUTE.test(bs.adminRoute))
-    return `adminRoute "${bs.adminRoute}" must start with a letter/digit and contain only letters, digits, or hyphens`;
-  if (RESERVED_ROUTES.has(bs.adminRoute.toLowerCase()))
-    return `adminRoute "${bs.adminRoute}" is a reserved path and can't be used as the admin route`;
-  try {
-    resolveI18n({ locales: bs.locales, defaultLocale: bs.defaultLocale, routing: bs.routing });
-  } catch (e) {
-    return e instanceof Error ? e.message : String(e);
-  }
-  return null;
 }
 
 const NEXT_CONFIG_CANDIDATES = ["next.config.ts", "next.config.mjs", "next.config.js"];
@@ -315,9 +294,15 @@ function findContentFile(cwd: string, slug: string, paths: ReviewPaths): string 
   return null;
 }
 
+/** `--base`/a brief's ref is attacker-reachable (a PR description, a CI env
+ *  var) and gets handed straight to `git` as a positional argument. Without
+ *  `--end-of-options`, a ref string starting with "-" (e.g.
+ *  `--upload-pack=...`) would be parsed as an option instead of a revision;
+ *  `review()` also rejects such refs outright before any git call is made,
+ *  this is defense in depth at the actual call sites. */
 function gitShow(cwd: string, ref: string, relFile: string): string | null {
   try {
-    return execFileSync("git", ["show", `${ref}:${relFile}`], { cwd, encoding: "utf8" });
+    return execFileSync("git", ["show", "--end-of-options", `${ref}:${relFile}`], { cwd, encoding: "utf8", env: envWithoutGit() });
   } catch {
     return null; // file didn't exist at `ref` (e.g. a new page), treated as empty "before"
   }
@@ -325,7 +310,7 @@ function gitShow(cwd: string, ref: string, relFile: string): string | null {
 
 function gitDiffRaw(cwd: string, base: string, relFile: string): string {
   try {
-    return execFileSync("git", ["diff", base, "--", relFile], { cwd, encoding: "utf8" });
+    return execFileSync("git", ["diff", "--end-of-options", base, "--", relFile], { cwd, encoding: "utf8", env: envWithoutGit() });
   } catch (e) {
     return `(unable to compute diff against "${base}": ${e instanceof Error ? e.message : String(e)})`;
   }
@@ -337,7 +322,11 @@ function gitChangedContentFiles(
   contentDir: string
 ): { ok: true; files: string[] } | { ok: false; error: string } {
   try {
-    const out = execFileSync("git", ["diff", "--name-only", base, "--", contentDir], { cwd, encoding: "utf8" });
+    const out = execFileSync("git", ["diff", "--name-only", "--end-of-options", base, "--", contentDir], {
+      cwd,
+      encoding: "utf8",
+      env: envWithoutGit(),
+    });
     return { ok: true, files: out.split("\n").map((l) => l.trim()).filter((l) => l.endsWith(".md")) };
   } catch (e) {
     return {
@@ -628,6 +617,15 @@ function buildBrief(cwd: string, relFile: string, base: string, paths: ReviewPat
  */
 export function review(cwd: string, opts: { slug?: string; base?: string } = {}): ReviewResult {
   const base = opts.base ?? "origin/main";
+  // `base` is a positional argument to every `git` call below (gitShow,
+  // gitDiffRaw, gitChangedContentFiles, and later the branch checkout in
+  // openOrUpdateContentPr). A ref starting with "-" would otherwise be
+  // parseable as a git option rather than a revision; reject it here, the
+  // one place every caller (CLI and library) funnels through, rather than
+  // relying solely on each call site's `--end-of-options`.
+  if (base.startsWith("-")) {
+    return { ok: false, error: `"${base}" is not a valid --base ref (refs starting with "-" are rejected)` };
+  }
   const paths = resolveReviewPaths(cwd);
   if (opts.slug) {
     const relFile = findContentFile(cwd, opts.slug, paths);
@@ -657,7 +655,20 @@ export type PrResult =
   | { ok: true; action: "created" | "updated" | "skipped-no-gh"; number?: number; url?: string; notes: string[] }
   | { ok: false; error: string };
 
+/** A fence has to be longer than the longest backtick run already inside the
+ *  content it wraps, or that run closes the fence early. `brief.diff.raw` is
+ *  literal file content (a writer's markdown can itself contain a ```
+ *  code block), so the JSON embedding it can carry arbitrarily long backtick
+ *  runs; a fixed "```json" fence would let that content escape into the rest
+ *  of the PR body. */
+function codeFence(content: string): string {
+  const longestRun = Math.max(0, ...[...content.matchAll(/`+/g)].map((m) => m[0].length));
+  return "`".repeat(Math.max(3, longestRun + 1));
+}
+
 function briefToMarkdown(brief: ReviewBrief): string {
+  const json = JSON.stringify(brief, null, 2);
+  const fence = codeFence(json);
   return [
     `Content: \`${brief.slug}\`, an auto-generated review brief vs \`${brief.baseRef}\``,
     "",
@@ -665,9 +676,9 @@ function briefToMarkdown(brief: ReviewBrief): string {
     "",
     "<details><summary>Review brief (JSON)</summary>",
     "",
-    "```json",
-    JSON.stringify(brief, null, 2),
-    "```",
+    `${fence}json`,
+    json,
+    fence,
     "</details>",
   ].join("\n");
 }
@@ -703,7 +714,13 @@ export function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): PrResult
   }
 
   const branch = `content/${brief.slug}`;
-  const bodyFile = path.join(os.tmpdir(), `typren-review-${brief.slug}-${Date.now()}.md`);
+  // A predictable name directly under the shared os.tmpdir() (the prior
+  // `typren-review-<slug>-<timestamp>.md`) is guessable and poolable:
+  // another local process could pre-create a symlink at that exact path
+  // before writeFileSync runs. mkdtempSync's random suffix gives this a
+  // private directory nothing else could have predicted.
+  const bodyDir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-review-"));
+  const bodyFile = path.join(bodyDir, "body.md");
   try {
     const existing = JSON.parse(
       execFileSync("gh", ["pr", "list", "--head", branch, "--json", "number,url"], { cwd, encoding: "utf8" })
@@ -718,22 +735,27 @@ export function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): PrResult
 
     const branchExists = (() => {
       try {
-        execFileSync("git", ["rev-parse", "--verify", branch], { cwd, stdio: "ignore" });
+        execFileSync("git", ["rev-parse", "--verify", branch], { cwd, stdio: "ignore", env: envWithoutGit() });
         return true;
       } catch {
         return false;
       }
     })();
-    execFileSync("git", branchExists ? ["checkout", branch] : ["checkout", "-b", branch, brief.baseRef], { cwd });
+    // brief.baseRef is review()'s already-validated `base` (rejects a
+    // leading "-"); --end-of-options is belt-and-braces at the call site.
+    execFileSync("git", branchExists ? ["checkout", branch] : ["checkout", "-b", branch, "--end-of-options", brief.baseRef], {
+      cwd,
+      env: envWithoutGit(),
+    });
 
-    execFileSync("git", ["add", brief.file], { cwd });
+    execFileSync("git", ["add", brief.file], { cwd, env: envWithoutGit() });
     const notes: string[] = [];
-    if (execFileSync("git", ["diff", "--cached", "--name-only"], { cwd, encoding: "utf8" }).trim()) {
-      execFileSync("git", ["commit", "-m", `content: update ${brief.slug}`], { cwd });
+    if (execFileSync("git", ["diff", "--cached", "--name-only"], { cwd, encoding: "utf8", env: envWithoutGit() }).trim()) {
+      execFileSync("git", ["commit", "-m", `content: update ${brief.slug}`], { cwd, env: envWithoutGit() });
     } else {
       notes.push("no staged changes to commit, so the existing branch state is pushed.");
     }
-    execFileSync("git", ["push", "-u", "origin", branch], { cwd });
+    execFileSync("git", ["push", "-u", "origin", branch], { cwd, env: envWithoutGit() });
 
     ensureContentReviewLabel(cwd);
     const url = execFileSync(
@@ -748,7 +770,7 @@ export function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): PrResult
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   } finally {
-    if (fs.existsSync(bodyFile)) fs.rmSync(bodyFile);
+    fs.rmSync(bodyDir, { recursive: true, force: true });
   }
 }
 
@@ -818,10 +840,17 @@ Next steps:
 2. Render your content: import \`cmsStore\` from "@/cms.config" and
    \`SliceZone\` from "@/slices/slice-zone" into a page under ${appDir}/, e.g.:
 
-     const page = cmsStore.getPublished("home");
+     const page = await cmsStore.getPublished("home");
      return <SliceZone slices={page.slices} />;
 
-3. Start your dev server.
+3. Start your dev server bound to loopback only (\`localAuth\` now requires a
+   loopback Host, matching the default \`next dev\` already binds to, but set
+   it explicitly if your own scripts pass \`-H\`):
+
+     next dev -H 127.0.0.1
+
+4. After upgrading any @typren package, run \`npx typren migrate\` and follow
+   it until it exits 0.
 `;
 }
 
@@ -838,6 +867,7 @@ Usage:
   npx typren review [slug] [--base <ref>] [--json] [--pr]
   npx typren review --update-pr <number> --body-file <path>
   npx typren telemetry [on|off]
+  npx typren migrate [--from <ver>] [--to <ver>] [--json] [--remote] [--cwd <dir>]
   npx typren --version
 
   init             Scaffold typren's content layer into the current project
@@ -862,6 +892,23 @@ Usage:
 
   telemetry [on|off]   Enable/disable anonymous CLI usage telemetry, or print
                    the current state with no argument.
+
+  migrate          Check the project against the installed @typren/core's
+                   bundled migration notes: finds code that needs updating
+                   after an upgrade and prints the fix/verify steps. Exits
+                   non-zero while matches remain.
+                     --from <ver>   Starting version (default: the
+                                    @typren/core range in the last commit's
+                                    package.json; required if that can't be
+                                    determined, e.g. no git history).
+                     --to <ver>     Ending version (default: installed
+                                    @typren/core version).
+                     --json         Print machine-readable JSON instead of text.
+                     --remote       Also check typren.com for notes newer than
+                                    this install. These are UNVERIFIED (not
+                                    pinned by your lockfile); see the CLI README.
+                     --cwd <dir>    Run against a project at this path
+                                    (default: current directory).
 
   --force          Overwrite files that already exist (init only).
   --help           Show this help.
@@ -993,14 +1040,32 @@ function runTelemetryCommand(args: string[]): void {
 // neither ever reaching the telemetry notice/record calls: those aren't
 // usage signals, and --version's own error path shouldn't announce telemetry
 // on its way out.
-const KNOWN_COMMANDS = new Set(["init", "apply-settings", "review", "telemetry"]);
+const KNOWN_COMMANDS = new Set(["init", "apply-settings", "review", "telemetry", "migrate"]);
+
+async function runMigrateCommand(args: string[]): Promise<boolean> {
+  const opts = parseMigrateArgs(args);
+  try {
+    const result = await migrate({ cwd: opts.cwd, from: opts.from, to: opts.to, remote: opts.remote });
+    printMigrateReport(result, { json: opts.json });
+    const anyMatches = result.notes.some((n) => n.matches.length > 0);
+    if (anyMatches || result.droppedNotesWarning) process.exitCode = 1;
+    return true;
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exitCode = 1;
+    return false;
+  }
+}
 
 /** `argv` defaults to the real process argv so direct runs (isDirectRun()
  *  below) need no change, but takes an explicit array so tests can drive
  *  every dispatch branch without touching the real process.argv or
  *  capturing stdout beyond spying on console.*, matching how `nextSteps()`
- *  was already split out of `printNextSteps()` for the same reason. */
-export function main(argv: string[] = process.argv.slice(2)): void {
+ *  was already split out of `printNextSteps()` for the same reason.
+ *  Declared `async` only for `migrate`, the one command with real I/O
+ *  (`--remote` fetches); every other branch returns before its first await,
+ *  so it runs fully synchronously the way existing callers expect. */
+export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
   const args = argv;
   if (args.includes("--help") || args.includes("-h")) {
     printHelp();
@@ -1014,7 +1079,9 @@ export function main(argv: string[] = process.argv.slice(2)): void {
   const force = args.includes("--force");
   const command = args.find((a) => !a.startsWith("-")) ?? "init";
   if (!KNOWN_COMMANDS.has(command)) {
-    console.error(`typren: unknown command "${command}" (only "init", "apply-settings", "review", and "telemetry" are supported)`);
+    console.error(
+      `typren: unknown command "${command}" (only "init", "apply-settings", "review", "telemetry", and "migrate" are supported)`
+    );
     process.exitCode = 1;
     return;
   }
@@ -1040,6 +1107,11 @@ export function main(argv: string[] = process.argv.slice(2)): void {
 
   if (command === "review") {
     if (runReviewCommand(args)) record("review");
+    return;
+  }
+
+  if (command === "migrate") {
+    if (await runMigrateCommand(args)) record("migrate");
     return;
   }
 

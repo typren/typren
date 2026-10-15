@@ -51,7 +51,7 @@ export function makeActions(config: CmsConfig) {
     ): Promise<SaveResult> {
       await guard("saveDraft", slug);
       try {
-        return { ok: true, version: store.saveDraft(slug, page, baseVersion, locale) };
+        return { ok: true, version: await store.saveDraft(slug, page, baseVersion, locale) };
       } catch (e) {
         if (e instanceof ConflictError)
           return { ok: false, code: "conflict", currentVersion: e.currentVersion };
@@ -60,13 +60,13 @@ export function makeActions(config: CmsConfig) {
     },
     async discardDraft(slug: string, locale?: string) {
       await guard("discardDraft", slug);
-      store.discardDraft(slug, locale);
+      await store.discardDraft(slug, locale);
     },
     async publish(slug: string, baseVersion?: string, locale?: string): Promise<SaveResult> {
       await guard("publish", slug);
       try {
         await store.publish(slug, baseVersion, locale);
-        return { ok: true, version: store.currentVersion(slug, locale) ?? "" };
+        return { ok: true, version: (await store.currentVersion(slug, locale)) ?? "" };
       } catch (e) {
         if (e instanceof ConflictError)
           return { ok: false, code: "conflict", currentVersion: e.currentVersion };
@@ -79,7 +79,7 @@ export function makeActions(config: CmsConfig) {
       await guard("createPage");
       const slug = slugify(title);
       if (!slug) throw new Error("typren: page name is required");
-      store.createPage(slug, { meta: { title: title.trim() || slug }, slices: [], body: "" }, locale);
+      await store.createPage(slug, { meta: { title: title.trim() || slug }, slices: [], body: "" }, locale);
       return slug;
     },
     /** Rename (move) a page's slug across every locale it occupies. See
@@ -99,7 +99,7 @@ export function makeActions(config: CmsConfig) {
       const target = slugify(newSlug);
       if (!target) throw new Error("typren: new slug is required");
       try {
-        store.renamePage(slug, target);
+        await store.renamePage(slug, target);
         return { ok: true, slug: target };
       } catch (e) {
         if (e instanceof SlugExistsError) return { ok: false, code: "conflict" };
@@ -122,16 +122,16 @@ export function makeActions(config: CmsConfig) {
      *  locale's published content. Gated as a draft write. */
     async createTranslation(slug: string, toLocale: string) {
       await guard("saveDraft", slug);
-      store.createTranslation(slug, defaultLocale, toLocale);
+      await store.createTranslation(slug, defaultLocale, toLocale);
     },
     async deletePage(slug: string) {
       await guard("deletePage", slug);
-      store.deletePage(slug);
+      await store.deletePage(slug);
     },
     /** Delete a single translation (one locale) + its draft. */
     async deleteTranslation(slug: string, locale: string) {
       await guard("deletePage", slug);
-      store.deleteTranslation(slug, locale);
+      await store.deleteTranslation(slug, locale);
     },
     async listMedia() {
       await guard("read");

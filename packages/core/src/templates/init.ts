@@ -80,7 +80,8 @@ export const cmsConfig: CmsConfig = {
   // Local-only gate: allows access in dev, fails closed in production
   // (saveDraft/publish and the upload route write files). Swap for a real
   // auth adapter later. See "@typren/core/auth/next-auth" or
-  // "@typren/core/auth/clerk", no other change needed.
+  // "@typren/core/auth/clerk" -- both REQUIRE an allowlist option, e.g.
+  // allowedEmails: ["you@example.com"], or construction throws.
   auth: localAuth(),
   mediaAdapter: createFsMediaAdapter({
     dir: path.join(process.cwd(), "public/img"),

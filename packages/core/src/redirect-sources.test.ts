@@ -14,14 +14,14 @@ describe("scanContentStore", () => {
     dir = undefined;
   });
 
-  it("lists slugs and reads frontmatter for markdown files with a slices array", () => {
+  it("lists slugs and reads frontmatter for markdown files with a slices array", async () => {
     dir = mkdtempSync(path.join(tmpdir(), "typren-content-"));
     writeFileSync(path.join(dir, "about.md"), '---\nslices: []\naliases: ["/old-about"]\n---\nbody');
     writeFileSync(path.join(dir, "not-a-page.md"), "no frontmatter here");
 
     const store = scanContentStore(dir);
-    expect(store.listPages().map((p) => p.slug)).toEqual(["about"]);
-    expect(store.getPublished("about").meta.aliases).toEqual(["/old-about"]);
+    expect((await store.listPages()).map((p) => p.slug)).toEqual(["about"]);
+    expect((await store.getPublished("about")).meta.aliases).toEqual(["/old-about"]);
   });
 
   it("refuses javascript front-matter instead of eval()ing it", () => {
@@ -31,32 +31,32 @@ describe("scanContentStore", () => {
     // execute.
     writeFileSync(path.join(dir, "evil.md"), "---javascript\n({ slices: [] })\n---\nbody");
 
-    expect(() => scanContentStore(dir as string)).toThrow(/javascript front-matter is not supported/);
+    expect(() => scanContentStore(dir as string)).toThrow(/JavaScript front matter is not allowed/);
   });
 
-  it("returns an empty store for a missing content directory", () => {
+  it("returns an empty store for a missing content directory", async () => {
     const store = scanContentStore(path.join(tmpdir(), "typren-does-not-exist"));
-    expect(store.listPages()).toEqual([]);
+    expect(await store.listPages()).toEqual([]);
   });
 
-  it("has no draft/current-version concept (always null)", () => {
+  it("has no draft/current-version concept (always null)", async () => {
     const store = scanContentStore(path.join(tmpdir(), "typren-does-not-exist"));
-    expect(store.getDraft("about")).toBeNull();
-    expect(store.currentVersion("about")).toBeNull();
+    expect(await store.getDraft("about")).toBeNull();
+    expect(await store.currentVersion("about")).toBeNull();
   });
 
   it("is read-only: every mutating method refuses", async () => {
     const store = scanContentStore(path.join(tmpdir(), "typren-does-not-exist"));
     const message = /read-only/;
-    expect(() => store.saveDraft("about", { meta: {}, slices: [], body: "" })).toThrow(message);
-    expect(() => store.discardDraft("about")).toThrow(message);
+    await expect(store.saveDraft("about", { meta: {}, slices: [], body: "" })).rejects.toThrow(message);
+    await expect(store.discardDraft("about")).rejects.toThrow(message);
     await expect(store.publish("about")).rejects.toThrow(message);
-    expect(() => store.createPage("about", { meta: {}, slices: [], body: "" })).toThrow(message);
-    expect(() => store.renamePage("about", "new-about")).toThrow(message);
-    expect(() => store.duplicatePage("about")).toThrow(message);
-    expect(() => store.createTranslation("about", "en", "es")).toThrow(message);
-    expect(() => store.deletePage("about")).toThrow(message);
-    expect(() => store.deleteTranslation("about", "en")).toThrow(message);
+    await expect(store.createPage("about", { meta: {}, slices: [], body: "" })).rejects.toThrow(message);
+    await expect(store.renamePage("about", "new-about")).rejects.toThrow(message);
+    await expect(store.duplicatePage("about")).rejects.toThrow(message);
+    await expect(store.createTranslation("about", "en", "es")).rejects.toThrow(message);
+    await expect(store.deletePage("about")).rejects.toThrow(message);
+    await expect(store.deleteTranslation("about", "en")).rejects.toThrow(message);
   });
 });
 

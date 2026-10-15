@@ -23,7 +23,9 @@ const THRESHOLD = Number(process.env.NEW_CODE_COVERAGE_MIN ?? 90);
 const BASE_REF = process.env.COVERAGE_BASE_REF ?? "origin/main";
 const LCOV = "coverage/lcov.info";
 
-const git = (args) => execFileSync("git", args, { encoding: "utf8" });
+// The default 1 MB maxBuffer throws ENOBUFS once a branch's diff against its
+// merge-base outgrows it, which large feature branches do.
+const git = (args) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
 const ok = (msg) => { console.log(`new-code coverage: ${msg}`); process.exit(0); };
 
 if (!existsSync(LCOV)) {

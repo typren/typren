@@ -56,6 +56,15 @@ describe("renderWranglerConfig", () => {
     expect(parsed.routes).toEqual([{ pattern: "example.com", custom_domain: true }]);
   });
 
+  it("lowercases canonicalHost, so it matches the always-lowercase url.hostname the Worker compares it to", () => {
+    const parsed = JSON.parse(
+      stripComments(
+        renderWranglerConfig({ name: "my-site", compatibilityDate: "2026-01-01", canonicalHost: "WWW.Example.com" })
+      )
+    );
+    expect(parsed.vars).toEqual({ TYPREN_CANONICAL_HOST: "www.example.com" });
+  });
+
   it("writes no vars for the default trailing-slash shape", () => {
     expect(JSON.parse(stripComments(renderWranglerConfig({ name: "my-site", compatibilityDate: "2026-01-01" }))).vars).toBeUndefined();
   });

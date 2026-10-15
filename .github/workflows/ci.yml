@@ -1,14 +1,14 @@
-# The third GitHub workflow in this repo, and the only one added by
-# typren/typren#23. The other two are cla.yml and release.yml.
+# This repo's PR gate, added by typren/typren#23 alongside cla.yml and
+# release.yml. See the latter's header for the rest of the workflow set.
 #
-# CONTEXT: this repo deliberately has only two workflows (cla.yml,
-# release.yml) because gates run in the local pre-push hook. That philosophy
-# assumed maintainer-only pushes; outside contributors' machines don't run
-# our hooks, so a PR CI workflow is now the trust boundary for external
-# contributions. This is a deliberate extension of that philosophy, not an
-# accident: nothing here duplicates the hook for maintainers (their push
-# already ran it, see the `ci/local` commit status), it exists purely to give
-# a fork-based contributor the same gate before a human ever reviews the diff.
+# CONTEXT: this repo's gates run in the local pre-push hook by design. That
+# philosophy assumed maintainer-only pushes; outside contributors' machines
+# don't run our hooks, so a PR CI workflow is now the trust boundary for
+# external contributions. This is a deliberate extension of that philosophy,
+# not an accident: nothing here duplicates the hook for maintainers (their
+# push already ran it, see the `ci/local` commit status), it exists purely to
+# give a fork-based contributor the same gate before a human ever reviews the
+# diff.
 #
 # Plain `pull_request`, not `pull_request_target`: this workflow builds and
 # executes a contributor's own code (bun install, build, test), which is
@@ -67,9 +67,15 @@ jobs:
       #
       # The one legitimate carve-out is the Version Packages PR itself:
       # `changeset version` consumes the changeset files while bumping
-      # package versions, so the release PR always trips this check.
+      # package versions, so the release PR always trips this check. That
+      # carve-out is keyed on `head_ref`, a plain string a fork PR controls
+      # (its own branch name), so it also requires the PR's head repo to be
+      # this one: version-pr.yml only ever pushes changeset-release/develop
+      # to this repo, a fork can't produce that combination, and a fork
+      # naming its branch "changeset-release/develop" no longer skips the
+      # gate.
       - name: Changeset required for package changes
-        if: ${{ !startsWith(github.head_ref, 'changeset-release/') }}
+        if: ${{ !(startsWith(github.head_ref, 'changeset-release/') && github.event.pull_request.head.repo.full_name == github.repository) }}
         run: bunx changeset status --since=origin/develop
 
       # See docs/hosted-platform.md#cross-repo-compatibility item 1 and

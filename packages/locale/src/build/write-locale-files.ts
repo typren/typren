@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { canonicalize } from "../canonicalize";
 import type { Catalog } from "../types";
 
@@ -12,6 +12,23 @@ export type FilenameStyle = "dash" | "underscore" | ((locale: string) => string)
 
 export interface WriteLocaleFilesOptions {
   filenameStyle?: FilenameStyle;
+}
+
+/**
+ * `join(root, ...parts)`, asserted to land strictly inside `root`. Every locale file write routes
+ * through here: locale keys, app names and custom `filenameStyle` output all reach the path, and a
+ * key validated upstream is still re-checked at the write (a custom provider or filename function
+ * never went through `normalizeLocaleKey`).
+ */
+export function joinInside(root: string, ...parts: string[]): string {
+  const target = join(root, ...parts);
+  // A backslash is a separator (and an absolute part a root) on some hosts only; rejecting both everywhere
+  // keeps the guard host-independent instead of relying on how `join` happens to treat them here.
+  const portable = parts.every((part) => !part.includes("\\") && !isAbsolute(part));
+  if (!portable || !resolve(target).startsWith(resolve(root) + sep)) {
+    throw new Error(`refusing to write "${target}": resolves outside the output directory "${root}"`);
+  }
+  return target;
 }
 
 function toFilename(locale: string, style: FilenameStyle): string {
@@ -49,7 +66,7 @@ export function writeLocaleFiles(
 
   const paths: Record<string, string> = {};
   for (const [locale, catalog] of Object.entries(catalogs)) {
-    const path = join(dir, toFilename(locale, style));
+    const path = joinInside(dir, toFilename(locale, style));
     writeFileSync(path, serialize(catalog));
     paths[locale] = path;
   }

@@ -46,14 +46,50 @@ export type NotionSegment = ProseSegment | ComponentSegment;
 const asObj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
 const asArr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.map(asObj) : []);
 
+// Notion text is third-party input, and the markdown this file emits is
+// rendered as HTML by the host. Raw `<`/`>`/`&` would pass through markdown
+// as live markup, so prose text is entity-escaped; code is fenced instead
+// (markdown never decodes entities inside code, so escaping would show them).
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** A backtick fence longer than any backtick run inside `s`, so `s` cannot close it early. */
+const fenceFor = (s: string, min: number) =>
+  "`".repeat(Math.max(min, ...(s.match(/`+/g) ?? []).map((run) => run.length + 1)));
+
+/** `url` as a markdown link target when it is http(s) or mailto, else null. Whitespace, `<`, `>`,
+ *  quotes and parentheses are percent-encoded so the target cannot close the link early and
+ *  append raw markup. */
+function safeUrl(url: unknown): string | null {
+  if (typeof url !== "string") return null;
+  try {
+    if (!["http:", "https:", "mailto:"].includes(new URL(url).protocol)) return null;
+  } catch {
+    return null;
+  }
+  // encodeURIComponent leaves `(`, `)` and `'` alone, hence the second pass.
+  return url.replace(/[\s<>"'()`]/g, (c) =>
+    encodeURIComponent(c).replace(/[()']/g, (p) => `%${p.charCodeAt(0).toString(16).toUpperCase()}`)
+  );
+}
+
+// Directive and block-type names land inside `<!-- ... -->`; anything outside this set could close the comment.
+const SAFE_NAME = /^[A-Za-z0-9_-]+$/;
+
 function runToMarkdown(run: Record<string, unknown>): string {
   let text = (run.plain_text as string | undefined) ?? (asObj(run.text).content as string | undefined) ?? "";
   const a = asObj(run.annotations);
-  if (a.code) text = `\`${text}\``;
+  if (a.code) {
+    const fence = fenceFor(text, 1);
+    const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+    text = `${fence}${pad}${text}${pad}${fence}`;
+  } else {
+    text = escapeHtml(text);
+  }
   if (a.bold) text = `**${text}**`;
   if (a.italic) text = `_${text}_`;
   if (a.strikethrough) text = `~~${text}~~`;
-  const href = (run.href as string | null | undefined) ?? (asObj(asObj(run.text).link).url as string | undefined);
+  // A link with a disallowed scheme (javascript:, data:, ...) keeps its text and loses the link.
+  const href = safeUrl(run.href ?? asObj(asObj(run.text).link).url);
   if (href) text = `[${text}](${href})`;
   return text;
 }
@@ -84,7 +120,7 @@ function componentDirective(block: NotionBlock): { name: string; props: Record<s
   const head = lines[0]?.trim() ?? "";
   if (!head.startsWith("::")) return null;
   const name = head.slice(2).trim();
-  if (!name) return null;
+  if (!SAFE_NAME.test(name)) return null;
   const propsText = lines.slice(1).join("\n").trim();
   if (!propsText) return { name, props: {} };
   try {
@@ -121,10 +157,9 @@ export function blocksToSegments(blocks: NotionBlock[]): NotionSegment[] {
 }
 
 function imageMarkdown(payload: Record<string, unknown>): string {
-  const source = asObj(payload.file ?? payload.external);
-  const url = (source.url as string | undefined) ?? "";
-  const caption = richTextToMarkdown(payload.caption) || "image";
-  return `![${caption}](${url})`;
+  const url = safeUrl(asObj(payload.file ?? payload.external).url);
+  const caption = richTextToMarkdown(payload.caption);
+  return url ? `![${caption || "image"}](${url})` : caption;
 }
 
 function tableMarkdown(block: NotionBlock, indent: string): string {
@@ -171,8 +206,14 @@ function renderBlock(block: NotionBlock, depth: number, numberedIndex: number): 
       return withNested(indent + `- [${payload.checked ? "x" : " "}] ` + text());
     case "quote":
       return withNested(indent + "> " + text());
-    case "code":
-      return indent + "```" + ((payload.language as string) ?? "") + "\n" + text() + "\n" + indent + "```";
+    case "code": {
+      // Plain text, fenced past its own longest backtick run: markdown shows code verbatim, so
+      // annotations or entity escapes would be visible noise, and a short fence could be closed early.
+      const code = richTextToPlain(payload.rich_text);
+      const fence = fenceFor(code, 3);
+      const lang = typeof payload.language === "string" && /^[\w+#. -]*$/.test(payload.language) ? payload.language : "";
+      return indent + fence + lang + "\n" + code + "\n" + indent + fence;
+    }
     case "divider":
       return indent + "---";
     case "image":
@@ -180,8 +221,9 @@ function renderBlock(block: NotionBlock, depth: number, numberedIndex: number): 
     case "bookmark":
     case "link_preview":
     case "embed": {
-      const url = (payload.url as string) ?? "";
-      return indent + `[${richTextToMarkdown(payload.caption) || url}](${url})`;
+      const url = safeUrl(payload.url);
+      const caption = richTextToMarkdown(payload.caption);
+      return indent + (url ? `[${caption || escapeHtml(url)}](${url})` : caption);
     }
     case "table":
       return tableMarkdown(block, indent);
@@ -191,7 +233,7 @@ function renderBlock(block: NotionBlock, depth: number, numberedIndex: number): 
       // Never throw on a block type this converter doesn't know: a page with
       // one exotic block (a synced block, a column layout, ...) should still
       // render everything else, not blow up the whole read.
-      return `${indent}<!-- typren: unsupported notion block type "${block.type}" -->`;
+      return `${indent}<!-- typren: unsupported notion block type "${SAFE_NAME.test(block.type) ? block.type : "?"}" -->`;
   }
 }
 

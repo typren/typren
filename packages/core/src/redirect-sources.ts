@@ -1,21 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import matter from "gray-matter";
 import type { ContentStore } from "./store";
 import type { RedirectEntry } from "./redirects";
+import { parseMatter } from "./safe-matter";
 
-// gray-matter's default engine set includes `javascript`, which eval()s the
-// front-matter block when a file opens with `---javascript`. Here that would
-// be code execution inside whatever process scans the content directory,
-// triggered by a markdown file, a pipeline's untrusted-writer input. Content
-// is data: refuse the engine outright.
-const SAFE_ENGINES = {
-  javascript: (): never => {
-    throw new Error("typren: javascript front-matter is not supported");
-  },
-};
-const parseMatter = (raw: string) => matter(raw, { engines: SAFE_ENGINES });
 
 /**
  * Minimal read-only `ContentStore` built by scanning a content directory's
@@ -38,24 +27,26 @@ export function scanContentStore(contentDir: string): ContentStore {
         .filter((slug: string) => Array.isArray(parseMatter(fs.readFileSync(path.join(contentDir, `${slug}.md`), "utf8")).data.slices))
     : [];
 
-  const notSupported = (op: string) => (): never => {
+  const notSupported = (op: string) => async (): Promise<never> => {
     throw new Error(`typren: scanContentStore is read-only, "${op}" is not supported`);
   };
 
   return {
-    listPages: () => slugs.map((slug) => ({ slug, title: slug, hasDraft: false, locales: ["default"] })),
-    getPublished: (slug: string) => {
+    listPages: async () => slugs.map((slug) => ({ slug, title: slug, hasDraft: false, locales: ["default"] })),
+    listSlugs: async () => slugs,
+    exists: async (slug: string) => slugs.includes(slug),
+    getPublished: async (slug: string) => {
       const { data } = parseMatter(fs.readFileSync(path.join(contentDir, `${slug}.md`), "utf8"));
       // The `slices` key is left in `meta` here (unlike packages/cli's parsePage,
       // which splits it out for its own diffing needs), buildRedirects only
       // ever reads `meta.aliases`, so there's nothing to gain from stripping it.
       return { meta: data as Record<string, unknown>, slices: [], body: "", locale: "default", isFallback: false };
     },
-    getDraft: () => null,
-    currentVersion: () => null,
+    getDraft: async () => null,
+    currentVersion: async () => null,
     saveDraft: notSupported("saveDraft"),
     discardDraft: notSupported("discardDraft"),
-    publish: async () => notSupported("publish")(),
+    publish: notSupported("publish"),
     createPage: notSupported("createPage"),
     renamePage: notSupported("renamePage"),
     duplicatePage: notSupported("duplicatePage"),
