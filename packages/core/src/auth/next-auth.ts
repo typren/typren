@@ -18,12 +18,19 @@ type Session = {
  * `adminRoles` set and an intersecting role, full stop. Unmapped (no
  * `adminRoles` configured) denies rather than falling back to `allowedRoles`.
  * A host must opt in to who gets to reconfigure the site.
+ *
+ * next-auth's session carries no standard verified-email signal (Credentials
+ * and many OAuth providers never verify one), so `allowedEmails` requires an
+ * `isEmailVerified(session)` callback; the email only reaches the allowlist
+ * when it returns `true`, mirroring better-auth.ts's `emailVerified`.
  */
 export function nextAuthAdapter(opts: {
   /** The host's `auth` from `NextAuth(config)` (reads the session cookie). */
   auth: () => Promise<Session>;
-  /** Case-insensitive match on session.user.email. */
+  /** Case-insensitive match on session.user.email, once `isEmailVerified` vouches for it. */
   allowedEmails?: string[];
+  /** Whether the session's email is provider-verified. Required with `allowedEmails`. */
+  isEmailVerified?: (session: NonNullable<Session>) => boolean;
   /** Any-intersection with session.user.roles. */
   allowedRoles?: string[];
   /** Any-intersection with session.user.roles, required for the "admin" action. */
@@ -34,11 +41,24 @@ export function nextAuthAdapter(opts: {
       "typren: nextAuthAdapter requires an allowlist (allowedEmails or allowedRoles); without one any signed-in user could edit"
     );
   }
+  if (opts.allowedEmails?.length && !opts.isEmailVerified) {
+    throw new Error(
+      "typren: nextAuthAdapter allowedEmails requires isEmailVerified; next-auth sessions carry no verified-email signal, so an unverified email would match"
+    );
+  }
+  const verified = (s: NonNullable<Session>): boolean => {
+    try {
+      return opts.isEmailVerified?.(s) === true;
+    } catch {
+      return false;
+    }
+  };
   const toUser = (s: Session): AuthUser | null =>
     s?.user?.email || s?.user?.id
       ? {
           id: s.user!.id ?? s.user!.email!,
-          email: s.user!.email,
+          // Omitted unless verified, so no check reading AuthUser.email can match it.
+          email: verified(s) ? s.user!.email : undefined,
           name: s.user!.name,
           roles: s.user!.roles,
         }

@@ -13,8 +13,41 @@ describe("nextAuthAdapter", () => {
     expect(() => nextAuthAdapter({ auth: async () => null })).toThrow(/requires an allowlist/);
   });
 
-  it("does not throw when allowedEmails is set", () => {
-    expect(() => nextAuthAdapter({ auth: async () => null, allowedEmails: ["user@example.com"] })).not.toThrow();
+  const verified = () => true;
+
+  it("does not throw when allowedEmails is set with isEmailVerified", () => {
+    expect(() =>
+      nextAuthAdapter({ auth: async () => null, allowedEmails: ["user@example.com"], isEmailVerified: verified })
+    ).not.toThrow();
+  });
+
+  it("throws when allowedEmails is set without isEmailVerified", () => {
+    expect(() => nextAuthAdapter({ auth: async () => null, allowedEmails: ["user@example.com"] })).toThrow(
+      /isEmailVerified/
+    );
+  });
+
+  // Regression: the session email was compared as-is, so signing in as an
+  // allowlisted address through a provider that doesn't verify email passed.
+  it("denies an allowlisted email the host doesn't report as verified", async () => {
+    const adapter = nextAuthAdapter({
+      auth: async () => session(),
+      allowedEmails: ["user@example.com"],
+      isEmailVerified: () => false,
+    });
+    expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
+    expect((await adapter.getUser!({ action: "read" }))?.email).toBeUndefined();
+  });
+
+  it("fails closed when isEmailVerified throws", async () => {
+    const adapter = nextAuthAdapter({
+      auth: async () => session(),
+      allowedEmails: ["user@example.com"],
+      isEmailVerified: () => {
+        throw new Error("boom");
+      },
+    });
+    expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
   });
 
   it("does not throw when allowedRoles is set", () => {
@@ -22,12 +55,20 @@ describe("nextAuthAdapter", () => {
   });
 
   it("allows a session whose email is allowlisted", async () => {
-    const adapter = nextAuthAdapter({ auth: async () => session(), allowedEmails: ["user@example.com"] });
+    const adapter = nextAuthAdapter({
+      auth: async () => session(),
+      allowedEmails: ["user@example.com"],
+      isEmailVerified: verified,
+    });
     expect(await adapter.authorize({ action: "saveDraft" })).toBe(true);
   });
 
   it("denies when the email isn't allowlisted", async () => {
-    const adapter = nextAuthAdapter({ auth: async () => session(), allowedEmails: ["someone-else@example.com"] });
+    const adapter = nextAuthAdapter({
+      auth: async () => session(),
+      allowedEmails: ["someone-else@example.com"],
+      isEmailVerified: verified,
+    });
     expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
   });
 
@@ -52,6 +93,7 @@ describe("nextAuthAdapter", () => {
         throw new Error("boom");
       },
       allowedEmails: ["user@example.com"],
+      isEmailVerified: () => true,
     });
     expect(await adapter.authorize({ action: "read" })).toBe(false);
   });

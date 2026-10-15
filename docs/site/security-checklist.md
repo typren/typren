@@ -17,7 +17,9 @@ guide that explains the reasoning; this page is the checklist form.
       actually sends a **verified**-email signal (OIDC `email_verified`,
       Clerk's primary-email verification status, Better Auth
       `emailVerified`, Supabase `email_confirmed_at`). `next-auth` has no
-      verification signal at all — use `allowedRoles` there. An IdP that
+      built-in signal, so its `isEmailVerified` callback must only return
+      true for a provider that verified the address (or use
+      `allowedRoles`). An IdP that
       never sends one (Entra ID, notably) must use `allowedRoles` instead —
       an allowlist against an unverified email is not a security boundary.
       `cfAccessAuthAdapter` is the one exception: it trusts Access's own

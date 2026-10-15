@@ -75,6 +75,9 @@ for it, not merely a claim the user's own profile asserts:
   when `primaryEmailAddress?.verification?.status === "verified"`.
 - **Better Auth** (`betterAuthAdapter`): only when `session.user.emailVerified`
   is true.
+- **NextAuth** (`nextAuthAdapter`): only when the host's required
+  `isEmailVerified(session)` callback returns true; NextAuth's session has
+  no verified flag of its own.
 - **Supabase** (`supabaseAuthAdapter`): only when
   `user.email_confirmed_at` is set.
 - **Cloudflare Access** (`cfAccessAuthAdapter`): trusts Access's email

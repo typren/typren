@@ -21,6 +21,9 @@ detect:
   - pattern: "clerkAuthAdapter\\("
     glob: "**/*.{ts,tsx}"
     hint: "allowedRoles/adminRoles now require organizationId (construction throws without it), and the \"admin\" action must also pass allowedUserIds/allowedEmails/allowedRoles."
+  - pattern: "nextAuthAdapter\\("
+    glob: "**/*.{ts,tsx}"
+    hint: "allowedEmails now requires an isEmailVerified(session) callback (construction throws without it); the email only matches when it returns true."
 ---
 ## What changed
 
@@ -110,6 +113,14 @@ Three smaller breaking changes ride along with it:
   `allowedRoles` now, instead of being granted on the admin role alone. Fix:
   pass `organizationId: "org_..."` (your site's Clerk org id), and make sure
   admins are also on the ordinary allowlist.
+- **`nextAuthAdapter`'s `allowedEmails` needs `isEmailVerified`.** NextAuth's
+  session has no verified-email flag, so an email from a provider that never
+  verified it (Credentials, some OAuth/OIDC providers) used to satisfy the
+  allowlist. Construction now throws when `allowedEmails` is set without an
+  `isEmailVerified(session)` callback, and the email only counts when it
+  returns `true`. Fix: forward your provider's verification signal through
+  NextAuth's `jwt`/`session` callbacks and read it in `isEmailVerified`, or
+  switch to `allowedRoles`.
 
 ## Verify
 

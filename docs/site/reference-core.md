@@ -607,20 +607,19 @@ Does not throw; it returns `false` from `authorize()` whenever the predicate fai
 
 | Export | Signature | Notes |
 |---|---|---|
-| `nextAuthAdapter(opts)` | `(opts: { auth: () => Promise<Session>; allowedEmails?: string[]; allowedRoles?: string[]; adminRoles?: string[] }) => AuthAdapter` | `opts.auth` is the host's `auth` from `NextAuth(config)` (injected, not imported, matching how next-auth v5's `auth()` works inside server actions/components). |
+| `nextAuthAdapter(opts)` | `(opts: { auth: () => Promise<Session>; allowedEmails?: string[]; isEmailVerified?: (session) => boolean; allowedRoles?: string[]; adminRoles?: string[] }) => AuthAdapter` | `opts.auth` is the host's `auth` from `NextAuth(config)` (injected, not imported, matching how next-auth v5's `auth()` works inside server actions/components). |
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
 | `auth` | `() => Promise<Session>` | required | |
-| `allowedEmails` | `string[]` | none | Case-insensitive match on `session.user.email`. |
+| `allowedEmails` | `string[]` | none | Case-insensitive match on `session.user.email`, only when `isEmailVerified` returns `true`. |
+| `isEmailVerified` | `(session) => boolean` | none | Required with `allowedEmails`. Anything but `true` (including a throw) drops the email. |
 | `allowedRoles` | `string[]` | none | Any-intersection with `session.user.roles`. |
 | `adminRoles` | `string[]` | none | Any-intersection with `session.user.roles`, required for the `"admin"` action. Unmapped (no `adminRoles` configured) denies rather than falling back to `allowedRoles`. |
 
-> **Security: default-open caveat.** With neither `allowedEmails` nor `allowedRoles` set, ANY signed-in user is authorized for ordinary content writes. Construction does **not** throw in this case (unlike `better-auth`/`supabase`/`oidc` below); require at least one allowlist yourself before this reaches production.
-
 ### Errors
 
-Does not throw at construction. `authorize()` fails closed (returns `false`) on any error resolving the session.
+Throws at construction if neither `allowedEmails` nor `allowedRoles` is set, or if `allowedEmails` is set without `isEmailVerified`. `authorize()` fails closed (returns `false`) on any error resolving the session.
 
 ## "./auth/clerk"
 
