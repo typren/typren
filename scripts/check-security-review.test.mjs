@@ -44,9 +44,22 @@ describe("isSensitive", () => {
       expect(isSensitive(f)).toBe(true);
     }
   });
-  it("lets docs, tests, fixtures and changesets through", () => {
-    for (const f of ["docs/site/quickstart.md", "packages/core/src/store.test.ts", "packages/cli/test-fixtures/x/a.json",
-      ".changeset/foo.md", "security-reviews/2026-10-15-x.md", "packages/core/README.md"]) {
+  it("flags config the release build runs and files the tarballs ship", () => {
+    for (const f of ["vitest.config.ts", "eslint.config.mjs", "commitlint.config.js", "tsconfig.base.json", ".npmrc",
+      "bunfig.toml", "new-root-config.mjs", "packages/core/tsconfig.build.json", "packages/cli/LICENSE",
+      ".changeset/config.json", "apps/studio/package.json", ".github/CODEOWNERS", ".github/dependabot.yml",
+      "docs/migrations/core-0.5.0.md", "packages/editor/src/notes.md"]) {
+      expect(isSensitive(f)).toBe(true);
+    }
+  });
+  it("flags tests and fixtures, which run in the release build before dist/ is staged", () => {
+    for (const f of ["packages/core/src/store.test.ts", "packages/cli/test-fixtures/x/a.json"]) {
+      expect(isSensitive(f)).toBe(true);
+    }
+  });
+  it("lets docs, changeset notes and records through", () => {
+    for (const f of ["docs/site/quickstart.md", "docs/security-review.md", "README.md", ".changeset/foo.md",
+      "security-reviews/2026-10-15-x.md", "packages/core/README.md", "etc/api-surface/core.d.ts"]) {
       expect(isSensitive(f)).toBe(false);
     }
   });

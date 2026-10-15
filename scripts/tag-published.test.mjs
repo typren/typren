@@ -31,7 +31,9 @@ describe("loadPublishablePackages", () => {
   it("skips private packages", () => {
     writePackage("core", "@typren/core", "1.2.3");
     writePackage("editor", "@typren/editor", "0.1.0", { private: true });
-    expect(loadPublishablePackages(repoRoot)).toEqual([{ name: "@typren/core", version: "1.2.3" }]);
+    expect(loadPublishablePackages(repoRoot)).toEqual([
+      { name: "@typren/core", version: "1.2.3", dir: path.join(repoRoot, "packages", "core") },
+    ]);
   });
 
   it("returns empty for no packages", () => {

@@ -2,11 +2,10 @@
 /**
  * Tag-from-npm-truth for the release workflow (.github/workflows/release.yml).
  *
- * `changeset tag` only tags versions created-this-run, and `changeset publish`
- * itself dies before that step runs if even one package fails to publish (see
- * the workflow's own history: 0.1.2 and 0.1.3 both shipped tagless). A retry
- * then only tags what the retry publishes, never what an earlier failed run
- * already got onto npm.
+ * `changeset tag`, which this replaced, only tagged versions created-this-run,
+ * and the publish step can fail partway (see the workflow's own history: 0.1.2
+ * and 0.1.3 both shipped tagless). A retry then only tags what the retry
+ * publishes, never what an earlier failed run already got onto npm.
  *
  * This derives tags from npm instead: for every non-private workspace
  * package, if npm already has that version and the matching tag doesn't
@@ -22,7 +21,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** package name -> version, for every publishable (non-private) workspace package. */
+/** name, version and directory of every publishable (non-private) workspace package. */
 function loadPublishablePackages(repoRoot) {
   const packagesDir = path.join(repoRoot, "packages");
   const packages = [];
@@ -32,7 +31,7 @@ function loadPublishablePackages(repoRoot) {
     if (!existsSync(pkgJsonPath)) continue;
     const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
     if (pkg.private) continue;
-    packages.push({ name: pkg.name, version: pkg.version });
+    packages.push({ name: pkg.name, version: pkg.version, dir: path.join(packagesDir, entry.name) });
   }
   return packages;
 }
@@ -49,12 +48,16 @@ function tagsToCreate(packages, { isOnNpm, tagExists }) {
   return tags;
 }
 
+/** Exact-version `npm view` exits non-zero (E404) when that version is not on the registry. Any other
+ *  failure (network, auth) also reads as "not published": the publish step then tries, and npm itself
+ *  refuses to overwrite a version that does exist, so the error surfaces there instead of being skipped. */
 function isOnNpmReal(name, version) {
   try {
-    execFileSync("npm", ["view", `${name}@${version}`, "version"], {
-      stdio: ["ignore", "ignore", "ignore"],
+    const out = execFileSync("npm", ["view", `${name}@${version}`, "version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
     });
-    return true;
+    return out.trim() === version;
   } catch {
     return false;
   }
@@ -83,4 +86,4 @@ if (isMain) {
   run(process.cwd());
 }
 
-export { loadPublishablePackages, tagsToCreate, run };
+export { loadPublishablePackages, tagsToCreate, isOnNpmReal, run };

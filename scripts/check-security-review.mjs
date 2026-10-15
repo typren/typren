@@ -3,8 +3,8 @@
 //
 // Passes when some record in security-reviews/*.md says `outcome: pass` with no open critical or high
 // findings, its `reviewedHead` is an ancestor of (or equal to) the commit being checked, and nothing
-// security-sensitive changed between the reviewed commit and that commit. Docs, tests, changesets and the
-// records themselves may change after a review; source, workflows, hooks, scripts and manifests may not.
+// security-sensitive changed between the reviewed commit and that commit. Docs, changeset notes and the
+// records themselves may change after a review; code, tests, config, workflows and manifests may not.
 //
 // The record is an attestation, not proof: the gate only checks that one exists and is current. Who may
 // write records is governed by review on the PR that adds them (CODEOWNERS), not by this script.
@@ -18,10 +18,15 @@ import { fileURLToPath } from "node:url";
 
 export const RECORD_DIR = "security-reviews";
 
-// Changes to these after a review invalidate it. Order matters only for readability.
-const SENSITIVE = [/^packages\/[^/]+\/src\//, /^packages\/[^/]+\/package\.json$/, /^packages\/[^/]+\/scripts\//,
-  /^\.github\/workflows\//, /^\.husky\//, /^scripts\//, /^package\.json$/, /^bun\.lock$/, /^\.claude\/workflows\//];
-const EXEMPT = [/\.test\.[cm]?[jt]sx?$/, /\/test-fixtures\//, /\.md$/];
+// Changes to these after a review invalidate it: anything the release build executes or the tarballs ship.
+// Root files are matched wholesale (manifests, lockfile, tsconfig/vitest/eslint/commitlint config, .npmrc) so a new
+// root config is covered without editing this list. Tests count: the release job runs them before staging dist/.
+const SENSITIVE = [/^[^/]+$/, /^packages\//, /^apps\//, /^scripts\//, /^\.husky\//, /^\.github\//, /^\.changeset\//,
+  /^\.claude\/workflows\//,
+  // Core's postbuild packs these notes into the tarball, and `typren migrate` runs their `detect` regexes.
+  /^docs\/migrations\//];
+// Prose that neither runs nor ships. Not under docs/migrations/ or a package's src/, which ship.
+const EXEMPT = [/^(?!docs\/migrations\/|packages\/[^/]+\/src\/).*\.md$/];
 
 export function isSensitive(file) {
   if (EXEMPT.some((r) => r.test(file))) return false;
