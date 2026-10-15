@@ -17,6 +17,32 @@ describe("richTextToMarkdown", () => {
     expect(richTextToMarkdown(text("link", { href: "https://x.test" }))).toBe("[link](https://x.test)");
   });
 
+  it("escapes markup in prose text so a Notion page cannot inject HTML", () => {
+    expect(richTextToMarkdown(text('<img src=x onerror="alert(1)"> & co'))).toBe(
+      '&lt;img src=x onerror="alert(1)"&gt; &amp; co'
+    );
+  });
+
+  it("fences inline code past its own backticks instead of escaping it", () => {
+    expect(richTextToMarkdown(text("a<b", { annotations: { code: true } }))).toBe("`a<b`");
+    expect(richTextToMarkdown(text("x`<script>", { annotations: { code: true } }))).toBe("``x`<script>``");
+    expect(richTextToMarkdown(text("`y", { annotations: { code: true } }))).toBe("`` `y ``");
+  });
+
+  it("keeps the text but drops a link whose scheme is not http(s) or mailto", () => {
+    expect(richTextToMarkdown(text("x", { href: "javascript:alert(1)" }))).toBe("x");
+    expect(richTextToMarkdown(text("x", { href: "data:text/html,<b>" }))).toBe("x");
+    expect(richTextToMarkdown(text("x", { href: "not a url" }))).toBe("x");
+    expect(richTextToMarkdown(text("m", { href: "mailto:a@b.test" }))).toBe("[m](mailto:a@b.test)");
+    expect(richTextToMarkdown(text("x", { text: { content: "x", link: { url: "javascript:void 0" } } }))).toBe("x");
+  });
+
+  it("percent-encodes characters that could close a link target and append markup", () => {
+    expect(richTextToMarkdown(text("x", { href: "https://a.test/)<img src=x onerror=alert(1)>" }))).toBe(
+      "[x](https://a.test/%29%3Cimg%20src=x%20onerror=alert%281%29%3E)"
+    );
+  });
+
   it("joins multiple runs and tolerates a non-array input", () => {
     expect(richTextToMarkdown([...text("a"), ...text(" b")])).toBe("a b");
     expect(richTextToMarkdown(undefined)).toBe("");
@@ -99,6 +125,25 @@ describe("blocksToMarkdown", () => {
     expect(md).toContain("| h1 | h2 |\n| --- | --- |\n| v1 | v2 |");
   });
 
+  it("drops image and bookmark URLs with a disallowed scheme, keeping the caption", () => {
+    const md = blocksToMarkdown([
+      block("image", { external: { url: "javascript:alert(1)" }, caption: text("cap") }),
+      block("bookmark", { url: "javascript:alert(2)", caption: text("bm") }),
+    ]);
+    expect(md).toBe("cap\n\nbm");
+  });
+
+  it("renders a code block as plain text in a fence its content cannot close, with a sanitized language", () => {
+    const md = blocksToMarkdown([
+      block("code", { rich_text: text("```\n<script>alert(1)</script>", { annotations: { bold: true } }), language: "js\n<x>" }),
+    ]);
+    expect(md).toBe("````\n```\n<script>alert(1)</script>\n````");
+  });
+
+  it("never lets a block type close the unsupported-block comment", () => {
+    expect(blocksToMarkdown([block("x--><script>", {})])).toBe('<!-- typren: unsupported notion block type "?" -->');
+  });
+
   it("degrades an unsupported block type to a comment instead of throwing", () => {
     const blocks: NotionBlock[] = [block("synced_block", {})];
     expect(() => blocksToMarkdown(blocks)).not.toThrow();
@@ -130,6 +175,12 @@ describe("component-call directive + blocksToSegments", () => {
     const blocks: NotionBlock[] = [block("callout", { rich_text: text("::widget\nnot json") })];
     expect(() => blocksToSegments(blocks)).not.toThrow();
     expect(blocksToSegments(blocks)).toEqual([{ kind: "prose", blocks }]);
+  });
+
+  it("treats a directive name outside [A-Za-z0-9_-] as prose, so it never reaches an HTML comment", () => {
+    const blocks: NotionBlock[] = [block("callout", { rich_text: text("::x--><script>alert(1)</script>") })];
+    expect(blocksToSegments(blocks)).toEqual([{ kind: "prose", blocks }]);
+    expect(blocksToMarkdown(blocks)).not.toContain("<script>");
   });
 
   it("treats a bare callout with no name after :: as ordinary prose", () => {
