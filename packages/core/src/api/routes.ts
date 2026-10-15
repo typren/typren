@@ -3,7 +3,7 @@ import { resolveAuth } from "../auth-adapter";
 import { buildCollectionActions, listCollectionRecords, makeCollectionAdapter } from "../collection";
 import { handleMediaUpload } from "../media";
 import { resolveSections, type CollectionSection } from "../sections";
-import { createSettingsStore } from "../settings";
+import { BOOTSTRAP_KEYS, createSettingsStore, validateBootstrap } from "../settings";
 import { createStore, type ContentStore } from "../store";
 import type { CmsConfig, ContentAdapter, PageContent } from "../types";
 import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
@@ -458,6 +458,14 @@ async function settingsRoutes(
       return json({ error: "Unauthorized" }, 403);
     const { patch } = await body<{ patch?: Partial<SiteSettingsBootstrap> }>(request);
     if (!patch) return json({ error: "patch is required" }, 400);
+    const unknownKey = Object.keys(patch).find((k) => !BOOTSTRAP_KEYS.has(k));
+    if (unknownKey) return json({ error: `unknown bootstrap key "${unknownKey}"` }, 400);
+    // Validate the MERGED result, not just the patch: a patch that only
+    // touches `locales` must still leave defaultLocale/routing consistent,
+    // and writeBootstrap merges the same way (see createFsSettingsAdapter).
+    const merged = { ...settings.bootstrap.readBootstrap(), ...patch };
+    const error = validateBootstrap(merged);
+    if (error) return json({ error }, 400);
     settings.bootstrap.writeBootstrap(patch);
     return json({ ok: true });
   }

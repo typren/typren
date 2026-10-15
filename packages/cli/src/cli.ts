@@ -5,7 +5,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { buildTemplates, TYPREN_BOOTSTRAP_MARKER, TYPREN_REWRITE_MARKER } from "@typren/core/templates/init";
-import { createFsSettingsAdapter, resolveI18n, type SiteSettingsBootstrap, type Slice } from "@typren/core";
+import { createFsSettingsAdapter, validateBootstrap, type SiteSettingsBootstrap, type Slice } from "@typren/core";
 import { firstRunNotice, isEnabled, readCliVersion, record, setEnabled } from "./telemetry";
 import { parseMatter } from "./safe-matter";
 import { envWithoutGit, migrate, printMigrateReport, parseMigrateArgs } from "./migrate";
@@ -53,32 +53,6 @@ export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldR
   }
 
   return { ok: true, baseDir, created, skipped };
-}
-
-// Same SAFE_SLUG-shaped route rule markdown-adapter.ts uses for slugs, plus
-// the reserved-word check, kept as its own copy (not imported) rather than a
-// shared export: this is a Node-side CLI concern, an admin-route settings UI
-// would own its own equivalent, and duplicating one regex + one Set is
-// cheaper than coupling the two layers.
-const SAFE_ROUTE = /^[a-z0-9][a-z0-9-]*$/i;
-const RESERVED_ROUTES = new Set(["api", "_next"]);
-
-/** Validates a bootstrap config against the same rules the Settings "Advanced"
- *  panel and the onboarding wizard's admin-route step enforce, so a config
- *  that passes one passes all three. Returns an error string, or null when
- *  valid. Reuses `resolveI18n`'s own defaultLocale-in-locales check rather
- *  than re-deriving it. */
-function validateBootstrap(bs: SiteSettingsBootstrap): string | null {
-  if (!SAFE_ROUTE.test(bs.adminRoute))
-    return `adminRoute "${bs.adminRoute}" must start with a letter/digit and contain only letters, digits, or hyphens`;
-  if (RESERVED_ROUTES.has(bs.adminRoute.toLowerCase()))
-    return `adminRoute "${bs.adminRoute}" is a reserved path and can't be used as the admin route`;
-  try {
-    resolveI18n({ locales: bs.locales, defaultLocale: bs.defaultLocale, routing: bs.routing });
-  } catch (e) {
-    return e instanceof Error ? e.message : String(e);
-  }
-  return null;
 }
 
 const NEXT_CONFIG_CANDIDATES = ["next.config.ts", "next.config.mjs", "next.config.js"];

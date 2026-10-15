@@ -4,6 +4,7 @@ import { createMarkdownAdapter } from "./markdown-adapter";
 import { makeActions } from "./actions";
 import { createStore } from "./store";
 import { resolveAuth } from "./auth-adapter";
+import { resolveI18n } from "./i18n";
 import type { CmsConfig, MediaAsset } from "./types";
 import type { RoutingMode } from "./i18n";
 import type { SaveResult } from "./actions";
@@ -34,6 +35,56 @@ export type SiteSettings = SiteSettingsRuntime & { bootstrap: SiteSettingsBootst
 export interface SettingsAdapter {
   readBootstrap(): SiteSettingsBootstrap;
   writeBootstrap(patch: Partial<SiteSettingsBootstrap>): void;
+}
+
+// Same SAFE_SLUG-shaped route rule markdown-adapter.ts uses for slugs, plus a
+// reserved-word check. Duplicated (not imported) from markdown-adapter.ts: an
+// admin route and a content slug are different trust boundaries that happen
+// to share a shape today.
+const SAFE_ADMIN_ROUTE = /^[a-z0-9][a-z0-9-]*$/i;
+const RESERVED_ADMIN_ROUTES = new Set(["api", "_next"]);
+// BCP-47-ish: a primary subtag of 2-3 letters, then any number of 2-8
+// alphanumeric extension subtags. Deliberately loose (real BCP-47 allows
+// singleton extensions, script/region casing rules, etc.); the only thing
+// this gate needs to guarantee is that a locale string can never be anything
+// other than a plain, bounded path segment (see createMarkdownAdapter, which
+// uses the same shape for the same reason).
+const BCP47_LOCALE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+const ROUTING_MODES: RoutingMode[] = ["prefix-except-default", "prefix-all"];
+/** Keys `PUT /settings/bootstrap` may patch (see api/routes.ts settingsRoutes).
+ *  Anything else in the patch is rejected before it ever reaches
+ *  `writeBootstrap`, since that adapter has no key allowlist of its own. */
+export const BOOTSTRAP_KEYS: ReadonlySet<string> = new Set([
+  "adminRoute",
+  "locales",
+  "defaultLocale",
+  "routing",
+  "onboarded",
+]);
+
+/**
+ * Validates a FULL bootstrap (not a partial patch): the one check shared by
+ * the Settings "Advanced" panel, the onboarding wizard's admin-route step,
+ * `typren apply-settings` (packages/cli/src/cli.ts), and the settings API's
+ * bootstrap write (api/routes.ts), so a config that passes one passes all
+ * four. Returns an error string, or null when valid. Reuses `resolveI18n`'s
+ * own defaultLocale-in-locales check rather than re-deriving it.
+ */
+export function validateBootstrap(bs: SiteSettingsBootstrap): string | null {
+  if (!SAFE_ADMIN_ROUTE.test(bs.adminRoute))
+    return `adminRoute "${bs.adminRoute}" must start with a letter/digit and contain only letters, digits, or hyphens`;
+  if (RESERVED_ADMIN_ROUTES.has(bs.adminRoute.toLowerCase()))
+    return `adminRoute "${bs.adminRoute}" is a reserved path and can't be used as the admin route`;
+  if (!Array.isArray(bs.locales) || bs.locales.length === 0 || !bs.locales.every((l) => BCP47_LOCALE.test(l)))
+    return `locales must be a non-empty array of BCP-47-ish locale codes, got ${JSON.stringify(bs.locales)}`;
+  if (!ROUTING_MODES.includes(bs.routing))
+    return `routing "${bs.routing}" must be one of ${ROUTING_MODES.join(", ")}`;
+  try {
+    resolveI18n({ locales: bs.locales, defaultLocale: bs.defaultLocale, routing: bs.routing });
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+  return null;
 }
 
 /** Default bootstrap adapter: one root JSON, atomic tmp+rename write so no

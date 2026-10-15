@@ -468,6 +468,58 @@ describe("settings resource", () => {
     expect(res.status).toBe(403);
   });
 
+  it("writes a valid bootstrap patch", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(jsonReq("PUT", "/settings/bootstrap", { patch: { adminRoute: "backoffice" } }));
+    expect(res.status).toBe(200);
+    const after = await (await settingsApi.handler(req("GET", "/settings"))).json();
+    expect(after.bootstrap.adminRoute).toBe("backoffice");
+  });
+
+  // Regression: PUT /settings/bootstrap used to write whatever `patch` carried
+  // straight through to writeBootstrap with no validation, so any writer
+  // (anyone passing the "admin" authorize() check) could install a reserved or
+  // unsafe adminRoute, an inconsistent defaultLocale/locales pair, or an
+  // arbitrary unrecognized key -- all of which currentAdminRoute/resolveI18n
+  // assume are already well-formed by the time they're read back.
+  it("rejects a bootstrap patch with an unknown key", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(jsonReq("PUT", "/settings/bootstrap", { patch: { evil: "x" } }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/unknown bootstrap key/);
+  });
+
+  it("rejects a reserved adminRoute", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(jsonReq("PUT", "/settings/bootstrap", { patch: { adminRoute: "api" } }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/reserved/);
+  });
+
+  it("rejects an unsafe-shaped adminRoute", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(jsonReq("PUT", "/settings/bootstrap", { patch: { adminRoute: "../etc" } }));
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a locales patch that drops the current defaultLocale", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(
+      jsonReq("PUT", "/settings/bootstrap", { patch: { locales: ["fr", "de"] } }) // current defaultLocale is "en"
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/defaultLocale/);
+  });
+
+  it("rejects a non-BCP-47-ish locale", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(
+      jsonReq("PUT", "/settings/bootstrap", { patch: { locales: ["en", "../x"] } })
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/locales/);
+  });
+
   it("404s an unmatched settings sub-route", async () => {
     const res = await createTyprenApi(settingsConfig(), { basePath: BASE }).handler(req("GET", "/settings/nonsense"));
     expect(res.status).toBe(404);

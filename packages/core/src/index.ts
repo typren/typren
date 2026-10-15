@@ -90,6 +90,8 @@ export {
 export {
   createSettingsStore,
   createFsSettingsAdapter,
+  validateBootstrap,
+  BOOTSTRAP_KEYS,
   type SiteSettings,
   type SiteSettingsRuntime,
   type SiteSettingsBootstrap,
