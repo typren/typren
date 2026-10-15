@@ -275,14 +275,28 @@ function extractStringConst(text: string, name: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Slice names with a `@typren/core/seo` seoRegistry entry, scraped the same
- *  regex-probe way as extractStringConst. See its comment for why this
- *  doesn't just `import()` the file. Returns null when the file can't be
- *  read (check that depends on it degrades to "skip", not a guess). */
-function getSeoRegistryKeys(cwd: string, paths: ReviewPaths): string[] | null {
+/** Slice names with a `@typren/core/seo` seoRegistry entry. Scans line by
+ *  line with plain string ops rather than a single `^\s*(\w+):\s*(?:async\s*)?\(`
+ *  regex `matchAll` over the whole (repo-controlled) file: `indexOf`/`slice`
+ *  are guaranteed linear in the file size regardless of content, so this
+ *  can't regress into backtracking blowup if the pattern ever grows another
+ *  quantifier. Returns null when the file can't be read (check that depends
+ *  on it degrades to "skip", not a guess). */
+export function getSeoRegistryKeys(cwd: string, paths: ReviewPaths): string[] | null {
   const text = readTextSafe(path.join(cwd, paths.seoRegistryFile));
   if (text === null) return null;
-  return [...text.matchAll(/^\s*(\w+):\s*(?:async\s*)?\(/gm)].map((m) => m[1]);
+  const keys: string[] = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trimStart();
+    const colon = trimmed.indexOf(":");
+    if (colon <= 0) continue;
+    const key = trimmed.slice(0, colon);
+    if (!/^\w+$/.test(key)) continue;
+    let rest = trimmed.slice(colon + 1).trimStart();
+    if (rest.startsWith("async")) rest = rest.slice("async".length).trimStart();
+    if (rest.startsWith("(")) keys.push(key);
+  }
+  return keys;
 }
 
 function getSiteUrl(cwd: string, paths: ReviewPaths): string | null {

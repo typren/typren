@@ -3,7 +3,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applySettings, main, nextSteps, openOrUpdateContentPr, resolveReviewPaths, review, scaffold } from "./cli";
+import {
+  applySettings,
+  getSeoRegistryKeys,
+  main,
+  nextSteps,
+  openOrUpdateContentPr,
+  resolveReviewPaths,
+  review,
+  scaffold,
+  type ReviewPaths,
+} from "./cli";
 import { envWithoutGit } from "./migrate";
 import * as telemetry from "./telemetry";
 
@@ -423,6 +433,46 @@ describe("resolveReviewPaths", () => {
     fs.writeFileSync(path.join(dir, "typren.config.json"), "{ not valid json");
     expect(() => resolveReviewPaths(dir)).not.toThrow();
     expect(resolveReviewPaths(dir).contentDir).toBe("content");
+  });
+});
+
+describe("getSeoRegistryKeys", () => {
+  const paths: ReviewPaths = {
+    contentDir: "content",
+    resourcesDir: "content/resources",
+    seoFile: "app/seo.tsx",
+    seoRegistryFile: "slices/seo-registry.ts",
+  };
+
+  it("returns null when the registry file doesn't exist", () => {
+    expect(getSeoRegistryKeys(dir, paths)).toBeNull();
+  });
+
+  it("collects both sync and async entry keys, ignoring non-entry lines", () => {
+    fs.mkdirSync(path.join(dir, "slices"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "slices/seo-registry.ts"),
+      "export const seoRegistry = {\n" +
+        "  faq: (slice) => ({}),\n" +
+        "  testimonial: async (slice) => ({}),\n" +
+        "  // comment: not an entry\n" +
+        "};\n"
+    );
+    expect(getSeoRegistryKeys(dir, paths)).toEqual(["faq", "testimonial"]);
+  });
+
+  // The registry file is read straight from the repo being reviewed, so a
+  // contributor-controlled file is untrusted input. This file is deliberately
+  // pathological for a regex scan (many near-miss "key:" lines with long
+  // whitespace runs and no closing paren) to guard against a parser that
+  // reverts to catastrophic-backtracking-prone regex and goes quadratic.
+  it("stays fast on a large file full of near-miss lines", () => {
+    fs.mkdirSync(path.join(dir, "slices"), { recursive: true });
+    const line = `key${" ".repeat(200)}:${" ".repeat(200)}async${" ".repeat(200)}x\n`;
+    fs.writeFileSync(path.join(dir, "slices/seo-registry.ts"), line.repeat(20000));
+    const start = Date.now();
+    getSeoRegistryKeys(dir, paths);
+    expect(Date.now() - start).toBeLessThan(1000);
   });
 });
 
