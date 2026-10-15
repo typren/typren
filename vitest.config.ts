@@ -65,10 +65,10 @@ export default defineConfig({
         // Ratchets up as coverage improves, fails a regression below the last
         // seeded value. See package.json's "test:coverage" and the pre-push hook.
         autoUpdate: true,
-        lines: 93.91,
-        statements: 91.83,
-        functions: 91.04,
-        branches: 83.87,
+        lines: 93.94,
+        statements: 91.86,
+        functions: 91.07,
+        branches: 83.91,
       },
     },
   },
