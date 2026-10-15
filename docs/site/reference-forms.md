@@ -50,6 +50,7 @@ Pluggable delivery: `FormSink` is the port, one factory per vendor.
 | `createGoogleSheetsSink(config, runtime?)` | `(config: GoogleSheetsSinkConfig, runtime?: SinkRuntime) => FormSink` | One row per submission via Sheets API v4 `values.append`. |
 | `createFileSink(config)` | `(config: FileSinkConfig) => FormSink` | JSONL append to a local path; the reference/dev sink. `node:fs/promises` is imported inside `deliver`, so loading `"./sinks"` stays possible on edge runtimes with no Node builtins. |
 | `resolveSink(sink, runtime?)` | `(sink: SinkConfig \| FormSink, runtime?: SinkRuntime) => FormSink` | Resolves a config into a `FormSink`, or passes an already-built sink straight through. |
+| `assertBrowserSafeSinkConfig(config)` | `(config: SinkConfig) => void` | Throws unless `config` is safe to deliver straight from a browser. Used internally by `submitForm`'s `sink` mode; exported for anyone calling `resolveSink().deliver()` from client code directly. See Errors below. |
 
 **`WebhookSinkConfig`:**
 
@@ -90,6 +91,7 @@ Pluggable delivery: `FormSink` is the port, one factory per vendor.
 - `resolveSink`: throws `` resolveSink: unknown sink type "<type>" `` for an unrecognized `config.type`.
 - `resolveEnvRef`: throws `` environment variable <name> is not set `` when a `"${VAR}"` reference names a variable missing from `env`.
 - `requireEnvRef`: throws `` <what> must be a ${VAR} environment reference, not a literal `` when given a plain string instead of a `"${VAR}"` reference.
+- `assertBrowserSafeSinkConfig`: throws `` sink type "<type>" is server-only and cannot be delivered from the browser `` for `google-sheets`/`file` regardless of config; throws for a `hubspot` sink that sets `accessToken` or a `webhook` sink that sets any `headers`, whatever their values (a literal credential would ship in the bundle too); and throws `` sink config for "<type>" contains a "${...}" reference and is server-only `` for any other sink whose config contains a `"${...}"`-shaped value anywhere (resolvable or not — the check runs on the literal config, not a resolved value).
 
 ## "./server"
 
@@ -124,10 +126,11 @@ The browser-safe submit helper.
 
 | Export | Signature | Notes |
 |---|---|---|
-| `submitForm(source, options)` | `(source: HTMLFormElement \| Record<string, unknown>, options: SubmitOptions) => Promise<SubmitResult>` | Serializes a form element (or a plain data record) via `FormData`, fills the reserved `_page`/`_locale` meta keys from `location`/`document` when available and not already set, and POSTs JSON to `options.endpoint`. |
+| `submitForm(source, options)` | `(source: HTMLFormElement \| Record<string, unknown>, options: SubmitOptions \| SinkSubmitOptions) => Promise<SubmitResult>` | Serializes a form element (or a plain data record) via `FormData`, fills the reserved `_page`/`_locale` meta keys from `location`/`document` when available and not already set, then either POSTs JSON to `options.endpoint` or (given `options.sink`) delivers directly to that sink for a static site with no server. |
 | `SubmitOptions` (type) | `{ endpoint: string; schema?: FormSchema; fetchImpl?: typeof fetch }` | `schema`, when given, validates locally first purely for inline-error UX; the server always re-validates regardless. |
-| `SubmitResult` (type) | `{ ok: boolean; status: number; errors?: ValidationError[]; sinks?: SinkOutcome[] }` | `status` is `0` when local validation failed and no request was sent. A `204` response (tripped honeypot) resolves `{ ok: true, status: 204 }`. A non-JSON response body (e.g. a proxy error page) falls back to `{ ok: response.ok, status: response.status }`. |
+| `SinkSubmitOptions` (type) | `{ sink: SinkConfig; schema: FormSchema; fetchImpl?: typeof fetch }` | Static-site mode: no handler, no server to re-validate, so `schema` is required and its local validation is authoritative. `sink` must pass `assertBrowserSafeSinkConfig`. |
+| `SubmitResult` (type) | `{ ok: boolean; status: number; errors?: ValidationError[]; sinks?: SinkOutcome[] }` | `status` is `0` when local validation failed and no request was sent. A `204` response (tripped honeypot, either mode) resolves `{ ok: true, status: 204 }`. A non-JSON response body (e.g. a proxy error page) falls back to `{ ok: response.ok, status: response.status }`. In `sink` mode, `status` is `200`/`502` for a successful/failed delivery and `sinks` always has exactly one entry. |
 
 #### Errors
 
-Neither export throws on the happy or sad path of a submission; a thrown `fetchImpl` rejection propagates to the caller of `submitForm` uncaught.
+With `endpoint`, neither export throws on the happy or sad path of a submission; a thrown `fetchImpl` rejection propagates to the caller of `submitForm` uncaught. With `sink`, `submitForm`'s returned promise rejects (via `assertBrowserSafeSinkConfig`, since `submitForm` itself is async) when the sink is not browser-safe — see that function's errors above; a thrown `fetchImpl`/sink rejection otherwise propagates the same as `endpoint` mode.
