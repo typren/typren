@@ -71,4 +71,7 @@ export type SinkConfig = WebhookSinkConfig | HubspotSinkConfig | GoogleSheetsSin
 export interface SinkRuntime {
   fetchImpl?: typeof fetch;
   env?: EnvRecord;
+  /** Aborts a sink's fetch after this many milliseconds, so a slow or
+   *  unresponsive receiver can't pin a form submission open. Default 10000. */
+  timeoutMs?: number;
 }

@@ -1,4 +1,4 @@
-import { defaultEnv, requireEnvRef } from "./env";
+import { DEFAULT_SINK_TIMEOUT_MS, defaultEnv, requireEnvRef } from "./env";
 import type { FormSink, HubspotSinkConfig, SinkRuntime } from "./types";
 
 const HUTK_COOKIE = "hubspotutk";
@@ -59,6 +59,7 @@ export function createHubspotSink(config: HubspotSinkConfig, runtime: SinkRuntim
           fields,
           ...(Object.keys(context).length > 0 ? { context } : {}),
         }),
+        signal: AbortSignal.timeout(runtime.timeoutMs ?? DEFAULT_SINK_TIMEOUT_MS),
       });
       return response.ok ? { ok: true } : { ok: false, detail: `hubspot responded ${response.status}` };
     },

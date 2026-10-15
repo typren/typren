@@ -8,6 +8,9 @@ const ENV_REF = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 
 export type EnvRecord = Record<string, string | undefined>;
 
+/** Default abort timeout for every fetch-backed sink; see SinkRuntime.timeoutMs. */
+export const DEFAULT_SINK_TIMEOUT_MS = 10_000;
+
 export function defaultEnv(): EnvRecord {
   return typeof process !== "undefined" && process.env ? process.env : {};
 }

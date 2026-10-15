@@ -1,4 +1,4 @@
-import { defaultEnv, requireEnvRef } from "./env";
+import { DEFAULT_SINK_TIMEOUT_MS, defaultEnv, requireEnvRef } from "./env";
 import type { FormSink, GoogleSheetsSinkConfig, SinkRuntime } from "./types";
 
 /**
@@ -30,6 +30,7 @@ export function createGoogleSheetsSink(config: GoogleSheetsSinkConfig, runtime: 
           authorization: `Bearer ${requireEnvRef(config.token, env, "google-sheets token")}`,
         },
         body: JSON.stringify({ values: [row] }),
+        signal: AbortSignal.timeout(runtime.timeoutMs ?? DEFAULT_SINK_TIMEOUT_MS),
       });
       return response.ok ? { ok: true } : { ok: false, detail: `sheets responded ${response.status}` };
     },
