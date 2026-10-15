@@ -444,7 +444,8 @@ describe("createExportApiSourceProvider", () => {
   });
 
   it("a zip bomb past the 50 MB inflate cap is refused", async () => {
-    const bomb = zipSync({ "en.json": new Uint8Array(51 * 1024 * 1024) }, { level: 9 });
+    // Stored (level 0): the cap reads declared sizes, and deflating 51 MB is too slow under coverage.
+    const bomb = zipSync({ "en.json": new Uint8Array(51 * 1024 * 1024) }, { level: 0 });
     await expect(zipProvider(bomb).provider.loadSource()).rejects.toThrow(/inflates past/);
   });
 
