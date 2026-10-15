@@ -196,14 +196,24 @@ export async function handleMediaUpload(
   const file = form.get("file");
   if (!(file instanceof File)) return Response.json({ error: "No file" }, { status: 400 });
 
+  let prepared: PreparedFile;
   try {
-    const prepared = await processUpload(
+    prepared = await processUpload(
       { name: file.name, buffer: Buffer.from(await file.arrayBuffer()) },
       { allowSvg: config.allowSvg }
     );
+  } catch (e) {
+    // processUpload's own errors are deliberately user-facing (see its doc comment above).
+    return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+  }
+
+  try {
     const asset = await config.mediaAdapter.upload(prepared);
     return Response.json(asset);
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    // Unlike processUpload's, an adapter failure's message is not written for a client to read (it
+    // can carry storage paths, bucket names, or other backend detail); log it, echo nothing back.
+    console.error("typren: media upload failed", e);
+    return Response.json({ error: "Upload failed" }, { status: 400 });
   }
 }

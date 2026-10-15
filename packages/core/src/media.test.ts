@@ -192,4 +192,23 @@ describe("handleMediaUpload", () => {
     expect(allowed.status).toBe(200);
     expect(upload).toHaveBeenCalledWith(expect.objectContaining({ mime: "image/svg+xml" }));
   });
+
+  it("replaces a mediaAdapter failure's raw message with a generic one, logging the detail instead", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failing = vi.fn(async () => {
+      throw new Error("S3 bucket typren-prod-media-eu1: AccessDenied for role arn:aws:iam::123:role/x");
+    });
+    const png = sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } }).png().toBuffer();
+    const file = new File([await png], "a.png", { type: "image/png" });
+    const res = await handleMediaUpload(
+      config({ mediaAdapter: { upload: failing } as unknown as CmsConfig["mediaAdapter"] }),
+      request({}, file).req
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("Upload failed");
+    expect(body.error).not.toMatch(/S3|AccessDenied|arn:aws/);
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("media upload failed"), expect.any(Error));
+    consoleError.mockRestore();
+  });
 });
