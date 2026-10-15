@@ -143,10 +143,11 @@ so it doesn't branch on `ctx.action`) only when all three hold:
   `allowInProduction: true`, which you should never do for a real
   deployment);
 - the Next server is **bound to loopback**: started with
-  `next dev -H 127.0.0.1` (or `-H ::1`), which `typren init` writes into
+  `next dev -H 127.0.0.1`, which `typren init` writes into
   your `dev` script. The default `next dev` listens on
   every interface, and `-H localhost` is indistinguishable from it at
-  runtime, so both are refused;
+  runtime, so both are refused. `-H ::1` is refused too: Next reports it the
+  same way as `-H ::`, which listens on every interface;
 - the request's `Host` is loopback (`localhost`, `127.0.0.1`, `[::1]`, or a
   `*.localhost` name).
 

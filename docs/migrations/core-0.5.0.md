@@ -133,11 +133,12 @@ header as proof the request came from the developer's own machine. The client
 chooses that header, so a LAN client could reach a `next dev` listening on all
 interfaces (Next's default) and send `Host: localhost` to get unauthenticated
 content, settings and media writes. `localAuth()` now also requires the Next
-server itself to be bound to `127.0.0.1` or `::1`, read from Next's startup
+server itself to be bound to `127.0.0.1`, read from Next's startup
 state, and denies every request otherwise.
 
 If your editor's writes start failing with an authorization error in
 development, change your `dev` script to `next dev -H 127.0.0.1` (`-H
 localhost` doesn't count: at runtime Next reports it the same way as the
-all-interfaces default). `typren init` now writes this for new projects.
+all-interfaces default; nor does `-H ::1`, which Next reports the same way as
+an all-interfaces `-H ::`). `typren init` now writes this for new projects.
 Nothing changes for production adapters.

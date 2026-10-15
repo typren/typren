@@ -191,7 +191,7 @@ describe("scaffold", () => {
     });
 
     it("is idempotent on an already-bound script", () => {
-      for (const dev of ["next dev -H 127.0.0.1", "next dev --hostname=::1 -p 4000"]) {
+      for (const dev of ["next dev -H 127.0.0.1", "next dev --hostname=127.0.0.1 -p 4000"]) {
         fs.rmSync(dir, { recursive: true, force: true });
         fs.mkdirSync(dir);
         expect(scaffoldWith({ scripts: { dev } })).toEqual(expect.objectContaining({ status: "already-bound", dev }));
@@ -199,7 +199,7 @@ describe("scaffold", () => {
     });
 
     it("leaves scripts it can't safely rewrite alone and reports them", () => {
-      for (const dev of ["next dev -H 0.0.0.0", "next dev -H localhost", "concurrently 'next dev' 'tsc -w'"]) {
+      for (const dev of ["next dev -H 0.0.0.0", "next dev -H localhost", "next dev -H ::1", "concurrently 'next dev' 'tsc -w'"]) {
         fs.rmSync(dir, { recursive: true, force: true });
         fs.mkdirSync(dir);
         expect(scaffoldWith({ scripts: { dev } })).toEqual(expect.objectContaining({ status: "custom", dev }));

@@ -75,7 +75,7 @@ export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldR
 export type DevScriptStatus = "bound" | "already-bound" | "custom" | "no-package-json";
 
 /** localAuth refuses every request unless the Next server is bound to
- *  127.0.0.1 or ::1 (see @typren/core's auth/local.ts), and `next dev`
+ *  127.0.0.1 (see @typren/core's auth/local.ts), and `next dev`
  *  listens on all interfaces by default, so the scaffold has to own this.
  *  ponytail: a regex over the script string, not a shell parser. Anything
  *  past "add -H to a plain `next dev`" is reported as "custom" instead of
@@ -89,7 +89,7 @@ function bindDevScriptToLoopback(cwd: string): DevScriptStatus {
     return "no-package-json";
   }
   const dev = pkg.scripts?.dev;
-  if (dev !== undefined && /(^|\s)(-H|--hostname)[\s=](127\.0\.0\.1|::1)(\s|$)/.test(dev)) return "already-bound";
+  if (dev !== undefined && /(^|\s)(-H|--hostname)[\s=]127\.0\.0\.1(\s|$)/.test(dev)) return "already-bound";
   if (dev !== undefined && !/^next dev(\s|$)/.test(dev)) return "custom";
   if (dev !== undefined && /(^|\s)(-H|--hostname)(\s|=|$)/.test(dev)) return "custom";
   pkg.scripts = { ...pkg.scripts, dev: dev === undefined ? "next dev -H 127.0.0.1" : dev.replace(/^next dev/, "next dev -H 127.0.0.1") };
@@ -1167,7 +1167,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   if (devScript === "custom" || devScript === "no-package-json") {
     console.warn(
       "\nWarning: couldn't bind your dev script to loopback automatically. localAuth denies every write\n" +
-        "until Next is started with `-H 127.0.0.1` (or `-H ::1`); add it to your dev command."
+        "until Next is started with `-H 127.0.0.1`; add it to your dev command."
     );
   }
   printNextSteps(baseDir);

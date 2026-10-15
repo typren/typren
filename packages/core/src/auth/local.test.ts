@@ -22,13 +22,20 @@ describe("localAuth", () => {
     }
   });
 
-  it("allows a server bound to 127.0.0.1 or ::1", async () => {
+  it("allows a server bound to 127.0.0.1", async () => {
     vi.stubEnv("NODE_ENV", "development");
-    for (const origin of ["http://127.0.0.1:3000", "https://[::1]:3000"]) {
-      vi.stubEnv("__NEXT_PRIVATE_ORIGIN", origin);
-      const adapter = localAuth({ getHost: async () => "localhost:3000" });
-      expect(await adapter.authorize({ action: "saveDraft" })).toBe(true);
-    }
+    vi.stubEnv("__NEXT_PRIVATE_ORIGIN", "https://127.0.0.1:3000");
+    const adapter = localAuth({ getHost: async () => "localhost:3000" });
+    expect(await adapter.authorize({ action: "saveDraft" })).toBe(true);
+  });
+
+  // Next reports an all-interfaces `-H ::` bind as "[::1]", the same origin an
+  // explicit `-H ::1` gets, so "[::1]" can't prove a loopback-only listener.
+  it("denies a server whose origin is [::1]", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("__NEXT_PRIVATE_ORIGIN", "http://[::1]:3000");
+    const adapter = localAuth({ getHost: async () => "localhost:3000" });
+    expect(await adapter.authorize({ action: "saveDraft" })).toBe(false);
   });
 
   // A DNS-rebinding page reaches a loopback-bound server with the attacker's

@@ -2,8 +2,8 @@ import type { AuthAdapter } from "../auth-adapter";
 
 /** Loopback Host values localAuth requires: "localhost", "127.0.0.1", "::1"
  *  (the Host header's IPv6 literal is bracketed, e.g. "[::1]:3000"), and any
- *  "*.localhost" subdomain. The client chooses the Host header, so this is a
- *  deny-only filter, never the network boundary (that is `isBoundToLoopback`
+ *  "*.localhost" subdomain. Keeping "[::1]" here is safe: the client chooses
+ *  the Host header, so this is a deny-only filter, never the network boundary (that is `isBoundToLoopback`
  *  below): it rejects a DNS-rebinding page, whose browser sends the
  *  attacker's hostname to a loopback-bound server. */
 function isLoopbackHost(host: string | null): boolean {
@@ -13,20 +13,21 @@ function isLoopbackHost(host: string | null): boolean {
   return lower === "localhost" || lower === "127.0.0.1" || lower === "::1" || lower.endsWith(".localhost");
 }
 
-/** True only when the running Next server listens on a loopback address.
+/** True only when the running Next server listens on 127.0.0.1.
  *  Route handlers and server actions get no socket peer address, so the bind
  *  is the one network fact a request can't forge. Next's start-server writes
- *  `__NEXT_PRIVATE_ORIGIN` from the address it actually bound: an explicit
- *  `-H 127.0.0.1` / `-H ::1` yields that literal, while the default bind
- *  (all interfaces) and `-H localhost` both yield "localhost", so "localhost"
- *  proves nothing and is refused.
+ *  `__NEXT_PRIVATE_ORIGIN` from the address it actually bound: `-H 127.0.0.1`
+ *  yields that literal, while the default bind (all interfaces) and
+ *  `-H localhost` both yield "localhost", so "localhost" proves nothing and is
+ *  refused. "[::1]" is refused too: Next maps an all-interfaces `-H ::` bind
+ *  to "[::1]", so it can't tell `-H ::1` from a dual-stack LAN listener.
  *  ponytail: reads a Next-private env var (verified on next 16.4). If Next
  *  renames or drops it, localAuth denies everything, failing closed; upgrade
  *  to a public bound-address API if Next ever ships one. */
 function isBoundToLoopback(): boolean {
   try {
     const { hostname } = new URL(process.env.__NEXT_PRIVATE_ORIGIN ?? "");
-    return hostname === "127.0.0.1" || hostname === "[::1]";
+    return hostname === "127.0.0.1";
   } catch {
     return false;
   }
