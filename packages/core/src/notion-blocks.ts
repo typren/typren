@@ -27,6 +27,12 @@ import type { PageContent, Slice } from "./types";
  * Malformed JSON, a missing name, or an empty prop body after the `::name`
  * line all degrade to treating the block as ordinary prose rather than
  * throwing, a typo in Notion should never break the whole page read.
+ *
+ * Third-party Notion text (any workspace collaborator's content, not just the
+ * integration owner's) is escaped and scheme-checked here specifically so it
+ * can't become live markup or a script-executing link. As defense in depth, a
+ * host should still render the resulting markdown with raw HTML disabled or
+ * sanitized, rather than trusting this module as the only layer.
  */
 
 /** One Notion block, trimmed to what conversion needs. `children` is only
@@ -209,9 +215,18 @@ function renderBlock(block: NotionBlock, depth: number, numberedIndex: number): 
     case "code": {
       // Plain text, fenced past its own longest backtick run: markdown shows code verbatim, so
       // annotations or entity escapes would be visible noise, and a short fence could be closed early.
-      const code = richTextToPlain(payload.rich_text);
-      const fence = fenceFor(code, 3);
+      const raw = richTextToPlain(payload.rich_text);
+      const fence = fenceFor(raw, 3);
       const lang = typeof payload.language === "string" && /^[\w+#. -]*$/.test(payload.language) ? payload.language : "";
+      // Every content line carries the container's indent, not just the
+      // fence: CommonMark closes a list item/quote/to_do at the first line
+      // that drops below the marker's indent, so an unindented code line
+      // would end the container (and the fence with it) early, spilling the
+      // rest of the code out as a top-level block.
+      const code = raw
+        .split("\n")
+        .map((line) => indent + line)
+        .join("\n");
       return indent + fence + lang + "\n" + code + "\n" + indent + fence;
     }
     case "divider":

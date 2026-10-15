@@ -140,6 +140,38 @@ describe("blocksToMarkdown", () => {
     expect(md).toBe("````\n```\n<script>alert(1)</script>\n````");
   });
 
+  describe("keeps every nested code block line indented inside its container (regression: fence breakout)", () => {
+    // renderBlock used to indent only a code block's fence lines, not its
+    // content lines. CommonMark closes a list item/quote/to_do at the first
+    // line that drops below the marker's indent, so an unindented payload
+    // line ended the container (and the fence with it) early and fell
+    // through as a top-level HTML block in any renderer that allows raw HTML.
+    const payload = "x\n<img src=x onerror=alert(1)>\ny";
+
+    const containers: [string, NotionBlock][] = [
+      ["bulleted_list_item", block("bulleted_list_item", { rich_text: text("parent") }, { children: [block("code", { rich_text: text(payload) })] })],
+      ["numbered_list_item", block("numbered_list_item", { rich_text: text("parent") }, { children: [block("code", { rich_text: text(payload) })] })],
+      ["to_do", block("to_do", { rich_text: text("parent"), checked: false }, { children: [block("code", { rich_text: text(payload) })] })],
+      ["quote", block("quote", { rich_text: text("parent") }, { children: [block("code", { rich_text: text(payload) })] })],
+    ];
+
+    it.each(containers)("%s", (_kind, container) => {
+      const md = blocksToMarkdown([container]);
+      const fenceStart = md.indexOf("```");
+      const fenceEnd = md.indexOf("```", fenceStart + 3);
+      expect(fenceStart).toBeGreaterThan(-1);
+      expect(fenceEnd).toBeGreaterThan(fenceStart);
+      const lines = md.slice(fenceStart, fenceEnd).split("\n");
+      const contentLines = lines.slice(1, -1); // drop the fence line itself and the trailing blank before the closing fence
+      expect(contentLines.length).toBe(3); // x / <img .../> / y
+      for (const line of contentLines) expect(line.startsWith("  ")).toBe(true);
+      // The payload must never surface as an unindented (column-0) line,
+      // which is what would let a markdown parser read it as a top-level
+      // HTML block.
+      expect(md).not.toMatch(/^<img/m);
+    });
+  });
+
   it("never lets a block type close the unsupported-block comment", () => {
     expect(blocksToMarkdown([block("x--><script>", {})])).toBe('<!-- typren: unsupported notion block type "?" -->');
   });
