@@ -53,6 +53,14 @@ export type MarkdownAdapterOptions = {
  *  the GitHub nor Notion adapter has a real filesystem path to report. */
 export type MarkdownAdapter = ContentAdapter & { readonly root: string };
 
+// BCP-47-ish: a primary subtag of 2-3 letters, then any number of 2-8
+// alphanumeric extension subtags. The `locales` allowlist itself becomes a
+// path segment (localeSubdir/localeDir below), so membership in `locales` is
+// NOT by itself a traversal guard if the configured array can hold an
+// unsafe entry (e.g. a `typren.config.json` or host config built from
+// untrusted input) -- "../../x" would pass `locales.includes(loc)` just fine.
+const SAFE_LOCALE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+
 export function createMarkdownAdapter({
   contentDir,
   draftDir,
@@ -62,6 +70,9 @@ export function createMarkdownAdapter({
   draftSubdir = ".drafts",
   requireSliceArray = true,
 }: MarkdownAdapterOptions): MarkdownAdapter {
+  for (const loc of [defaultLocale, ...locales]) {
+    if (!SAFE_LOCALE.test(loc)) throw new Error(`typren: unsafe locale "${loc}" (expected a BCP-47-ish code)`);
+  }
   // Slugs flow in from client actions and become filesystem paths. Reject
   // anything that isn't a plain slug so "../" can't escape the content dir.
   const SAFE_SLUG = /^[a-z0-9][a-z0-9-]*$/i;
@@ -70,7 +81,8 @@ export function createMarkdownAdapter({
     return slug;
   };
   // The locale is also a path segment (a trust boundary), so the allowlist check
-  // is the primary traversal guard for it, not the slug regex.
+  // is the primary traversal guard for it, not the slug regex (the SAFE_LOCALE
+  // check above guards the allowlist's own entries).
   const safeLocale = (loc: string) => {
     if (!locales.includes(loc)) throw new Error(`typren: unknown locale "${loc}"`);
     return loc;
