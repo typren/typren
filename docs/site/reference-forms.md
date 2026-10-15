@@ -91,7 +91,7 @@ Pluggable delivery: `FormSink` is the port, one factory per vendor.
 - `resolveSink`: throws `` resolveSink: unknown sink type "<type>" `` for an unrecognized `config.type`.
 - `resolveEnvRef`: throws `` environment variable <name> is not set `` when a `"${VAR}"` reference names a variable missing from `env`.
 - `requireEnvRef`: throws `` <what> must be a ${VAR} environment reference, not a literal `` when given a plain string instead of a `"${VAR}"` reference.
-- `assertBrowserSafeSinkConfig`: throws `` sink type "<type>" is server-only and cannot be delivered from the browser `` for `google-sheets`/`file` regardless of config, and `` sink config for "<type>" contains a "${...}" reference and is server-only `` for any other sink whose config contains a `"${...}"`-shaped value anywhere (resolvable or not — the check runs on the literal config, not a resolved value).
+- `assertBrowserSafeSinkConfig`: throws `` sink type "<type>" is server-only and cannot be delivered from the browser `` for `google-sheets`/`file` regardless of config; throws for a `hubspot` sink that sets `accessToken` or a `webhook` sink that sets any `headers`, whatever their values (a literal credential would ship in the bundle too); and throws `` sink config for "<type>" contains a "${...}" reference and is server-only `` for any other sink whose config contains a `"${...}"`-shaped value anywhere (resolvable or not — the check runs on the literal config, not a resolved value).
 
 ## "./server"
 

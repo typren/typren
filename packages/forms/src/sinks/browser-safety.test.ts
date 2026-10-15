@@ -38,4 +38,12 @@ describe("assertBrowserSafeSinkConfig", () => {
   it("refuses file outright, regardless of config", () => {
     expect(() => assertBrowserSafeSinkConfig({ type: "file", path: "/tmp/out.jsonl" })).toThrow(/server-only/);
   });
+  it("refuses a literal secret: hubspot accessToken or any webhook header, whatever the value", () => {
+    expect(() =>
+      assertBrowserSafeSinkConfig({ type: "hubspot", portalId: "1", formGuid: "g", accessToken: "pat-na1-literal" })
+    ).toThrow(/accessToken/);
+    expect(() =>
+      assertBrowserSafeSinkConfig({ type: "webhook", url: "https://h.example/x", headers: { Authorization: "Bearer sk_live_1" } })
+    ).toThrow(/headers/);
+  });
 });

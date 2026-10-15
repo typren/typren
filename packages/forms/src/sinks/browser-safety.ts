@@ -29,6 +29,14 @@ export function assertBrowserSafeSinkConfig(config: SinkConfig): void {
   if (SERVER_ONLY_TYPES.has(config.type)) {
     throw new Error(`forms: sink type "${config.type}" is server-only and cannot be delivered from the browser`);
   }
+  // Any credential written in literally would ship in the page bundle just as surely as a resolved reference,
+  // so browser mode refuses the fields that carry credentials outright, whatever their value looks like.
+  if (config.type === "hubspot" && config.accessToken !== undefined) {
+    throw new Error('forms: a hubspot sink with "accessToken" is server-only; browser mode uses the anonymous endpoint');
+  }
+  if (config.type === "webhook" && config.headers && Object.keys(config.headers).length > 0) {
+    throw new Error('forms: a webhook sink with custom "headers" is server-only; headers usually carry credentials');
+  }
   if (hasEnvRefShape(config)) {
     throw new Error(`forms: sink config for "${config.type}" contains a "\${...}" reference and is server-only`);
   }

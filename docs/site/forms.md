@@ -164,9 +164,10 @@ boundary. That last part matters: **this is UX and spam hygiene only, not a
 security boundary.** There is no server left to re-validate, so a visitor
 can always read the page's own JS and submit whatever they want by hand.
 Only credential-free sinks are even allowed here: a `hubspot` sink with no
-`accessToken`, or a `webhook` with no `${VAR}` reference in its `headers`.
-Passing `google-sheets`, `file`, or any sink config containing a `"${...}"`
-reference throws immediately — `submitForm` refuses to bundle a secret into
+`accessToken` at all, or a `webhook` with no custom `headers` at all (a
+credential written in literally would ship in the page bundle just like a
+resolved one). Passing `google-sheets`, `file`, either of those fields, or any
+sink config containing a `"${...}"` reference throws immediately — `submitForm` refuses to bundle a secret into
 client code, it doesn't just document the rule. A site that needs
 server-authoritative validation or a credentialed sink deploys
 `createFormHandler` instead (Workers, a Lambda function URL, a Next route
