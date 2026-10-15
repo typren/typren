@@ -7,6 +7,7 @@ import { resolve } from "../locale";
 import type { Catalog, Delta, Manifest } from "../types";
 import { resolveProvider } from "./resolve-provider";
 import type { LocaleSourceProvider, SourceConfig } from "./provider";
+import { createNodePurifier } from "./node-purifier";
 import { joinInside } from "./write-locale-files";
 
 export interface BuildOptions {
@@ -145,7 +146,7 @@ export async function buildCatalogs(
         `buildCatalogs: keys containing "." are not representable (flatten uses "." as the path separator) in ${options.app}/${lang}: ${dottedKeys.join(", ")}`,
       );
     }
-    assertNoHtml(catalog, { label: `${options.app}/${lang}` });
+    assertNoHtml(catalog, { label: `${options.app}/${lang}`, purifier: createNodePurifier() });
     const hash = await hashCatalog(catalog);
 
     const catalogDir = joinInside(outDir, "catalog", options.app, lang);
