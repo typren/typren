@@ -13,9 +13,13 @@ pushes to `main`) passes when a file in `security-reviews/` has:
 - a `reviewedHead` that is the commit being promoted or one of its ancestors;
 - no security-sensitive changes between `reviewedHead` and that commit.
 
-Sensitive means package source, package manifests, package scripts, `scripts/`, `.github/workflows/`, `.husky/`, the root
-`package.json`, `bun.lock` and `.claude/workflows/`. Docs, tests, test fixtures, changesets and review records may change
-after a review without invalidating it. Anything else means re-review the delta.
+Sensitive means anything the release build executes or the published tarballs carry: everything under `packages/` and
+`apps/` (source, tests, fixtures, build scripts, tsconfigs, manifests), every root-level file (`package.json`, `bun.lock`,
+`vitest.config.ts`, `eslint.config.mjs`, `tsconfig.base.json`, `.npmrc` and any config added later), `scripts/`,
+`.husky/`, `.github/`, `.changeset/config.json`, `.claude/workflows/`, and `docs/migrations/`, whose notes core packs into
+its tarball. Tests count because the release job runs them before it stages `dist/`. Markdown is exempt except under
+`docs/migrations/` and a package's `src/`, so docs, changeset notes and review records may change after a review without
+invalidating it. Anything else means re-review the delta.
 
 The CI check runs the gate script from the base branch, so a PR cannot edit the gate to pass itself. Make **Security review**
 a required status check on `main` in branch protection.
