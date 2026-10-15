@@ -18,19 +18,24 @@ import { fileURLToPath } from "node:url";
 
 export const RECORD_DIR = "security-reviews";
 
-// Changes to these after a review invalidate it: anything the release build executes or the tarballs ship.
-// Root files are matched wholesale (manifests, lockfile, tsconfig/vitest/eslint/commitlint config, .npmrc) so a new
-// root config is covered without editing this list. Tests count: the release job runs them before staging dist/.
-const SENSITIVE = [/^[^/]+$/, /^packages\//, /^apps\//, /^scripts\//, /^\.husky\//, /^\.github\//, /^\.changeset\//,
-  /^\.claude\/workflows\//,
-  // Core's postbuild packs these notes into the tarball, and `typren migrate` runs their `detect` regexes.
-  /^docs\/migrations\//];
-// Prose that neither runs nor ships. Not under docs/migrations/ or a package's src/, which ship.
-const EXEMPT = [/^(?!docs\/migrations\/|packages\/[^/]+\/src\/).*\.md$/];
+// Deny-by-default: every changed path invalidates a review unless it matches the allowlist below. An
+// unlisted root config, a new top-level directory, or a non-workflow file under .claude/ used to pass
+// through silently under the old explicit-sensitive-list shape; flipping the default closes that gap
+// without needing this list to learn every path the release build might someday touch.
+//
+// Prose that neither runs nor ships, docs/migrations/ excepted (core's postbuild packs those notes into
+// the tarball, and `typren migrate` runs their `detect` regexes), and the review records themselves.
+const NOT_SENSITIVE = [
+  /^docs\/(?!migrations\/)/,
+  /^security-reviews\//,
+  /^\.changeset\/.*\.md$/,
+  // A package's own src/ may ship a .md (e.g. a README re-exported as docs), and docs/migrations/ is
+  // already sensitive above: everything else .md is prose.
+  /^(?!docs\/migrations\/|packages\/[^/]+\/src\/).*\.md$/,
+];
 
 export function isSensitive(file) {
-  if (EXEMPT.some((r) => r.test(file))) return false;
-  return SENSITIVE.some((r) => r.test(file));
+  return !NOT_SENSITIVE.some((r) => r.test(file));
 }
 
 /** Minimal front-matter reader for the record shape the workflow and runbook both write. */

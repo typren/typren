@@ -57,9 +57,14 @@ describe("isSensitive", () => {
       expect(isSensitive(f)).toBe(true);
     }
   });
+  it("flags by default: an unlisted top-level directory or non-workflow .claude file isn't a known-safe prefix", () => {
+    for (const f of ["terraform/main.tf", "infra/deploy.sh", ".claude/scripts/helper.mjs", "etc/api-surface/core.d.ts"]) {
+      expect(isSensitive(f)).toBe(true);
+    }
+  });
   it("lets docs, changeset notes and records through", () => {
     for (const f of ["docs/site/quickstart.md", "docs/security-review.md", "README.md", ".changeset/foo.md",
-      "security-reviews/2026-10-15-x.md", "packages/core/README.md", "etc/api-surface/core.d.ts"]) {
+      "security-reviews/2026-10-15-x.md", "packages/core/README.md"]) {
       expect(isSensitive(f)).toBe(false);
     }
   });
