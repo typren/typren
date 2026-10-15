@@ -53,21 +53,22 @@ export default defineConfig({
         // it for real needs a live Cloudflare account. sync.test.ts covers the
         // actual diff logic against the same KvClient interface with a fake.
         "packages/adapter-cloudflare/src/wrangler-cli.ts",
-        // A CloudFront Function: redirects.function.test.ts DOES exercise it
-        // (loads the real source and runs its handler), but via `new
+        // CloudFront Functions: their own *.function.test.ts DOES exercise
+        // them (loads the real source and runs its handler), but via `new
         // Function(...)`, not an import, v8 can't attribute coverage back
         // to eval'd code, so it reports 0% despite being tested. Same
         // "genuinely untestable [by this instrumentation]" case as the
         // templates/** line below.
         "packages/adapter-cloudfront/src/redirects.function.js",
+        "packages/adapter-cloudfront/src/redirects-bare-url.function.js",
       ],
       thresholds: {
         // Ratchets up as coverage improves, fails a regression below the last
         // seeded value. See package.json's "test:coverage" and the pre-push hook.
         autoUpdate: true,
-        lines: 94.93,
-        statements: 93.01,
-        functions: 92.63,
+        lines: 94.96,
+        statements: 93.05,
+        functions: 92.71,
         branches: 85.87,
       },
     },

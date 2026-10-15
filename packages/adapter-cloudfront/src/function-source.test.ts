@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFunctionSource } from "./function-source";
 
 describe("readFunctionSource", () => {
@@ -37,6 +37,21 @@ describe("readFunctionSource", () => {
     "a' + evil() + '",
   ])("rejects the injection-shaped segment %j rather than templating it", (segment) => {
     expect(() => readFunctionSource({ extraPassthroughSegments: [segment] })).toThrow(/invalid --extra-passthrough segment/);
+  });
+
+  it("throws if a function file is missing its template placeholder (should be unreachable in practice)", async () => {
+    vi.resetModules();
+    vi.doMock("node:fs", () => {
+      const fakeFs = { readFileSync: () => "// no placeholder in this source" };
+      return { ...fakeFs, default: fakeFs };
+    });
+    try {
+      const mod = await import("./function-source");
+      expect(() => mod.readFunctionSource()).toThrow(/missing its passthrough template placeholder/);
+    } finally {
+      vi.doUnmock("node:fs");
+      vi.resetModules();
+    }
   });
 
   it("produces source that is still valid, executable JS with templated segments", () => {
