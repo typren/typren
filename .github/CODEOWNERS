@@ -33,3 +33,11 @@ scripts/check-security-review.mjs         @mataleogml
 .claude/workflows/security-review.mjs     @mataleogml
 .github/workflows/security-review-gate.yml @mataleogml
 docs/security-review.md                   @mataleogml
+
+# The publish job runs these with id-token: write, and the root manifest, lockfile and npm config decide
+# what the build job installs and runs.
+scripts/publish-unpublished.mjs  @mataleogml
+scripts/tag-published.mjs        @mataleogml
+package.json                     @mataleogml
+bun.lock                         @mataleogml
+.npmrc                           @mataleogml

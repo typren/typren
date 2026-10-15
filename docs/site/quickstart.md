@@ -36,14 +36,15 @@ npx typren init
 content layer: `cms.config.ts`, a `cms-actions.ts` write surface, a starter
 `slices/` directory with two example components, a `content/` directory with
 one page, and a `typren.config.json` with your admin route and locale
-settings. It never overwrites a file that already exists; pass `--force` to
-regenerate everything. See [Project anatomy](./project-anatomy.md) for what
+settings. It also binds your `package.json` `dev` script to loopback
+(`next dev -H 127.0.0.1`). It never overwrites a file that already exists;
+pass `--force` to regenerate everything. See [Project anatomy](./project-anatomy.md) for what
 each file does.
 
 > **Security:** the scaffolded `cms.config.ts` wires up `localAuth()`, which
-> only authorizes writes in `NODE_ENV === "development"`. It fails closed in
-> production until you swap in a real `AuthAdapter` — see
-> [Auth model](./auth-model.md).
+> only authorizes writes in `NODE_ENV === "development"` on a dev server
+> bound to loopback (`next dev -H 127.0.0.1`). It fails closed in production
+> until you swap in a real `AuthAdapter` — see [Auth model](./auth-model.md).
 
 Add a `"@/*"` path alias to `tsconfig.json` if you don't already have one, as
 `init`'s own output will remind you:

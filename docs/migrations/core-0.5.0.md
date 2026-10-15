@@ -18,6 +18,12 @@ detect:
   - pattern: "createGithubAdapter\\("
     glob: "**/*.{ts,tsx}"
     hint: "draftBranch now defaults to \"typren-drafts\" instead of the same branch as published content. Pass draftBranch: null to keep the previous single-branch layout, or make sure your host's build config ignores the new branch."
+  - pattern: "clerkAuthAdapter\\("
+    glob: "**/*.{ts,tsx}"
+    hint: "allowedRoles/adminRoles now require organizationId (construction throws without it), and the \"admin\" action must also pass allowedUserIds/allowedEmails/allowedRoles."
+  - pattern: "nextAuthAdapter\\("
+    glob: "**/*.{ts,tsx}"
+    hint: "allowedEmails now requires an isEmailVerified(session) callback (construction throws without it); the email only matches when it returns true."
 ---
 ## What changed
 
@@ -96,6 +102,43 @@ Three smaller breaking changes ride along with it:
    overlaps `adapter`'s storage. Point it at a distinct directory (or adapter
    instance) that was never doubling as the Pages content location.
 
+## Breaking: auth adapters
+
+- **`clerkAuthAdapter` binds roles to one organization.** `allowedRoles` and
+  `adminRoles` now require an `organizationId` option, and construction
+  throws without it. A role claim only counts while that org is the
+  session's active org; before, a user who created their own org (Clerk
+  allows this by default) was its `org:admin` and passed both checks. The
+  `"admin"` action also has to pass `allowedUserIds`/`allowedEmails`/
+  `allowedRoles` now, instead of being granted on the admin role alone. Fix:
+  pass `organizationId: "org_..."` (your site's Clerk org id), and make sure
+  admins are also on the ordinary allowlist.
+- **`nextAuthAdapter`'s `allowedEmails` needs `isEmailVerified`.** NextAuth's
+  session has no verified-email flag, so an email from a provider that never
+  verified it (Credentials, some OAuth/OIDC providers) used to satisfy the
+  allowlist. Construction now throws when `allowedEmails` is set without an
+  `isEmailVerified(session)` callback, and the email only counts when it
+  returns `true`. Fix: forward your provider's verification signal through
+  NextAuth's `jwt`/`session` callbacks and read it in `isEmailVerified`, or
+  switch to `allowedRoles`.
+
 ## Verify
 
 `npx tsc --noEmit` and the site build pass.
+
+## localAuth requires a loopback-bound dev server
+
+`localAuth()` (`@typren/core/auth/local`) used to treat a loopback `Host`
+header as proof the request came from the developer's own machine. The client
+chooses that header, so a LAN client could reach a `next dev` listening on all
+interfaces (Next's default) and send `Host: localhost` to get unauthenticated
+content, settings and media writes. `localAuth()` now also requires the Next
+server itself to be bound to `127.0.0.1`, read from Next's startup
+state, and denies every request otherwise.
+
+If your editor's writes start failing with an authorization error in
+development, change your `dev` script to `next dev -H 127.0.0.1` (`-H
+localhost` doesn't count: at runtime Next reports it the same way as the
+all-interfaces default; nor does `-H ::1`, which Next reports the same way as
+an all-interfaces `-H ::`). `typren init` now writes this for new projects.
+Nothing changes for production adapters.

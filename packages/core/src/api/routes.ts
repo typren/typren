@@ -1,7 +1,7 @@
 import { makeActions } from "../actions";
 import { resolveAuth } from "../auth-adapter";
 import { buildCollectionActions, listCollectionRecords, makeCollectionAdapter } from "../collection";
-import { handleMediaUpload } from "../media";
+import { handleMediaUpload, sameOrigin } from "../media";
 import { resolveSections, type CollectionSection } from "../sections";
 import { BOOTSTRAP_KEYS, createSettingsStore, validateBootstrap } from "../settings";
 import { createStore, type ContentStore } from "../store";
@@ -109,17 +109,6 @@ function segments(url: URL, basePath?: string): string[] {
   return start === -1 ? parts : parts.slice(start);
 }
 
-function sameOrigin(request: Request, allowed: string[]): boolean {
-  const origin = request.headers.get("origin");
-  if (!origin) return true; // non-browser caller; no ambient credentials to abuse
-  if (allowed.includes(origin)) return true;
-  try {
-    return new URL(origin).host === new URL(request.url).host;
-  } catch {
-    return false;
-  }
-}
-
 async function body<T>(request: Request): Promise<T> {
   try {
     return (await request.json()) as T;
@@ -220,7 +209,7 @@ export function createTyprenApi(config: CmsConfig | CmsConfigFactory, options: T
 
     try {
       if (resource === "pages") return await pages(built, request, method, rest, locale);
-      if (resource === "media") return await media(built, request, method, rest);
+      if (resource === "media") return await media(built, request, method, rest, allowed);
       if (resource === "settings") return await settingsRoutes(built, request, method, rest, locale);
       if (resource === "collections") return await collections(built, request, method, rest, locale);
       return json({ error: "Not found" }, 404);
@@ -419,13 +408,19 @@ async function collections(
   return json({ error: "Not found" }, 404);
 }
 
-async function media(built: Built, request: Request, method: string, rest: string[]): Promise<Response> {
+async function media(
+  built: Built,
+  request: Request,
+  method: string,
+  rest: string[],
+  allowed: string[]
+): Promise<Response> {
   const { config, actions } = built;
   const [id] = rest;
   if (!id) {
     if (method === "GET") return jsonNoStore({ media: await actions.listMedia() });
     // Delegated: upload owns its own validation, conversion and auth action.
-    if (method === "POST") return handleMediaUpload(config, request);
+    if (method === "POST") return handleMediaUpload(config, request, allowed);
     return json({ error: "Method not allowed" }, 405);
   }
   if (method === "DELETE") {

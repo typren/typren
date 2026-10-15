@@ -381,20 +381,26 @@ import type { AuthAdapter } from "../auth-adapter.js";
  * `allowedUserIds` counts as an allowlist on its own (a fixed roster of Clerk
  * user ids is a legitimate, closed policy) even with no email/role check.
  *
- * "admin" (settings/onboarding/bootstrap writes) is gated separately from
- * ordinary content writes: it needs `adminRoles` set and a matching org role
- * claim, full stop. Unmapped (no `adminRoles` configured) denies rather than
- * falling back to `allowedRoles`/`allowedUserIds`. A host must opt in to who
- * gets to reconfigure the site.
+ * Roles are org-scoped: `allowedRoles`/`adminRoles` require `organizationId`,
+ * and a role claim only counts while that org is the session's active org.
+ *
+ * "admin" (settings/onboarding/bootstrap writes) must first pass the same
+ * allowlist as content writes, then also match `adminRoles`. Unmapped (no
+ * `adminRoles` configured) denies. A host must opt in to who gets to
+ * reconfigure the site.
  */
 export declare function clerkAuthAdapter(opts?: {
     /** Case-insensitive match on the user's verified primary email. */
     allowedEmails?: string[];
-    /** Org role claim, e.g. "org:admin". */
+    /** Org role claim, e.g. "org:admin". Requires `organizationId`. */
     allowedRoles?: string[];
     allowedUserIds?: string[];
-    /** Org role claim required for the "admin" action, e.g. "org:admin". */
+    /** Org role claim the "admin" action additionally requires, e.g.
+     *  "org:admin". Requires `organizationId`. */
     adminRoles?: string[];
+    /** The Clerk organization id ("org_...") whose roles count. Required
+     *  when `allowedRoles` or `adminRoles` is set. */
+    organizationId?: string;
 }): AuthAdapter;
 
 // ---- dist/auth/local.d.ts ----
@@ -402,11 +408,12 @@ import type { AuthAdapter } from "../auth-adapter.js";
 /**
  * Dev-only gate (entry `@typren/core/auth/local`, no peer deps outside the
  * `getHost` default above). Refuses in production unless `allowInProduction`
- * is explicitly set, AND refuses any non-loopback Host even in development.
- * The editor writes files, so never ship it open by omission. Doesn't branch
- * on `ctx.action`, so "admin" (settings/onboarding/bootstrap writes) gets the
- * exact same local-only gate as every other write. There's only one tier in
- * local dev.
+ * is explicitly set, refuses unless the Next server is bound to loopback
+ * (`next dev -H 127.0.0.1`, which `typren init` scaffolds), and refuses a
+ * non-loopback Host even then. The editor writes files, so never ship it open
+ * by omission. Doesn't branch on `ctx.action`, so "admin"
+ * (settings/onboarding/bootstrap writes) gets the exact same local-only gate
+ * as every other write. There's only one tier in local dev.
  */
 export declare function localAuth(opts?: {
     /** default: NODE_ENV === "development" */
@@ -414,7 +421,7 @@ export declare function localAuth(opts?: {
     /** default: false */
     allowInProduction?: boolean;
     /** Resolve the request's Host header. Default: Next's `headers()` (see
-     *  `defaultGetHost`). Override for a non-Next host, or in tests. */
+     *  `defaultGetHost`). Override in tests. Only ever narrows access. */
     getHost?: () => Promise<string | null>;
 }): AuthAdapter;
 
@@ -441,12 +448,19 @@ type Session = {
  * `adminRoles` set and an intersecting role, full stop. Unmapped (no
  * `adminRoles` configured) denies rather than falling back to `allowedRoles`.
  * A host must opt in to who gets to reconfigure the site.
+ *
+ * next-auth's session carries no standard verified-email signal (Credentials
+ * and many OAuth providers never verify one), so `allowedEmails` requires an
+ * `isEmailVerified(session)` callback; the email only reaches the allowlist
+ * when it returns `true`, mirroring better-auth.ts's `emailVerified`.
  */
 export declare function nextAuthAdapter(opts: {
     /** The host's `auth` from `NextAuth(config)` (reads the session cookie). */
     auth: () => Promise<Session>;
-    /** Case-insensitive match on session.user.email. */
+    /** Case-insensitive match on session.user.email, once `isEmailVerified` vouches for it. */
     allowedEmails?: string[];
+    /** Whether the session's email is provider-verified. Required with `allowedEmails`. */
+    isEmailVerified?: (session: NonNullable<Session>) => boolean;
     /** Any-intersection with session.user.roles. */
     allowedRoles?: string[];
     /** Any-intersection with session.user.roles, required for the "admin" action. */
@@ -989,14 +1003,22 @@ export declare function processUpload(input: {
 }, opts?: {
     allowSvg?: boolean;
 }): Promise<PreparedFile>;
+/** CSRF check for an unsafe request: true when it comes from the request's
+ *  own host or an `allowed` origin. A request with no `Origin` header and no
+ *  cross-site `Sec-Fetch-Site` is a non-browser caller, with no ambient
+ *  credentials to abuse. */
+export declare function sameOrigin(request: Request, allowed: string[]): boolean;
 /** Route Handler body. The host's route.ts is a thin wrapper, the same
  *  "host owns the boundary, package supplies the logic" split actions.ts
  *  already uses for Server Actions.
  *
  *  Route Handlers never run through a parent layout's auth gate (a
  *  `route.ts` renders no layout tree at all), so this re-checks auth itself
- *  via the same `resolveAuth` the action guard uses. */
-export declare function handleMediaUpload(config: CmsConfig, request: Request): Promise<Response>;
+ *  via the same `resolveAuth` the action guard uses, and refuses a
+ *  cross-origin request itself: a multipart POST needs no CORS preflight, so
+ *  any page could otherwise drive a loopback dev server's upload. A host
+ *  serving the editor from another origin passes it in `allowedOrigins`. */
+export declare function handleMediaUpload(config: CmsConfig, request: Request, allowedOrigins?: string[]): Promise<Response>;
 
 // ---- dist/notion-adapter.d.ts ----
 import type { ContentAdapter } from "./types.js";

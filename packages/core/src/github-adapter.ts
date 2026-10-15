@@ -1,6 +1,5 @@
 import path from "node:path";
-import matter from "gray-matter";
-import { parseMatter } from "./safe-matter";
+import { parseMatter, stringifyMatter } from "./safe-matter";
 import type { ContentAdapter, PageContent, Slice } from "./types";
 import { localeSubdir } from "./localize";
 import { ConflictError, versionOf } from "./version";
@@ -379,7 +378,7 @@ export function createGithubAdapter({
     return structuredClone({ meta, slices: (Array.isArray(slices) ? slices : []) as Slice[], body: content });
   };
   const serialize = (page: PageContent): string =>
-    matter.stringify(page.body ?? "", { ...page.meta, [frontmatterKey]: page.slices });
+    stringifyMatter(page.body ?? "", { ...page.meta, [frontmatterKey]: page.slices });
 
   return {
     locales,

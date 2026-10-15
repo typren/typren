@@ -211,7 +211,7 @@ Writes (`writeRaw`, `writeDraftRaw`, `deletePublished`, `deleteDraft`) are seria
 |---|---|---|
 | `MAX_UPLOAD_BYTES` | `number` | Pre-conversion upload cap. Sharp's own `limitInputPixels` default (~268 megapixels) is relied on for decompression-bomb protection. |
 | `processUpload(input)` | `(input: { name: string; buffer: Buffer }) => Promise<PreparedFile>` | Validates + web-optimizes a raw upload; sniffs actual bytes via `sharp.metadata()`, never trusts the client-supplied mime/extension. |
-| `handleMediaUpload(config, request)` | `(config: CmsConfig, request: Request) => Promise<Response>` | Route Handler body; re-checks auth itself via `resolveAuth` since a Route Handler never runs through a parent layout's auth gate. |
+| `handleMediaUpload(config, request, allowedOrigins?)` | `(config: CmsConfig, request: Request, allowedOrigins?: string[]) => Promise<Response>` | Route Handler body; re-checks auth itself via `resolveAuth` since a Route Handler never runs through a parent layout's auth gate, and refuses a cross-origin request with 403 (a cross-site `Sec-Fetch-Site`, or an `Origin` whose host isn't the request's), since a multipart POST needs no CORS preflight. `allowedOrigins` lists extra origins to accept, as in `createTyprenApi`. |
 
 #### Errors
 
@@ -590,7 +590,7 @@ The reference `AuthAdapter`: a dev-only gate.
 
 | Export | Signature | Notes |
 |---|---|---|
-| `localAuth(opts?)` | `(opts?: { predicate?: () => boolean; allowInProduction?: boolean }) => AuthAdapter` | Refuses in production unless `allowInProduction` is explicitly set. Doesn't branch on `ctx.action`: `"admin"` gets the exact same local-only gate as every other write, since there is only one tier in local dev. |
+| `localAuth(opts?)` | `(opts?: { predicate?: () => boolean; allowInProduction?: boolean; getHost?: () => Promise<string \| null> }) => AuthAdapter` | Refuses in production unless `allowInProduction` is explicitly set, and refuses unless the Next server is bound to loopback (`next dev -H 127.0.0.1`; the default all-interfaces bind, `-H localhost` and `-H ::1` are refused) and the request `Host` is loopback. `getHost` overrides the Host lookup (tests); it can only narrow access. Doesn't branch on `ctx.action`: `"admin"` gets the exact same local-only gate as every other write, since there is only one tier in local dev. |
 
 | Option | Type | Default |
 |---|---|---|
@@ -607,20 +607,19 @@ Does not throw; it returns `false` from `authorize()` whenever the predicate fai
 
 | Export | Signature | Notes |
 |---|---|---|
-| `nextAuthAdapter(opts)` | `(opts: { auth: () => Promise<Session>; allowedEmails?: string[]; allowedRoles?: string[]; adminRoles?: string[] }) => AuthAdapter` | `opts.auth` is the host's `auth` from `NextAuth(config)` (injected, not imported, matching how next-auth v5's `auth()` works inside server actions/components). |
+| `nextAuthAdapter(opts)` | `(opts: { auth: () => Promise<Session>; allowedEmails?: string[]; isEmailVerified?: (session) => boolean; allowedRoles?: string[]; adminRoles?: string[] }) => AuthAdapter` | `opts.auth` is the host's `auth` from `NextAuth(config)` (injected, not imported, matching how next-auth v5's `auth()` works inside server actions/components). |
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
 | `auth` | `() => Promise<Session>` | required | |
-| `allowedEmails` | `string[]` | none | Case-insensitive match on `session.user.email`. |
+| `allowedEmails` | `string[]` | none | Case-insensitive match on `session.user.email`, only when `isEmailVerified` returns `true`. |
+| `isEmailVerified` | `(session) => boolean` | none | Required with `allowedEmails`. Anything but `true` (including a throw) drops the email. |
 | `allowedRoles` | `string[]` | none | Any-intersection with `session.user.roles`. |
 | `adminRoles` | `string[]` | none | Any-intersection with `session.user.roles`, required for the `"admin"` action. Unmapped (no `adminRoles` configured) denies rather than falling back to `allowedRoles`. |
 
-> **Security: default-open caveat.** With neither `allowedEmails` nor `allowedRoles` set, ANY signed-in user is authorized for ordinary content writes. Construction does **not** throw in this case (unlike `better-auth`/`supabase`/`oidc` below); require at least one allowlist yourself before this reaches production.
-
 ### Errors
 
-Does not throw at construction. `authorize()` fails closed (returns `false`) on any error resolving the session.
+Throws at construction if neither `allowedEmails` nor `allowedRoles` is set, or if `allowedEmails` is set without `isEmailVerified`. `authorize()` fails closed (returns `false`) on any error resolving the session.
 
 ## "./auth/clerk"
 
@@ -628,19 +627,19 @@ Does not throw at construction. `authorize()` fails closed (returns `false`) on 
 
 | Export | Signature | Notes |
 |---|---|---|
-| `clerkAuthAdapter(opts?)` | `(opts?: { allowedRoles?: string[]; allowedUserIds?: string[]; adminRoles?: string[] }) => AuthAdapter` | Clerk's `auth()`/`currentUser()` are global request-scoped helpers, so they're imported directly rather than injected. |
+| `clerkAuthAdapter(opts)` | `(opts: { allowedEmails?: string[]; allowedRoles?: string[]; allowedUserIds?: string[]; adminRoles?: string[]; organizationId?: string }) => AuthAdapter` | Clerk's `auth()`/`currentUser()` are global request-scoped helpers, so they're imported directly rather than injected. |
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
-| `allowedRoles` | `string[]` | none | Org role claim, e.g. `"org:admin"`. |
+| `allowedEmails` | `string[]` | none | Case-insensitive match on the user's verified primary email. |
+| `allowedRoles` | `string[]` | none | Org role claim, e.g. `"org:admin"`. Requires `organizationId`. |
 | `allowedUserIds` | `string[]` | none | |
-| `adminRoles` | `string[]` | none | Org role claim required for `"admin"`. Unmapped denies rather than falling back to `allowedRoles`/`allowedUserIds`. |
-
-> **Security: default-open caveat.** Like `next-auth`, construction does not throw when `allowedRoles`/`allowedUserIds` are both omitted: any signed-in Clerk user is then authorized for ordinary content writes.
+| `adminRoles` | `string[]` | none | Org role the `"admin"` action requires on top of the ordinary allowlist. Requires `organizationId`. Unmapped denies. |
+| `organizationId` | `string` | none | The Clerk org whose roles count. A role claim only counts while this org is the session's active org (v1 `org_id`, v2 `o.id`); v2's unprefixed `o.rol` is compared as `"org:<rol>"`. |
 
 ### Errors
 
-Does not throw at construction. `authorize()` fails closed on any error resolving `auth()`.
+Throws at construction if none of `allowedEmails`/`allowedRoles`/`allowedUserIds` is set, or if `allowedRoles`/`adminRoles` is set without `organizationId`. `authorize()` fails closed on any error resolving `auth()`.
 
 ## "./auth/better-auth"
 

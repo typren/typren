@@ -2,7 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseMatter } from "./safe-matter";
+import matter from "gray-matter";
+import { parseMatter, stringifyMatter } from "./safe-matter";
 import { createMarkdownAdapter } from "./markdown-adapter";
 import { createGithubAdapter } from "./github-adapter";
 
@@ -54,5 +55,48 @@ describe("parseMatter", () => {
       expect(() => adapter.parse(payload("js"))).toThrow(/JavaScript front matter is not allowed/);
       expect((globalThis as Record<string, unknown>)[sentinel]).toBeUndefined();
     }
+  });
+});
+
+describe("stringifyMatter", () => {
+  it("round-trips a shared object reference instead of emitting a YAML alias parseMatter refuses", () => {
+    // What a shallow-copy "duplicate" (e.g. `{...slice}`) produces: two array
+    // entries pointing at the very same nested object. gray-matter's default
+    // dump would alias the second occurrence; parseMatter refuses aliases.
+    const cta = { label: "Buy now", href: "/buy" };
+    const data = { slices: [{ slice: "hero", cta }, { slice: "hero", cta }] };
+
+    // Baseline: without noRefs, this is exactly the file that corrupts a page.
+    const unsafeRaw = matter.stringify("", data);
+    expect(() => parseMatter(unsafeRaw)).toThrow(/alias/i);
+
+    const raw = stringifyMatter("", data);
+    const { data: roundTripped } = parseMatter(raw);
+    expect(roundTripped).toEqual(data);
+  });
+
+  it("refuses front matter over the parser's size cap, before any caller can write it", () => {
+    const data = { title: "x".repeat(256 * 1024) };
+    expect(() => stringifyMatter("", data)).toThrow(/front matter exceeds 256 KB/);
+  });
+
+  // Regression: noRefs expanded a tiny DAG of shared references exponentially
+  // before the byte cap ran, so a ~1 KB saveDraft payload exhausted memory.
+  it("refuses an exponentially shared DAG fast instead of expanding it", () => {
+    let node: object = { v: "x" };
+    for (let i = 0; i < 25; i++) node = { l: node, r: node };
+    const adapter = createMarkdownAdapter({ contentDir: fs.mkdtempSync(path.join(os.tmpdir(), "typren-safe-matter-")) });
+    const start = Date.now();
+    expect(() => stringifyMatter("", { slices: [{ slice: "hero", p: node }] })).toThrow(/front matter too large/);
+    expect(() => adapter.serialize({ meta: {}, slices: [{ slice: "hero", p: node } as never], body: "" })).toThrow(
+      /front matter too large/
+    );
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it("refuses a circular reference instead of recursing forever", () => {
+    const loop: Record<string, unknown> = { v: "x" };
+    loop.self = loop;
+    expect(() => stringifyMatter("", { loop })).toThrow(/circular reference/);
   });
 });

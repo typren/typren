@@ -19,7 +19,7 @@ describe("richTextToMarkdown", () => {
 
   it("escapes markup in prose text so a Notion page cannot inject HTML", () => {
     expect(richTextToMarkdown(text('<img src=x onerror="alert(1)"> & co'))).toBe(
-      '&lt;img src=x onerror="alert(1)"&gt; &amp; co'
+      '&lt;img src=x onerror="alert\\(1\\)"&gt; &amp; co'
     );
   });
 
@@ -27,6 +27,22 @@ describe("richTextToMarkdown", () => {
     expect(richTextToMarkdown(text("a<b", { annotations: { code: true } }))).toBe("`a<b`");
     expect(richTextToMarkdown(text("x`<script>", { annotations: { code: true } }))).toBe("``x`<script>``");
     expect(richTextToMarkdown(text("`y", { annotations: { code: true } }))).toBe("`` `y ``");
+  });
+
+  // Regression: a line ending inside an inline-code run ended the paragraph and left the rest as a
+  // live HTML block.
+  it("collapses line endings inside inline code so the span can't end its paragraph", () => {
+    const payload = "<div><img src=x onerror=alert(1)></div>";
+    for (const nl of ["\n", "\r", "\r\n", "\n\n"]) {
+      const md = richTextToMarkdown(text(`x${nl}${payload}`, { annotations: { code: true } }));
+      expect(md).not.toMatch(/[\r\n]/);
+      expect(md).toMatch(/^`x +<div>.*`$/);
+    }
+    const caption = blocksToMarkdown([
+      block("bookmark", { url: "https://ok.test", caption: text(`a\n\n${payload}`, { annotations: { code: true } }) }),
+    ]);
+    expect(caption).not.toMatch(/\n\s*<div>/);
+    expect(caption).toContain("`a  <div><img src=x onerror=alert(1)></div>`");
   });
 
   it("keeps the text but drops a link whose scheme is not http(s) or mailto", () => {
@@ -46,6 +62,32 @@ describe("richTextToMarkdown", () => {
   it("joins multiple runs and tolerates a non-array input", () => {
     expect(richTextToMarkdown([...text("a"), ...text(" b")])).toBe("a b");
     expect(richTextToMarkdown(undefined)).toBe("");
+  });
+
+  it("escapes a plain-text fake link so it never becomes a live javascript: link", () => {
+    const md = richTextToMarkdown(text("[x](javascript:alert(1))"));
+    expect(md).not.toContain("[x](javascript:alert(1))");
+    expect(md).not.toMatch(/(?<!\\)\[x\](?<!\\)\(javascript:/);
+  });
+
+  it("still renders Notion's own bold/italic/code/link annotations over escaped text", () => {
+    expect(richTextToMarkdown(text("a (b) c", { annotations: { bold: true } }))).toBe("**a \\(b\\) c**");
+    expect(richTextToMarkdown(text("i", { annotations: { italic: true } }))).toBe("_i_");
+    expect(richTextToMarkdown(text("link", { href: "https://x.test" }))).toBe("[link](https://x.test)");
+  });
+
+  it("round-trips ordinary punctuated text to the same visible characters", () => {
+    const original = "Price: $5 (on sale!) - don't miss it.";
+    const escaped = richTextToMarkdown(text(original));
+    expect(escaped.replace(/\\(.)/g, "$1")).toBe(original);
+  });
+
+  it("escapes a line-leading block marker so plain text can't open a heading/quote/list", () => {
+    expect(richTextToMarkdown(text("# not a heading"))).toBe("\\# not a heading");
+    expect(richTextToMarkdown(text("> not a quote"))).toBe("&gt; not a quote"); // escapeHtml already defuses this
+    expect(richTextToMarkdown(text("- not a list"))).toBe("\\- not a list");
+    expect(richTextToMarkdown(text("+ not a list"))).toBe("\\+ not a list");
+    expect(richTextToMarkdown(text("1. not a list"))).toBe("1\\. not a list");
   });
 });
 
@@ -138,6 +180,46 @@ describe("blocksToMarkdown", () => {
       block("code", { rich_text: text("```\n<script>alert(1)</script>", { annotations: { bold: true } }), language: "js\n<x>" }),
     ]);
     expect(md).toBe("````\n```\n<script>alert(1)</script>\n````");
+  });
+
+  it("escapes a bookmark/image caption so it can't close its wrapper early and open a javascript: link", () => {
+    const md = blocksToMarkdown([
+      block("bookmark", { url: "https://ok.test", caption: text("a](javascript:alert(2)) [b") }),
+      block("image", { external: { url: "https://ok.test/a.png" }, caption: text("a](javascript:alert(3)) [b") }),
+    ]);
+    expect(md).not.toMatch(/\]\(javascript:/);
+  });
+
+  describe("keeps every nested code block line indented inside its container (regression: fence breakout)", () => {
+    // renderBlock used to indent only a code block's fence lines, not its
+    // content lines. CommonMark closes a list item/quote/to_do at the first
+    // line that drops below the marker's indent, so an unindented payload
+    // line ended the container (and the fence with it) early and fell
+    // through as a top-level HTML block in any renderer that allows raw HTML.
+    const payload = "x\n<img src=x onerror=alert(1)>\ny";
+
+    const containers: [string, NotionBlock][] = [
+      ["bulleted_list_item", block("bulleted_list_item", { rich_text: text("parent") }, { children: [block("code", { rich_text: text(payload) })] })],
+      ["numbered_list_item", block("numbered_list_item", { rich_text: text("parent") }, { children: [block("code", { rich_text: text(payload) })] })],
+      ["to_do", block("to_do", { rich_text: text("parent"), checked: false }, { children: [block("code", { rich_text: text(payload) })] })],
+      ["quote", block("quote", { rich_text: text("parent") }, { children: [block("code", { rich_text: text(payload) })] })],
+    ];
+
+    it.each(containers)("%s", (_kind, container) => {
+      const md = blocksToMarkdown([container]);
+      const fenceStart = md.indexOf("```");
+      const fenceEnd = md.indexOf("```", fenceStart + 3);
+      expect(fenceStart).toBeGreaterThan(-1);
+      expect(fenceEnd).toBeGreaterThan(fenceStart);
+      const lines = md.slice(fenceStart, fenceEnd).split("\n");
+      const contentLines = lines.slice(1, -1); // drop the fence line itself and the trailing blank before the closing fence
+      expect(contentLines.length).toBe(3); // x / <img .../> / y
+      for (const line of contentLines) expect(line.startsWith("  ")).toBe(true);
+      // The payload must never surface as an unindented (column-0) line,
+      // which is what would let a markdown parser read it as a top-level
+      // HTML block.
+      expect(md).not.toMatch(/^<img/m);
+    });
   });
 
   it("never lets a block type close the unsupported-block comment", () => {

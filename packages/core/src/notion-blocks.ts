@@ -52,6 +52,36 @@ const asArr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.m
 // (markdown never decodes entities inside code, so escaping would show them).
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+// Markdown metacharacters plain Notion text could otherwise use to open a
+// link, image or emphasis span it never asked for. Backslash-escaping is
+// CommonMark's own rule for literal ASCII punctuation; `<`/`>`/`&` are
+// handled separately by `escapeHtml` above, as entities rather than
+// backslashes, since that's what keeps them inert in a raw-HTML-enabled
+// renderer too.
+const MD_METACHARS = /[\\[\]()!*_~`]/g;
+// A marker at the START of a line turns plain text into a heading or list the
+// author never wrote; mid-line the same characters are inert. Each
+// alternative escapes the one character CommonMark actually keys off: the
+// first `#`, the bullet, or (for an ordered marker) the `.`. A line-leading
+// `>` needs no entry here: `escapeHtml` (run first, see `escapeMarkdown`)
+// already turns it into the `&gt;` entity, three characters with no literal
+// `>` left for CommonMark's blockquote rule to see.
+const MD_LEADING_MARKER = /^([ \t]*)(?:(#{1,6})(?=[ \t]|$)|([-+])(?=[ \t]|$)|(\d+)(\.)(?=[ \t]|$))/gm;
+
+/** Prose text, safe to drop into markdown: HTML-entity-escaped (see
+ *  `escapeHtml`) and then markdown-metacharacter-escaped, so plain Notion
+ *  text can never become a link, image, emphasis span or block syntax once
+ *  it's wrapped in `[...]`/`![...]`/annotation markup. */
+function escapeMarkdown(s: string): string {
+  return escapeHtml(s)
+    .replace(MD_METACHARS, "\\$&")
+    .replace(MD_LEADING_MARKER, (_m, lead: string, heading?: string, bullet?: string, digits?: string, dot?: string) => {
+      if (heading) return `${lead}\\${heading}`;
+      if (bullet) return `${lead}\\${bullet}`;
+      return `${lead}${digits}\\${dot}`;
+    });
+}
+
 /** A backtick fence longer than any backtick run inside `s`, so `s` cannot close it early. */
 const fenceFor = (s: string, min: number) =>
   "`".repeat(Math.max(min, ...(s.match(/`+/g) ?? []).map((run) => run.length + 1)));
@@ -79,11 +109,15 @@ function runToMarkdown(run: Record<string, unknown>): string {
   let text = (run.plain_text as string | undefined) ?? (asObj(run.text).content as string | undefined) ?? "";
   const a = asObj(run.annotations);
   if (a.code) {
+    // A line ending inside a code span ends the paragraph (a blank line, or a line that opens an
+    // HTML block), leaving the rest live markup. CommonMark renders code-span line endings as
+    // spaces anyway, so collapse them first.
+    text = text.replace(/\r\n?|\n/g, " ");
     const fence = fenceFor(text, 1);
     const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
     text = `${fence}${pad}${text}${pad}${fence}`;
   } else {
-    text = escapeHtml(text);
+    text = escapeMarkdown(text);
   }
   if (a.bold) text = `**${text}**`;
   if (a.italic) text = `_${text}_`;
@@ -209,9 +243,18 @@ function renderBlock(block: NotionBlock, depth: number, numberedIndex: number): 
     case "code": {
       // Plain text, fenced past its own longest backtick run: markdown shows code verbatim, so
       // annotations or entity escapes would be visible noise, and a short fence could be closed early.
-      const code = richTextToPlain(payload.rich_text);
-      const fence = fenceFor(code, 3);
+      const raw = richTextToPlain(payload.rich_text);
+      const fence = fenceFor(raw, 3);
       const lang = typeof payload.language === "string" && /^[\w+#. -]*$/.test(payload.language) ? payload.language : "";
+      // Every content line carries the container's indent, not just the
+      // fence: CommonMark closes a list item/quote/to_do at the first line
+      // that drops below the marker's indent, so an unindented code line
+      // would end the container (and the fence with it) early, spilling the
+      // rest of the code out as a top-level block.
+      const code = raw
+        .split("\n")
+        .map((line) => indent + line)
+        .join("\n");
       return indent + fence + lang + "\n" + code + "\n" + indent + fence;
     }
     case "divider":
@@ -223,7 +266,7 @@ function renderBlock(block: NotionBlock, depth: number, numberedIndex: number): 
     case "embed": {
       const url = safeUrl(payload.url);
       const caption = richTextToMarkdown(payload.caption);
-      return indent + (url ? `[${caption || escapeHtml(url)}](${url})` : caption);
+      return indent + (url ? `[${caption || escapeMarkdown(url)}](${url})` : caption);
     }
     case "table":
       return tableMarkdown(block, indent);

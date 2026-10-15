@@ -17,9 +17,9 @@ name: Release
 
 # Fires on every push to main, which under this repo's flow means a promotion
 # merge from develop. That is safe without any extra guard because
-# `changeset publish` is idempotent: it compares each package's version against
-# the registry and skips anything already there. A merge that carries no
-# version bump therefore publishes nothing and exits clean.
+# scripts/publish-unpublished.mjs is idempotent: it compares each package's
+# version against the registry and skips anything already there. A merge that
+# carries no version bump therefore publishes nothing and exits clean.
 #
 # Tagging is a separate step (scripts/tag-published.mjs) run from npm truth
 # rather than `changeset tag`: see that step's own comment for why. Tags are
@@ -60,11 +60,16 @@ jobs:
 
       # Re-run the gate on a clean checkout. The local hook already ran it, but
       # that was against a working tree, and this proves main builds green from
-      # nothing, which is the artifact people actually install.
+      # nothing, which is the artifact people actually install. typecheck needs
+      # @typren/core's dist (see .husky/pre-push), so build once for it, then
+      # wipe every dist and build again as the LAST step before staging: lint
+      # and test run a much larger dependency tree than tsc and postbuild, and
+      # none of it may get the chance to rewrite what ships.
       - run: bun run build
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run test
+      - run: rm -rf packages/*/dist packages/core/migrations && bun run build
 
       # Everything else `npm publish` packs (each package's package.json, src,
       # README, LICENSE, CHANGELOG.md) is already committed to main by the
@@ -77,10 +82,15 @@ jobs:
       # internal paths are unambiguous: upload-artifact computes a shared root
       # across multiple patterns, and this skips having to reason about what
       # that root ends up being.
+      # rm first: everything above ran repo and dependency code, which could
+      # have pre-seeded .release-artifact/ with files (scripts/, manifests)
+      # meant to land in the publish job. The publish job filters again on
+      # its side; this just keeps the artifact honest.
       - name: Stage dist/ and core's migrations/ for the release job
         run: |
           set -eu
           shopt -s nullglob
+          rm -rf .release-artifact
           for dir in packages/*/dist; do
             pkg=$(basename "$(dirname "$dir")")
             mkdir -p ".release-artifact/packages/$pkg"
@@ -107,11 +117,13 @@ jobs:
     permissions:
       contents: write # create the GitHub Release, push tags
       id-token: write # OIDC, required for npm provenance
-    # No `bun install`, no `bun run build`, nothing that fetches or compiles
-    # code, anywhere in this job: it holds `id-token: write` for its whole
+    # No `bun install`, no `bun run build`, no dependency resolution of any
+    # kind (the one install is npm itself, pinned to an exact version, which
+    # ships its own dependencies bundled), anywhere in this job: it holds
+    # `id-token: write` for its whole
     # duration (a job-scoped permission, not a per-step one), so any install
     # or build step here could mint and exfiltrate the OIDC token itself,
-    # trusted-publish gets requested at all. `dist/` comes from the `build`
+    # whether or not a trusted publish is ever requested. `dist/` comes from the `build`
     # job's artifact as-is; `NPM_CONFIG_IGNORE_SCRIPTS` below stops
     # `npm publish`'s own `prepublishOnly` hook from re-running `npm run
     # build` here (confirmed empirically: a prepublishOnly script does not
@@ -124,12 +136,37 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0 # changesets needs history
+          fetch-depth: 0 # tag-published.mjs checks existing tags
 
+      # Into a temp dir, never onto the checkout: the artifact was written by
+      # a job that ran untrusted code, and extracting it over the repo would
+      # let it replace scripts/*.mjs that this job then runs with id-token
+      # and contents: write. Only packages/<pkg>/dist for packages the
+      # checkout already has, plus core's migrations/, are copied across;
+      # anything else in the artifact is ignored, and a symlink in either
+      # place is refused rather than followed.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-dist
-          path: . # extracts straight onto packages/*/dist, packages/core/migrations
+          path: ${{ runner.temp }}/release-dist
+
+      - name: Copy dist/ and core's migrations/ into the checkout
+        run: |
+          set -eu
+          src="$RUNNER_TEMP/release-dist/packages"
+          place() {
+            [ -e "$src/$1" ] || return 0
+            if [ -L "$src/$1" ] || [ ! -d "$src/$1" ] || [ -n "$(find "$src/$1" -type l)" ]; then
+              echo "::error::release artifact: $1 is not a plain directory" >&2
+              exit 1
+            fi
+            rm -rf "packages/$1"
+            cp -R "$src/$1" "packages/$1"
+          }
+          for manifest in packages/*/package.json; do
+            place "$(basename "$(dirname "$manifest")")/dist"
+          done
+          place core/migrations
 
       # npm (not bun -- this job never installs bun) does the publishing:
       # provenance attestation is an npm feature and needs a recent npm on a
@@ -138,6 +175,9 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+          # Never restore a cache into the OIDC job; setup-node turns caching on
+          # by itself as soon as package.json declares an npm packageManager.
+          package-manager-cache: false
 
       # Trusted publishing (OIDC) needs npm >= 11.5.1; the version bundled with
       # actions/setup-node's Node 22 isn't guaranteed to clear that, so pin it
@@ -146,35 +186,36 @@ jobs:
       # finding out at publish time.
       - run: npm install -g npm@11.19.1
 
-      # @changesets/cli itself, pinned to the exact version this repo's
-      # package.json devDependency resolves to today, installed with
-      # --ignore-scripts for the same reason NPM_CONFIG_IGNORE_SCRIPTS is set
-      # job-wide above. No `bun install`/workspace install: this is the one
-      # package this job needs that isn't already on the runner image.
-      - run: npm install -g @changesets/cli@3.0.3 --ignore-scripts
-
       # No NODE_AUTH_TOKEN: this repo is configured as a Trusted Publisher on
       # npm (github.com/typren/typren, this workflow file, the "release"
       # environment), so npm exchanges the id-token above for a short-lived
       # publish credential itself. Provenance attestation is automatic under
       # trusted publishing, no --provenance flag needed.
-      # `changeset publish` runs `npm publish` from each package dir; with
-      # NPM_CONFIG_IGNORE_SCRIPTS set job-wide, that publishes the dist/ the
-      # `build` job already produced and uploaded, rather than rebuilding here.
+      # Not `changeset publish`: @changesets/cli would have to be installed
+      # here, and `npm install -g` has no lockfile, so a fresh release of any
+      # of its ~20 transitive dependencies would run in this job with the OIDC
+      # token in reach (an install-time `--ignore-scripts` does nothing about
+      # a payload in a module body). publish-unpublished.mjs is Node stdlib
+      # only: it runs `npm publish` in each non-private package dir whose
+      # version npm doesn't have yet, attempts every one even after a failure,
+      # and exits non-zero if any failed. With NPM_CONFIG_IGNORE_SCRIPTS set
+      # job-wide, that publishes the dist/ the `build` job already produced
+      # and uploaded, rather than rebuilding here.
       - name: Publish to npm
-        run: changeset publish
+        run: node scripts/publish-unpublished.mjs
 
-      # `changeset tag` only tags versions created by *this* `changeset publish`
-      # call, and (separately) needs a committer identity the runner doesn't
-      # have -- @changesets/git returns false on that failure and the CLI
-      # ignores the result, so it still printed "Created git tags" while
-      # creating none. That is why every release through 0.3.3 shipped tagless
-      # with a green run. scripts/tag-published.mjs replaces it: it tags from
-      # npm truth (is this name@version actually published?) rather than from
-      # what changesets did this run, so a retry after a partial publish
-      # failure still tags whatever an earlier attempt already got onto npm.
+      # `changeset tag`, used here before, only tagged versions created by
+      # that run's `changeset publish`, and (separately) needed a committer
+      # identity the runner doesn't have -- @changesets/git returns false on
+      # that failure and the CLI ignores the result, so it still printed
+      # "Created git tags" while creating none. That is why every release
+      # through 0.3.3 shipped tagless with a green run.
+      # scripts/tag-published.mjs replaces it: it tags from npm truth (is this
+      # name@version actually published?) rather than from what this run's
+      # publish step did, so a retry after a partial publish failure still
+      # tags whatever an earlier attempt already got onto npm.
       # `if: !cancelled()` runs this (and the two steps after it) even when
-      # `changeset publish` above failed partway through -- some packages may
+      # the publish step above failed partway through -- some packages may
       # still have reached npm before the failure, and those still need their
       # tag. The job's overall conclusion stays "failure" from the publish
       # step regardless; this doesn't paper over that.

@@ -113,6 +113,12 @@ Both `"blocks"` and `"slices"` need a `NotionClient` with `listBlockChildren`
 implemented (`createFetchNotionClient` provides one); omitting it throws at
 construction.
 
+The block-to-markdown conversion escapes third-party Notion text (any
+workspace collaborator's content, not just the integration owner's) against
+markdown and HTML injection, but as defense in depth a host should still
+render the resulting markdown with raw HTML disabled or sanitized, rather
+than trusting this one layer.
+
 > **Limits:**
 > - **Read-only body/slices.** A body or slice edit against a `"blocks"`- or
 >   `"slices"`-backed record is **not written back to Notion** — only

@@ -165,6 +165,53 @@ describe("scaffold", () => {
     expect(result.baseDir).toBe("src");
   });
 
+  // Regression: the docs promised a loopback-bound dev script, but init never
+  // wrote one, and `next dev` listens on all interfaces by default. localAuth
+  // denies every request unless the server is bound to loopback.
+  describe("dev script", () => {
+    function scaffoldWith(pkg: object | null) {
+      fs.mkdirSync(path.join(dir, "app"), { recursive: true });
+      if (pkg) fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(pkg));
+      const result = scaffold(dir);
+      if (!result.ok) throw new Error(result.error);
+      const written = pkg ? JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) : null;
+      return { status: result.devScript, dev: written?.scripts?.dev, written };
+    }
+
+    it("binds a plain `next dev` to 127.0.0.1, keeping its other flags and fields", () => {
+      const { status, dev, written } = scaffoldWith({ name: "site", scripts: { dev: "next dev --turbopack", build: "next build" } });
+      expect(status).toBe("bound");
+      expect(dev).toBe("next dev -H 127.0.0.1 --turbopack");
+      expect(written.name).toBe("site");
+      expect(written.scripts.build).toBe("next build");
+    });
+
+    it("adds a bound dev script when there is none", () => {
+      expect(scaffoldWith({ name: "site" })).toMatchObject({ status: "bound", dev: "next dev -H 127.0.0.1" });
+    });
+
+    it("is idempotent on an already-bound script", () => {
+      for (const dev of ["next dev -H 127.0.0.1", "next dev --hostname=127.0.0.1 -p 4000"]) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.mkdirSync(dir);
+        expect(scaffoldWith({ scripts: { dev } })).toEqual(expect.objectContaining({ status: "already-bound", dev }));
+      }
+    });
+
+    it("leaves scripts it can't safely rewrite alone and reports them", () => {
+      for (const dev of ["next dev -H 0.0.0.0", "next dev -H localhost", "next dev -H ::1", "concurrently 'next dev' 'tsc -w'"]) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.mkdirSync(dir);
+        expect(scaffoldWith({ scripts: { dev } })).toEqual(expect.objectContaining({ status: "custom", dev }));
+      }
+    });
+
+    it("reports a missing package.json without creating one", () => {
+      expect(scaffoldWith(null).status).toBe("no-package-json");
+      expect(fs.existsSync(path.join(dir, "package.json"))).toBe(false);
+    });
+  });
+
   it("is idempotent: a second run skips every file and writes nothing new", () => {
     fs.mkdirSync(path.join(dir, "src", "app"), { recursive: true });
     const first = scaffold(dir);
@@ -337,9 +384,8 @@ describe("nextSteps", () => {
     expect(nextSteps("src")).toContain("npx typren migrate");
   });
 
-  // Regression: the scaffolded localAuth() now requires a loopback Host (see
-  // auth/local.ts); the default `next dev` binds to loopback already, but the
-  // scaffold used to just say "Start your dev server" with no mention of it.
+  // The scaffolded localAuth() requires a loopback-bound server (see
+  // auth/local.ts), so the printed steps must say how to start one.
   it("tells the scaffold to bind its dev server to loopback", () => {
     expect(nextSteps("src")).toContain("next dev -H 127.0.0.1");
   });
@@ -535,6 +581,20 @@ describe("main", () => {
 
       expect(telemetry.record).toHaveBeenCalledWith("init");
       expect(log.mock.calls[0][0]).toBe("TELEMETRY NOTICE");
+    });
+
+    it("reports the dev-script rewrite, and warns when it can't bind the script itself", () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      fs.mkdirSync(path.join(dir, "app"), { recursive: true });
+      process.chdir(dir);
+
+      main(["init"]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("-H 127.0.0.1"));
+
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ scripts: { dev: "next dev" } }));
+      main(["init"]);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('"dev" now runs `next dev -H 127.0.0.1`'));
     });
 
     it("does not record init when scaffold fails", () => {
