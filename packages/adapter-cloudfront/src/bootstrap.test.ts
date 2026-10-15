@@ -36,7 +36,7 @@ describe("bootstrapDistribution", () => {
     expect(result).toEqual({ ok: true, createdKvs: true, functionArn: `arn:function/${DEFAULT_FUNCTION_NAME}` });
     expect(cf.createKeyValueStore).toHaveBeenCalledWith("typren-redirects", expect.any(String));
     expect(cf.upsertFunction).toHaveBeenCalledWith(DEFAULT_FUNCTION_NAME, expect.stringContaining("cloudfront"), "arn:store/typren-redirects", expect.any(String));
-    expect(cf.setViewerRequestFunction).toHaveBeenCalledWith("E123", `arn:function/${DEFAULT_FUNCTION_NAME}`);
+    expect(cf.setViewerRequestFunction).toHaveBeenCalledWith("E123", `arn:function/${DEFAULT_FUNCTION_NAME}`, ["default"]);
   });
 
   it("reuses an existing store instead of creating one", async () => {
@@ -82,5 +82,30 @@ describe("bootstrapDistribution", () => {
     const cf = fakeCfClient([]);
     const result = await bootstrapDistribution(kvs, cf, { distributionId: "E123", storeName: "typren-redirects", functionName: "my-fn" });
     expect(result).toMatchObject({ ok: true, functionArn: "arn:function/my-fn" });
+  });
+
+  it("attaches to the default plus any extra behaviors", async () => {
+    const kvs = fakeKvsClient();
+    const cf = fakeCfClient([]);
+    const result = await bootstrapDistribution(kvs, cf, {
+      distributionId: "E123",
+      storeName: "typren-redirects",
+      behaviors: ["/assets/*", "/api/*"],
+    });
+    expect(result.ok).toBe(true);
+    expect(cf.setViewerRequestFunction).toHaveBeenCalledWith("E123", expect.any(String), ["default", "/assets/*", "/api/*"]);
+  });
+
+  it("attaches to every behavior when allBehaviors is set, ignoring behaviors", async () => {
+    const kvs = fakeKvsClient();
+    const cf = fakeCfClient([]);
+    const result = await bootstrapDistribution(kvs, cf, {
+      distributionId: "E123",
+      storeName: "typren-redirects",
+      behaviors: ["/assets/*"],
+      allBehaviors: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(cf.setViewerRequestFunction).toHaveBeenCalledWith("E123", expect.any(String), "*");
   });
 });

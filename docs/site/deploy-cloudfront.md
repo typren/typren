@@ -106,10 +106,23 @@ you pass `--force`, after you've read what it does.
 - Exact-path matches only — the KeyValueStore is an exact-key lookup, no
   wildcards or splats. Migrating a `_redirects`-style wildcard file means
   enumerating the real paths.
-- Bootstrap touches the default cache behavior only. Distributions with
-  extra cache behaviors (`/assets/*`, `/api/*`) need the function attached
-  via your own IaC, or requests they match skip redirects and the index
-  rewrite.
+- Bootstrap attaches to the default cache behavior by default. A
+  distribution with extra cache behaviors (`/assets/*`, `/api/*`) needs
+  `--behavior <path-pattern>` (repeatable, each pattern must already exist
+  on the distribution) or `--all-behaviors` to also cover them — otherwise
+  requests matching an un-attached behavior skip redirects and the index
+  rewrite. The already-attached guard always reads every behavior on the
+  distribution, regardless of which ones a given run targets, so a
+  different function parked on an untouched behavior still blocks without
+  `--force`.
+- **Continuous deployment / staging distributions.** A CloudFront
+  continuous-deployment setup (a staging distribution plus traffic-config
+  promotion) is two separate distribution IDs as far as this package is
+  concerned: bootstrap it once per distribution ID (staging first, promote,
+  then production) with the same flags. This package does not read or
+  manage the traffic-config/promotion itself — that stays IaC/console
+  territory — and is untested against it beyond "two distributions, called
+  twice."
 - Error pages are distribution config, not this package: an S3 REST origin
   returns XML `AccessDenied` for a missing page — set `CustomErrorResponses`
   for 403/404 → your `/404.html` in your IaC.

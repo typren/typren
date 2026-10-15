@@ -141,7 +141,7 @@ describe("runBootstrap", () => {
     };
     const result = await runBootstrap({ distributionId: "E123" }, fakeKvsClient(), cf);
     expect(result.ok).toBe(true);
-    expect(cf.setViewerRequestFunction).toHaveBeenCalledWith("E123", "arn:function/x");
+    expect(cf.setViewerRequestFunction).toHaveBeenCalledWith("E123", "arn:function/x", ["default"]);
   });
 
   it("parses a comma-separated --extra-passthrough into segments", async () => {
@@ -269,6 +269,44 @@ describe("main", () => {
     expect(process.exitCode).toBe(1);
     process.exitCode = undefined;
     err.mockRestore();
+  });
+
+  it("collects repeated --behavior flags and passes --all-behaviors through", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    let behaviorsArg: unknown;
+    const cf: CloudFrontClient = {
+      getAttachedFunctionNames: vi.fn(async () => []),
+      createKeyValueStore: vi.fn(async () => ({ arn: "arn:store", status: "READY" })),
+      upsertFunction: vi.fn(async () => ({ arn: "arn:function/x" })),
+      setViewerRequestFunction: vi.fn(async (_id, _arn, behaviors) => {
+        behaviorsArg = behaviors;
+      }),
+    };
+    await main(
+      ["bootstrap", "--distribution-id", "E123", "--behavior", "/assets/*", "--behavior", "/api/*"],
+      { kvs: fakeKvsClient(), cf }
+    );
+    expect(behaviorsArg).toEqual(["default", "/assets/*", "/api/*"]);
+    log.mockRestore();
+  });
+
+  it("--all-behaviors overrides any --behavior flags", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    let behaviorsArg: unknown;
+    const cf: CloudFrontClient = {
+      getAttachedFunctionNames: vi.fn(async () => []),
+      createKeyValueStore: vi.fn(async () => ({ arn: "arn:store", status: "READY" })),
+      upsertFunction: vi.fn(async () => ({ arn: "arn:function/x" })),
+      setViewerRequestFunction: vi.fn(async (_id, _arn, behaviors) => {
+        behaviorsArg = behaviors;
+      }),
+    };
+    await main(["bootstrap", "--distribution-id", "E123", "--behavior", "/assets/*", "--all-behaviors"], {
+      kvs: fakeKvsClient(),
+      cf,
+    });
+    expect(behaviorsArg).toBe("*");
+    log.mockRestore();
   });
 
   it("threads --trailing-slash and --extra-passthrough through to the published function", async () => {

@@ -20,6 +20,16 @@ export type BootstrapOptions = {
   /** Extra path-convention segments templated into the published function
    *  (see function-source.ts's `readFunctionSource`); validated there. */
   extraPassthroughSegments?: string[];
+  /** Extra cache behaviors (their own `PathPattern`, e.g. `"/assets/*"`) to
+   *  also attach the function to, beyond the default cache behavior (always
+   *  attached). Superseded by `allBehaviors`. */
+  behaviors?: string[];
+  /** Attach to every cache behavior on the distribution, default included,
+   *  instead of just the default plus `behaviors`. A distribution with
+   *  `CacheBehaviors` typren doesn't know about ahead of time (continuous
+   *  deployment staging configs are one example) is the usual reason to
+   *  reach for this over listing each pattern. */
+  allBehaviors?: boolean;
 };
 
 export type BootstrapResult =
@@ -30,12 +40,15 @@ export type BootstrapResult =
  * Guarded, idempotent one-time setup on an EXISTING CloudFront distribution:
  * create the KeyValueStore if it doesn't exist yet, upsert+publish the
  * canonical viewer-request function associated with it, then attach that
- * function to the distribution's default cache behavior. Never creates the
- * distribution or its origin, that's IaC (Terraform/CDK/SST) territory.
+ * function to the distribution's default cache behavior and, via `behaviors`/
+ * `allBehaviors`, any extra `CacheBehaviors`. Never creates the distribution
+ * or its origin, that's IaC (Terraform/CDK/SST) territory.
  *
- * Checks what's already attached BEFORE replacing it: re-running this with
- * the same functionName is a safe no-op-ish upsert, but a DIFFERENT function
- * already in place needs `force` to acknowledge the replace.
+ * Checks what's already attached BEFORE replacing it, across EVERY cache
+ * behavior (not just the ones this call targets): re-running this with the
+ * same functionName is a safe no-op-ish upsert, but a DIFFERENT function
+ * already in place anywhere on the distribution needs `force` to acknowledge
+ * the replace.
  */
 export async function bootstrapDistribution(kvsClient: KvsClient, cfClient: CloudFrontClient, opts: BootstrapOptions): Promise<BootstrapResult> {
   const functionName = opts.functionName ?? DEFAULT_FUNCTION_NAME;
@@ -67,7 +80,8 @@ export async function bootstrapDistribution(kvsClient: KvsClient, cfClient: Clou
     storeArn,
     "typren canonical viewer-request function (index rewrite + bare→slash + KVS redirects)"
   );
-  await cfClient.setViewerRequestFunction(opts.distributionId, functionArn);
+  const behaviors = opts.allBehaviors ? "*" : ["default", ...(opts.behaviors ?? [])];
+  await cfClient.setViewerRequestFunction(opts.distributionId, functionArn, behaviors);
 
   return { ok: true, createdKvs, functionArn };
 }

@@ -50,12 +50,31 @@ function withTempFile<T>(content: string, fn: (file: string) => T): T {
 
 type KeyValueStoreInfo = { ARN: string; Status: string };
 type FunctionAssociationItem = { EventType: string; FunctionARN: string };
+type CacheBehaviorConfig = {
+  PathPattern: string;
+  FunctionAssociations?: { Quantity: number; Items: FunctionAssociationItem[] };
+} & Record<string, unknown>;
 type DistributionConfigResponse = {
   ETag: string;
   DistributionConfig: {
-    DefaultCacheBehavior: { FunctionAssociations?: { Quantity: number; Items: FunctionAssociationItem[] } };
+    DefaultCacheBehavior: { FunctionAssociations?: { Quantity: number; Items: FunctionAssociationItem[] } } & Record<string, unknown>;
+    CacheBehaviors?: { Quantity: number; Items: CacheBehaviorConfig[] };
   } & Record<string, unknown>;
 };
+
+const viewerRequestFunctionNames = (assoc?: { Items: FunctionAssociationItem[] }): string[] =>
+  (assoc?.Items ?? []).filter((i) => i.EventType === "viewer-request").map((i) => functionNameFromArn(i.FunctionARN));
+
+/** Every cache behavior on a distribution config, `"default"` first. Shared
+ *  between the attached-function guard (reads them all) and
+ *  setViewerRequestFunction (writes to a named subset, or `"*"` for all of
+ *  them). */
+function allBehaviors(config: DistributionConfigResponse["DistributionConfig"]): { name: string; behavior: { FunctionAssociations?: { Quantity: number; Items: FunctionAssociationItem[] } } }[] {
+  return [
+    { name: "default", behavior: config.DefaultCacheBehavior },
+    ...(config.CacheBehaviors?.Items ?? []).map((b) => ({ name: b.PathPattern, behavior: b })),
+  ];
+}
 
 export function createAwsCliKvsClient(): KvsClient {
   return {
@@ -92,8 +111,8 @@ export function createAwsCliCloudFrontClient(): CloudFrontClient {
   return {
     async getAttachedFunctionNames(distributionId) {
       const { DistributionConfig } = aws<DistributionConfigResponse>("cloudfront", "get-distribution-config", "--id", distributionId);
-      const items = DistributionConfig.DefaultCacheBehavior.FunctionAssociations?.Items ?? [];
-      return items.filter((i) => i.EventType === "viewer-request").map((i) => functionNameFromArn(i.FunctionARN));
+      const names = allBehaviors(DistributionConfig).flatMap(({ behavior }) => viewerRequestFunctionNames(behavior.FunctionAssociations));
+      return [...new Set(names)];
     },
 
     async createKeyValueStore(name, comment) {
@@ -153,17 +172,38 @@ export function createAwsCliCloudFrontClient(): CloudFrontClient {
       return { arn: published.FunctionSummary.FunctionMetadata.FunctionARN };
     },
 
-    async setViewerRequestFunction(distributionId, functionArn) {
+    async setViewerRequestFunction(distributionId, functionArn, behaviors) {
       const dist = aws<DistributionConfigResponse>("cloudfront", "get-distribution-config", "--id", distributionId);
+      const all = allBehaviors(dist.DistributionConfig);
+
+      let targets: typeof all;
+      if (behaviors === "*") {
+        targets = all;
+      } else {
+        const byName = new Map(all.map((b) => [b.name, b]));
+        targets = behaviors.map((name) => {
+          const target = byName.get(name);
+          if (!target) {
+            throw new Error(
+              `typren-cloudfront bootstrap: distribution "${distributionId}" has no cache behavior matching "${name}" ` +
+                `(known: ${all.map((b) => b.name).join(", ")})`
+            );
+          }
+          return target;
+        });
+      }
+
       // FunctionAssociations is one whole-list write covering EVERY event
-      // type, so replace only the viewer-request slot: silently dropping an
-      // attached viewer-response function (security headers, etc.) is exactly
-      // the class of outage bootstrap's guard exists to prevent.
-      const kept = (dist.DistributionConfig.DefaultCacheBehavior.FunctionAssociations?.Items ?? []).filter(
-        (i) => i.EventType !== "viewer-request"
-      );
-      const items = [...kept, { FunctionARN: functionArn, EventType: "viewer-request" }];
-      dist.DistributionConfig.DefaultCacheBehavior.FunctionAssociations = { Quantity: items.length, Items: items };
+      // type, so replace only the viewer-request slot on each targeted
+      // behavior: silently dropping an attached viewer-response function
+      // (security headers, etc.) is exactly the class of outage bootstrap's
+      // guard exists to prevent.
+      for (const { behavior } of targets) {
+        const kept = (behavior.FunctionAssociations?.Items ?? []).filter((i) => i.EventType !== "viewer-request");
+        const items = [...kept, { FunctionARN: functionArn, EventType: "viewer-request" }];
+        behavior.FunctionAssociations = { Quantity: items.length, Items: items };
+      }
+
       withTempFile(JSON.stringify(dist.DistributionConfig), (configFile) =>
         aws("cloudfront", "update-distribution", "--id", distributionId, "--if-match", dist.ETag, "--distribution-config", `file://${configFile}`)
       );

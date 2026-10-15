@@ -74,6 +74,10 @@ export type BootstrapCliOptions = {
   trailingSlash?: boolean;
   /** Comma-separated extra passthrough segments, e.g. "feed,manifest". */
   extraPassthrough?: string;
+  /** Extra cache behavior path patterns to also attach the function to
+   *  (repeatable `--behavior`), beyond the always-attached default. */
+  behaviors?: string[];
+  allBehaviors?: boolean;
 };
 
 /** Core of `typren-cloudfront bootstrap`. `kvsClient`/`cfClient` injected for
@@ -91,6 +95,8 @@ export async function runBootstrap(
     force: opts.force,
     trailingSlash: opts.trailingSlash,
     extraPassthroughSegments: opts.extraPassthrough ? opts.extraPassthrough.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+    behaviors: opts.behaviors,
+    allBehaviors: opts.allBehaviors,
   });
 }
 
@@ -124,6 +130,21 @@ function printBootstrapResult(result: BootstrapResult | { ok: false; error: stri
   );
 }
 
+/** Collects every value of a repeatable flag (e.g. `--behavior /a/* --behavior
+ *  /b/*`), independent of `parseFlags`'s single-value-per-key map. A bare
+ *  `--behavior` with no value (followed by another flag or nothing) is
+ *  skipped rather than silently swallowing the next flag's name. */
+function repeatedFlag(args: string[], name: string): string[] {
+  const flag = `--${name}`;
+  const values: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag && args[i + 1] !== undefined && !args[i + 1].startsWith("--")) {
+      values.push(args[i + 1]);
+    }
+  }
+  return values;
+}
+
 function parseFlags(args: string[]): Record<string, string | boolean> {
   const flags: Record<string, string | boolean> = {};
   for (let i = 0; i < args.length; i++) {
@@ -148,7 +169,7 @@ function printHelp(): void {
 
 Usage:
   npx typren-cloudfront sync-redirects [--content-dir <path>] [--map <file>] [--store <name>] [--home-slug <slug>] [--trailing-slash false] [--allow-empty] [--dry-run]
-  npx typren-cloudfront bootstrap --distribution-id <id> [--store <name>] [--function-name <name>] [--trailing-slash false] [--extra-passthrough <seg,seg>] [--force]
+  npx typren-cloudfront bootstrap --distribution-id <id> [--store <name>] [--function-name <name>] [--trailing-slash false] [--extra-passthrough <seg,seg>] [--behavior <path-pattern> ...] [--all-behaviors] [--force]
   npx typren-cloudfront --help
 
   sync-redirects   Diff-sync this site's redirects into the named CloudFront
@@ -172,7 +193,13 @@ Usage:
                    path-convention segments (beyond the built-in Next
                    metadata names and /.well-known/) that are real
                    extensionless objects at this site, never redirected or
-                   rewritten.
+                   rewritten. --behavior (repeatable) also attaches the
+                   function to that CacheBehavior's PathPattern (must already
+                   exist on the distribution) beyond the always-attached
+                   default; --all-behaviors attaches to every behavior
+                   instead. The already-attached guard reads every behavior
+                   on the distribution regardless of which ones this run
+                   targets.
 
   --help           Show this help.
 `);
@@ -236,6 +263,8 @@ export async function main(argv: string[] = process.argv.slice(2), clients: Main
     force: flags.force === true,
     trailingSlash: stringFlag("trailing-slash") !== "false",
     extraPassthrough: stringFlag("extra-passthrough"),
+    behaviors: repeatedFlag(argv.slice(1), "behavior"),
+    allBehaviors: flags["all-behaviors"] === true,
   };
   if (process.exitCode === 1) return;
   const result = await runBootstrap(opts, kvsClient, clients.cf ?? createAwsCliCloudFrontClient());

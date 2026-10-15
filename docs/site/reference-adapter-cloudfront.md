@@ -59,6 +59,8 @@ site on an S3 REST origin, and a `typren-cloudfront` CLI that diff-syncs
 | `force` | `boolean` | `false` | Required to proceed when a DIFFERENT viewer-request function is already attached; `FunctionAssociations` is a whole-list write, and blind-replacing what's there has caused a real outage before. |
 | `trailingSlash` | `boolean` | `true` | Passed through to `readFunctionSource`: `false` publishes the bare-URL function. |
 | `extraPassthroughSegments` | `string[]` | `[]` | Passed through to `readFunctionSource`. |
+| `behaviors` | `string[]` | `[]` | Extra `CacheBehavior` `PathPattern`s to also attach to, beyond the always-attached default. Superseded by `allBehaviors`. |
+| `allBehaviors` | `boolean` | `false` | Attach to every cache behavior on the distribution, default included, instead of just the default plus `behaviors`. |
 
 `BootstrapResult` is `{ ok: true; createdKvs: boolean; functionArn: string } | { ok: false; error: string }`.
 
@@ -67,7 +69,7 @@ site on an S3 REST origin, and a `typren-cloudfront` CLI that diff-syncs
 | Interface | Methods |
 |---|---|
 | `KvsClient` | `describeStore(name)`, `listKeys(arn)` (returns items + ETag), `updateKeys(arn, etag, puts, deletes)` (at most 50 changes, CAS'd on `etag`, returns the new ETag). |
-| `CloudFrontClient` | `getAttachedFunctionNames(distributionId)`, `createKeyValueStore(name, comment)`, `upsertFunction(name, code, kvsArn, comment)` (create-or-update, then publish DEVELOPMENT to LIVE), `setViewerRequestFunction(distributionId, functionArn)` (REPLACES whatever viewer-request function was there; `FunctionAssociations` is a whole-list write, not an append). |
+| `CloudFrontClient` | `getAttachedFunctionNames(distributionId)` (de-duplicated viewer-request function names from EVERY cache behavior, default included), `createKeyValueStore(name, comment)`, `upsertFunction(name, code, kvsArn, comment)` (create-or-update, then publish DEVELOPMENT to LIVE), `setViewerRequestFunction(distributionId, functionArn, behaviors)` (`behaviors` is `CacheBehaviorTarget[]` — `"default"` or a `CacheBehavior`'s own `PathPattern`, each of which must already exist — or the literal `"*"` for every behavior; REPLACES whatever viewer-request function was on each targeted behavior, `FunctionAssociations` is a whole-list write per behavior, not an append). |
 
 ## The canonical viewer-request function
 
@@ -92,7 +94,7 @@ viewer-request function:
 | Command | Flags | Notes |
 |---|---|---|
 | `sync-redirects` | `--content-dir`, `--map`, `--store`, `--home-slug`, `--trailing-slash false`, `--allow-empty`, `--dry-run` | Diff-syncs into the named KeyValueStore (default `DEFAULT_STORE_NAME`). Two merged sources, same as `sync-redirects` above. Required IAM: `cloudfront:DescribeKeyValueStore`, `cloudfront-keyvaluestore:DescribeKeyValueStore`, `cloudfront-keyvaluestore:ListKeys`, `cloudfront-keyvaluestore:UpdateKeys`. |
-| `bootstrap` | `--distribution-id` (required), `--store`, `--function-name`, `--trailing-slash false`, `--extra-passthrough <seg,seg>`, `--force` | One-time, guarded setup on an existing distribution: creates the KeyValueStore if needed, publishes the canonical function, attaches it. `--trailing-slash false` publishes the bare-URL function instead (keep in sync with `sync-redirects`' own flag). `--extra-passthrough` is a comma-separated list of extra path-convention segments, templated into the published function. Refuses to replace a different already-attached function unless `--force`. |
+| `bootstrap` | `--distribution-id` (required), `--store`, `--function-name`, `--trailing-slash false`, `--extra-passthrough <seg,seg>`, `--behavior <path-pattern>` (repeatable), `--all-behaviors`, `--force` | One-time, guarded setup on an existing distribution: creates the KeyValueStore if needed, publishes the canonical function, attaches it. `--trailing-slash false` publishes the bare-URL function instead (keep in sync with `sync-redirects`' own flag). `--extra-passthrough` is a comma-separated list of extra path-convention segments, templated into the published function. `--behavior` also attaches to that `CacheBehavior`'s `PathPattern` (must already exist) beyond the always-attached default; `--all-behaviors` attaches to every behavior instead. The already-attached guard reads every behavior regardless of which ones a run targets. Refuses to replace a different already-attached function unless `--force`. |
 | `--help` | | Shows usage. |
 
 > **Security:** an `.mjs`/`.js` `--map` file is code and runs when loaded; a CI job executing it
@@ -111,7 +113,8 @@ viewer-request function:
 | `toKvsEntries` | `redirect "from" for "<slug>" exceeds the CloudFront KVS 512-byte key limit` | Encoded key too large. |
 | `toKvsEntries` | `redirect "to" for "<slug>" exceeds the CloudFront KVS 1024-byte value limit` | Encoded value too large. |
 | `syncRedirects` | refuses to delete all live keys | Empty desired state without `allowEmpty`. |
-| `bootstrapDistribution` | `distribution "<id>" already has a different viewer-request function attached` | A different function is attached and `force` wasn't passed. |
+| `bootstrapDistribution` | `distribution "<id>" already has a different viewer-request function attached` | A different function is attached ANYWHERE on the distribution (default or any cache behavior) and `force` wasn't passed. |
+| `CloudFrontClient.setViewerRequestFunction` (AWS-CLI client) | `distribution "<id>" has no cache behavior matching "<name>"` | A `--behavior` pattern doesn't match any existing `CacheBehavior`. |
 | sync validation (per `@typren/core`'s map loader) | various | A `from` declared by both sources, a self-redirect, a map `from` shadowing a live page, or a protocol-relative/backslash/control-character value. |
 
 See [deploy-cloudfront](./deploy-cloudfront.md) for the end-to-end deploy walkthrough.

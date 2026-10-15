@@ -11,4 +11,4 @@ export { bootstrapDistribution, DEFAULT_FUNCTION_NAME, type BootstrapOptions, ty
 // here so this package's public API is unchanged.
 export { scanContentStore, loadRedirectMap, mergeRedirectEntries, type RedirectMapEntry } from "@typren/core";
 export { createAwsCliKvsClient, createAwsCliCloudFrontClient } from "./aws-cli-clients";
-export type { KvsClient, CloudFrontClient, KvsPair } from "./types";
+export type { KvsClient, CloudFrontClient, KvsPair, CacheBehaviorTarget } from "./types";
