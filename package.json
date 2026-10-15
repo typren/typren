@@ -19,8 +19,10 @@
     "build": "bun run --filter '*' build",
     "check:scaffold": "bun run --filter typren check:scaffold",
     "check:migrations": "bun test scripts/check-migrations.test.mjs && node scripts/check-migrations.mjs",
+    "test:security-gate": "bun test scripts/check-security-review.test.mjs",
+    "check:security-review": "node scripts/check-security-review.mjs",
     "api-surface:generate": "node scripts/gen-api-surface.mjs",
-    "verify": "bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:migrations",
+    "verify": "bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:migrations && bun run test:security-gate",
     "prepare": "husky"
   },
   "devDependencies": {
