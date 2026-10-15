@@ -3,12 +3,15 @@
 // distribution can carry only ONE viewer-request function, so all three
 // live here:
 //
-//   1. KVS-backed redirect lookup -> 301. Exact-path lookup; trailing
+//   1. KVS-backed redirect lookup -> redirect. Exact-path lookup; trailing
 //      slashes are normalized before lookup so both `/x` and `/x/` match.
 //      The redirect MAP is NOT in this file, it lives in the CloudFront
 //      KeyValueStore associated with this function at deploy time (see
 //      `typren-cloudfront bootstrap`/`sync-redirects`). This file's code
-//      never changes for a redirect edit.
+//      never changes for a redirect edit. A value may carry a status prefix
+//      ("302 /new", "307 ...", "308 ..."), bare values default to 301; see
+//      parseRedirectValue. Mirrors @typren/core's static-host.ts, held to the
+//      same semantics by @typren/contract-tests' static-host-routing suite.
 //   2. Directory index rewrite. The S3 REST origin has no index-document
 //      behaviour, so `/about/` asks for the key `about/` and 404s, the real
 //      object is `about/index.html`. `output: "export"` + `trailingSlash:
@@ -41,6 +44,43 @@ var PASSTHROUGH = {
   "apple-icon": true,
 };
 
+// Replaced at publish time by readFunctionSource()'s templating with
+// validated --extra-passthrough segments, as a JSON object literal of
+// {segment: true} pairs (see function-source.ts: JSON.stringify, never
+// string concatenation, so an operator-supplied segment can't break out of
+// this literal into surrounding code). Empty object when none configured.
+var EXTRA_PASSTHROUGH = "__TYPREN_EXTRA_PASSTHROUGH__";
+
+var STATUS_TEXT = {
+  301: "Moved Permanently",
+  302: "Found",
+  307: "Temporary Redirect",
+  308: "Permanent Redirect",
+};
+
+// A KVS value may carry a status prefix: "<301|302|307|308> <target>", a
+// bare value defaults to 301. The three-digit-plus-space shape is the only
+// prefix recognized; a recognized shape whose status isn't in STATUS_TEXT
+// (e.g. "404 /x") is an INVALID entry (null), not a request to serve a 404;
+// the caller treats it as "no redirect here" (fail open), same as any other
+// invalid target. No regex: matches the hand-rolled style the rest of this
+// file uses for the cloudfront-js runtime.
+function parseRedirectValue(raw) {
+  if (raw.length > 3 && raw.charAt(3) === " " && isThreeDigits(raw)) {
+    var status = Number(raw.slice(0, 3));
+    return STATUS_TEXT[status] && raw.length > 4 ? { status: status, target: raw.slice(4) } : null;
+  }
+  return { status: 301, target: raw };
+}
+
+function isThreeDigits(raw) {
+  for (var i = 0; i < 3; i++) {
+    var code = raw.charCodeAt(i);
+    if (code < 48 || code > 57) return false;
+  }
+  return true;
+}
+
 // A redirect target arrives from the KeyValueStore. This CLI's sync validates
 // what it writes, but anyone with UpdateKeys can write anything: refuse to
 // serve a target that is protocol-relative ("//host" resolves off-site), uses
@@ -71,8 +111,11 @@ async function handler(event) {
   } catch (e) {
     target = null;
   }
-  if (target && !unsafeTarget(target)) {
-    return redirect(target, request.querystring);
+  if (target) {
+    var parsed = parseRedirectValue(target);
+    if (parsed && !unsafeTarget(parsed.target)) {
+      return redirect(parsed.status, parsed.target, request.querystring);
+    }
   }
 
   // The canonical form is the trailing slash (`trailingSlash: true`).
@@ -93,9 +136,10 @@ async function handler(event) {
     uri.charAt(1) !== "/" &&
     uri.indexOf("/.well-known/") !== 0 &&
     !PASSTHROUGH[lastSegment] &&
+    !EXTRA_PASSTHROUGH[lastSegment] &&
     lastSegment.indexOf(".") === -1
   ) {
-    return redirect(uri + "/", request.querystring);
+    return redirect(301, uri + "/", request.querystring);
   }
 
   return request;
@@ -121,14 +165,14 @@ function queryStringOf(querystring) {
   return parts.join("&");
 }
 
-function redirect(location, querystring) {
+function redirect(status, location, querystring) {
   var qs = querystring ? queryStringOf(querystring) : "";
   if (qs) {
     location = location + (location.indexOf("?") === -1 ? "?" : "&") + qs;
   }
   return {
-    statusCode: 301,
-    statusDescription: "Moved Permanently",
+    statusCode: status,
+    statusDescription: STATUS_TEXT[status],
     headers: { location: { value: location } },
   };
 }

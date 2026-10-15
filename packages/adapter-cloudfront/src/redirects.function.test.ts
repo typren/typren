@@ -1,13 +1,14 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { describe, expect, it } from "vitest";
 import { createStaticHostRoutingContractSuite, type StaticHostOutcome } from "@typren/contract-tests";
 
 const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "redirects.function.js"), "utf8");
 
 type EdgeResult =
   | { uri: string }
-  | { statusCode: number; headers: { location: { value: string } } };
+  | { statusCode: number; statusDescription: string; headers: { location: { value: string } } };
 
 /**
  * Runs the committed CloudFront function the way the edge would: the
@@ -64,6 +65,16 @@ createStaticHostRoutingContractSuite(
   async ({ path, query = "", redirects = {}, storeDown }): Promise<StaticHostOutcome> => {
     const kvsGet = storeDown ? () => Promise.reject<string>(new Error("store unavailable")) : undefined;
     const result = await run(path, redirects, kvsGet, toQuerystring(query));
-    return "uri" in result ? { serve: result.uri } : { status: 301, location: result.headers.location.value };
+    return "uri" in result
+      ? { serve: result.uri }
+      : { status: result.statusCode as 301 | 302 | 307 | 308, location: result.headers.location.value };
   }
 );
+
+describe("redirects.function.js status prefix (unsupported by the generic suite)", () => {
+  it("sets statusDescription to match a non-301 status", async () => {
+    const result = (await run("/old-path", { "/old-path": "307 /new-path" })) as Extract<EdgeResult, { statusCode: number }>;
+    expect(result.statusCode).toBe(307);
+    expect(result.statusDescription).toBe("Temporary Redirect");
+  });
+});

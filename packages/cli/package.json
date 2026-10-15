@@ -22,10 +22,10 @@
   "dependencies": {
     "@typren/core": "^0.4.0",
     "gray-matter": "^4.0.3",
-    "js-yaml": "^5.4.2"
+    "js-yaml": "^5.4.3"
   },
   "devDependencies": {
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "typescript": "^6.0.3"
   },
   "repository": {

@@ -90,3 +90,66 @@ describe("submitForm", () => {
     expect(await submitForm({ name: "Ada" }, { endpoint: "/api", fetchImpl: impl })).toEqual({ ok: false, status: 502 });
   });
 });
+
+describe("submitForm with a sink (static-site mode, no server)", () => {
+  it("throws for a server-only sink instead of delivering it", async () => {
+    await expect(
+      submitForm(
+        { name: "Ada", email: "ada@example.com" },
+        { sink: { type: "google-sheets", spreadsheetId: "1AbC", token: "${SHEETS_TOKEN}" }, schema },
+      ),
+    ).rejects.toThrow(/server-only/);
+  });
+
+  it("throws for a webhook sink whose headers carry a \"${...}\" reference", async () => {
+    await expect(
+      submitForm(
+        { name: "Ada", email: "ada@example.com" },
+        { sink: { type: "webhook", url: "https://example.com/hook", headers: { authorization: "${TOKEN}" } }, schema },
+      ),
+    ).rejects.toThrow(/server-only/);
+  });
+
+  it("validates locally and sends nothing on failure", async () => {
+    const { impl, calls } = fakeFetch();
+    const result = await submitForm(
+      { name: "", email: "nope" },
+      { sink: { type: "webhook", url: "https://example.com/hook" }, schema, fetchImpl: impl },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(0);
+    expect(result.errors).toContainEqual({ field: "name", code: "required" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("drops a tripped honeypot silently, delivering nothing", async () => {
+    const { impl, calls } = fakeFetch();
+    const result = await submitForm(
+      { name: "Ada", email: "ada@example.com", website: "spam" },
+      { sink: { type: "webhook", url: "https://example.com/hook" }, schema, fetchImpl: impl },
+    );
+    expect(result).toEqual({ ok: true, status: 204 });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("delivers to the sink directly when valid and not a bot", async () => {
+    const { impl, calls } = fakeFetch(200, { received: true });
+    const result = await submitForm(
+      { name: "Ada", email: "ada@example.com" },
+      { sink: { type: "webhook", url: "https://example.com/hook" }, schema, fetchImpl: impl },
+    );
+    expect(result).toEqual({ ok: true, status: 200, sinks: [{ type: "webhook", ok: true, detail: undefined }] });
+    expect(calls[0].url).toBe("https://example.com/hook");
+    const sent = JSON.parse(String(calls[0].init.body)) as Record<string, unknown>;
+    expect(sent).toMatchObject({ formId: "contact", fields: { name: "Ada", email: "ada@example.com" } });
+  });
+
+  it("reports a failed delivery without throwing", async () => {
+    const { impl } = fakeFetch(502);
+    const result = await submitForm(
+      { name: "Ada", email: "ada@example.com" },
+      { sink: { type: "webhook", url: "https://example.com/hook" }, schema, fetchImpl: impl },
+    );
+    expect(result).toEqual({ ok: false, status: 502, sinks: [{ type: "webhook", ok: false, detail: "webhook responded 502" }] });
+  });
+});

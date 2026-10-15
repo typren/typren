@@ -19,8 +19,11 @@
     "build": "bun run --filter '*' build",
     "check:scaffold": "bun run --filter typren check:scaffold",
     "check:migrations": "bun test scripts/check-migrations.test.mjs && node scripts/check-migrations.mjs",
+    "test:security-gate": "bun test scripts/check-security-review.test.mjs",
+    "check:security-review": "node scripts/check-security-review.mjs",
+    "test:tag-published": "bun test scripts/tag-published.test.mjs",
     "api-surface:generate": "node scripts/gen-api-surface.mjs",
-    "verify": "bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:migrations",
+    "verify": "bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:migrations && bun run test:security-gate && bun run test:tag-published",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -28,23 +31,23 @@
     "@commitlint/cli": "^21.2.3",
     "@commitlint/config-conventional": "^21.2.3",
     "@eslint/js": "^10.0.1",
-    "@next/eslint-plugin-next": "^16.3.8",
-    "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/coverage-v8": "^5.0.3",
-    "eslint": "^10.11.0",
+    "@next/eslint-plugin-next": "^16.4.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "@vitest/coverage-v8": "^5.0.4",
+    "eslint": "^10.12.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "husky": "^9.1.7",
-    "jsdom": "^30.1.1",
+    "jsdom": "^30.1.2",
     "lint-staged": "^17.6.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.0",
-    "vitest": "^5.0.3"
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5.0.4"
   },
   "lint-staged": {
     "*.{ts,tsx}": "eslint --fix"
   },
   "dependencies": {
     "@types/react-dom": "^19.3.0",
-    "next": "^16.3.8"
+    "next": "^16.4.0"
   }
 }

@@ -141,7 +141,40 @@ describe("runBootstrap", () => {
     };
     const result = await runBootstrap({ distributionId: "E123" }, fakeKvsClient(), cf);
     expect(result.ok).toBe(true);
-    expect(cf.setViewerRequestFunction).toHaveBeenCalledWith("E123", "arn:function/x");
+    expect(cf.setViewerRequestFunction).toHaveBeenCalledWith("E123", "arn:function/x", ["default"]);
+  });
+
+  it("parses a comma-separated --extra-passthrough into segments", async () => {
+    const cf: CloudFrontClient = {
+      getAttachedFunctionNames: vi.fn(async () => []),
+      createKeyValueStore: vi.fn(async () => ({ arn: "arn:store", status: "READY" })),
+      upsertFunction: vi.fn(async (_name, code: string) => {
+        expect(code).toContain('{"feed":true,"manifest":true}');
+        return { arn: "arn:function/x" };
+      }),
+      setViewerRequestFunction: vi.fn(async () => {}),
+    };
+    const result = await runBootstrap(
+      { distributionId: "E123", extraPassthrough: "feed, manifest" },
+      fakeKvsClient(),
+      cf
+    );
+    expect(result.ok).toBe(true);
+    expect(cf.upsertFunction).toHaveBeenCalled();
+  });
+
+  it("publishes the bare-URL function when trailingSlash is false", async () => {
+    const cf: CloudFrontClient = {
+      getAttachedFunctionNames: vi.fn(async () => []),
+      createKeyValueStore: vi.fn(async () => ({ arn: "arn:store", status: "READY" })),
+      upsertFunction: vi.fn(async (_name, code: string) => {
+        expect(code).toMatch(/DEFAULT export shape/); // redirects-bare-url.function.js's own doc comment
+        return { arn: "arn:function/x" };
+      }),
+      setViewerRequestFunction: vi.fn(async () => {}),
+    };
+    const result = await runBootstrap({ distributionId: "E123", trailingSlash: false }, fakeKvsClient(), cf);
+    expect(result.ok).toBe(true);
   });
 });
 
@@ -236,5 +269,64 @@ describe("main", () => {
     expect(process.exitCode).toBe(1);
     process.exitCode = undefined;
     err.mockRestore();
+  });
+
+  it("collects repeated --behavior flags and passes --all-behaviors through", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    let behaviorsArg: unknown;
+    const cf: CloudFrontClient = {
+      getAttachedFunctionNames: vi.fn(async () => []),
+      createKeyValueStore: vi.fn(async () => ({ arn: "arn:store", status: "READY" })),
+      upsertFunction: vi.fn(async () => ({ arn: "arn:function/x" })),
+      setViewerRequestFunction: vi.fn(async (_id, _arn, behaviors) => {
+        behaviorsArg = behaviors;
+      }),
+    };
+    await main(
+      ["bootstrap", "--distribution-id", "E123", "--behavior", "/assets/*", "--behavior", "/api/*"],
+      { kvs: fakeKvsClient(), cf }
+    );
+    expect(behaviorsArg).toEqual(["default", "/assets/*", "/api/*"]);
+    log.mockRestore();
+  });
+
+  it("--all-behaviors overrides any --behavior flags", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    let behaviorsArg: unknown;
+    const cf: CloudFrontClient = {
+      getAttachedFunctionNames: vi.fn(async () => []),
+      createKeyValueStore: vi.fn(async () => ({ arn: "arn:store", status: "READY" })),
+      upsertFunction: vi.fn(async () => ({ arn: "arn:function/x" })),
+      setViewerRequestFunction: vi.fn(async (_id, _arn, behaviors) => {
+        behaviorsArg = behaviors;
+      }),
+    };
+    await main(["bootstrap", "--distribution-id", "E123", "--behavior", "/assets/*", "--all-behaviors"], {
+      kvs: fakeKvsClient(),
+      cf,
+    });
+    expect(behaviorsArg).toBe("*");
+    log.mockRestore();
+  });
+
+  it("threads --trailing-slash and --extra-passthrough through to the published function", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    let publishedCode = "";
+    const cf: CloudFrontClient = {
+      getAttachedFunctionNames: vi.fn(async () => []),
+      createKeyValueStore: vi.fn(async () => ({ arn: "arn:store", status: "READY" })),
+      upsertFunction: vi.fn(async (_name, code: string) => {
+        publishedCode = code;
+        return { arn: "arn:function/x" };
+      }),
+      setViewerRequestFunction: vi.fn(async () => {}),
+    };
+    await main(
+      ["bootstrap", "--distribution-id", "E123", "--trailing-slash", "false", "--extra-passthrough", "feed"],
+      { kvs: fakeKvsClient(), cf }
+    );
+    expect(publishedCode).toMatch(/DEFAULT export shape/);
+    expect(publishedCode).toContain('{"feed":true}');
+    log.mockRestore();
   });
 });

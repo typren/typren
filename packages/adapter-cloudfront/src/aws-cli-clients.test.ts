@@ -13,13 +13,19 @@ import { execFileSync } from "node:child_process";
 import { createAwsCliCloudFrontClient } from "./aws-cli-clients";
 
 type Association = { EventType: string; FunctionARN: string };
-type Written = { DefaultCacheBehavior: { FunctionAssociations: { Quantity: number; Items: Association[] } } };
+type CacheBehavior = { PathPattern: string; FunctionAssociations?: { Quantity: number; Items: Association[] } };
+type Written = {
+  DefaultCacheBehavior: { FunctionAssociations?: { Quantity: number; Items: Association[] } };
+  CacheBehaviors?: { Quantity: number; Items: CacheBehavior[] };
+};
 
 const mocked = vi.mocked(execFileSync);
 
-/** get-distribution-config answers with `existing`; update-distribution hands
- *  the on-disk config payload to `onUpdate` before the temp file is removed. */
-function mockAws(existing: Association[] | undefined, onUpdate: (config: Written) => void): void {
+/** get-distribution-config answers with `existing` (the default behavior's
+ *  associations) and `cacheBehaviors` (extra behaviors, if any);
+ *  update-distribution hands the on-disk config payload to `onUpdate` before
+ *  the temp file is removed. */
+function mockAws(existing: Association[] | undefined, onUpdate: (config: Written) => void, cacheBehaviors?: CacheBehavior[]): void {
   mocked.mockImplementation(((...call: unknown[]) => {
     // Tolerate stray invocations with no argument list (the test runner's own
     // machinery can touch a module-level mock); only real `aws` calls match below.
@@ -31,6 +37,7 @@ function mockAws(existing: Association[] | undefined, onUpdate: (config: Written
           DefaultCacheBehavior: existing
             ? { FunctionAssociations: { Quantity: existing.length, Items: existing } }
             : {},
+          ...(cacheBehaviors ? { CacheBehaviors: { Quantity: cacheBehaviors.length, Items: cacheBehaviors } } : {}),
         },
       });
     }
@@ -46,7 +53,7 @@ function mockAws(existing: Association[] | undefined, onUpdate: (config: Written
 beforeEach(() => mocked.mockReset());
 
 describe("createAwsCliCloudFrontClient", () => {
-  it("setViewerRequestFunction keeps other event types' associations while replacing viewer-request", async () => {
+  it("setViewerRequestFunction keeps other event types' associations while replacing viewer-request on the default behavior", async () => {
     let written: Written | undefined;
     mockAws(
       [
@@ -56,7 +63,7 @@ describe("createAwsCliCloudFrontClient", () => {
       (config) => (written = config)
     );
 
-    await createAwsCliCloudFrontClient().setViewerRequestFunction("DIST123", "arn:typren-redirects");
+    await createAwsCliCloudFrontClient().setViewerRequestFunction("DIST123", "arn:typren-redirects", ["default"]);
 
     expect(written?.DefaultCacheBehavior.FunctionAssociations).toEqual({
       Quantity: 2,
@@ -71,12 +78,53 @@ describe("createAwsCliCloudFrontClient", () => {
     let written: Written | undefined;
     mockAws(undefined, (config) => (written = config));
 
-    await createAwsCliCloudFrontClient().setViewerRequestFunction("DIST123", "arn:typren-redirects");
+    await createAwsCliCloudFrontClient().setViewerRequestFunction("DIST123", "arn:typren-redirects", ["default"]);
 
     expect(written?.DefaultCacheBehavior.FunctionAssociations).toEqual({
       Quantity: 1,
       Items: [{ EventType: "viewer-request", FunctionARN: "arn:typren-redirects" }],
     });
+  });
+
+  it("setViewerRequestFunction attaches to a named extra behavior without touching the default", async () => {
+    let written: Written | undefined;
+    mockAws(
+      [{ EventType: "viewer-request", FunctionARN: "arn:old-redirects" }],
+      (config) => (written = config),
+      [{ PathPattern: "/assets/*" }]
+    );
+
+    await createAwsCliCloudFrontClient().setViewerRequestFunction("DIST123", "arn:typren-redirects", ["default", "/assets/*"]);
+
+    expect(written?.DefaultCacheBehavior.FunctionAssociations?.Items).toEqual([
+      { EventType: "viewer-request", FunctionARN: "arn:typren-redirects" },
+    ]);
+    expect(written?.CacheBehaviors?.Items[0].FunctionAssociations).toEqual({
+      Quantity: 1,
+      Items: [{ EventType: "viewer-request", FunctionARN: "arn:typren-redirects" }],
+    });
+  });
+
+  it("setViewerRequestFunction(\"*\") attaches to every behavior", async () => {
+    let written: Written | undefined;
+    mockAws(undefined, (config) => (written = config), [{ PathPattern: "/assets/*" }, { PathPattern: "/api/*" }]);
+
+    await createAwsCliCloudFrontClient().setViewerRequestFunction("DIST123", "arn:typren-redirects", "*");
+
+    expect(written?.DefaultCacheBehavior.FunctionAssociations?.Items).toEqual([
+      { EventType: "viewer-request", FunctionARN: "arn:typren-redirects" },
+    ]);
+    for (const behavior of written?.CacheBehaviors?.Items ?? []) {
+      expect(behavior.FunctionAssociations?.Items).toEqual([{ EventType: "viewer-request", FunctionARN: "arn:typren-redirects" }]);
+    }
+  });
+
+  it("setViewerRequestFunction throws on a behavior name that doesn't exist", async () => {
+    mockAws(undefined, () => {}, [{ PathPattern: "/assets/*" }]);
+
+    await expect(
+      createAwsCliCloudFrontClient().setViewerRequestFunction("DIST123", "arn:typren-redirects", ["default", "/typo/*"])
+    ).rejects.toThrow(/no cache behavior matching "\/typo\/\*"/);
   });
 
   it("getAttachedFunctionNames reports only viewer-request associations", async () => {
@@ -88,5 +136,26 @@ describe("createAwsCliCloudFrontClient", () => {
       () => {}
     );
     expect(await createAwsCliCloudFrontClient().getAttachedFunctionNames("DIST123")).toEqual(["old-redirects"]);
+  });
+
+  it("getAttachedFunctionNames reads every cache behavior, not just the default", async () => {
+    mockAws(undefined, () => {}, [
+      { PathPattern: "/assets/*", FunctionAssociations: { Quantity: 1, Items: [{ EventType: "viewer-request", FunctionARN: "arn:aws:cloudfront::1:function/legacy-rewrite" }] } },
+    ]);
+    expect(await createAwsCliCloudFrontClient().getAttachedFunctionNames("DIST123")).toEqual(["legacy-rewrite"]);
+  });
+
+  it("getAttachedFunctionNames de-duplicates the same function attached on multiple behaviors", async () => {
+    mockAws(
+      [{ EventType: "viewer-request", FunctionARN: "arn:aws:cloudfront::1:function/typren-redirects" }],
+      () => {},
+      [
+        {
+          PathPattern: "/assets/*",
+          FunctionAssociations: { Quantity: 1, Items: [{ EventType: "viewer-request", FunctionARN: "arn:aws:cloudfront::1:function/typren-redirects" }] },
+        },
+      ]
+    );
+    expect(await createAwsCliCloudFrontClient().getAttachedFunctionNames("DIST123")).toEqual(["typren-redirects"]);
   });
 });

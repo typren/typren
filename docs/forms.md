@@ -100,3 +100,27 @@ JSON to the handler. No framework wrappers yet.
   `AuthAdapter.authorize()`.
 - **PII**: submission field values are never logged. Log lines carry the form
   id and per-sink outcomes only, by construction of the logger call sites.
+
+## Static-site mode (no server)
+
+A fully static site (`output: "export"`, no server runtime at all) cannot
+mount `createFormHandler` anywhere. For that case `@typren/forms/client`'s
+`submitForm` also accepts `{ sink, schema }` in place of `{ endpoint }`:
+validate → honeypot → deliver, run entirely in the browser against the sink
+directly, no handler in between.
+
+This is **UX and spam hygiene only, not a security boundary** — there is no
+server left to re-validate, and nothing stops a visitor from reading the
+site's own JS and crafting a request by hand. A site that needs
+server-authoritative validation or a credentialed sink still deploys
+`createFormHandler` (Workers, a Lambda function URL, a Next route handler);
+the client's sink mode is for sites that have none of that.
+
+Only sinks with no credential at all are safe to run this way: the `hubspot`
+sink with no `accessToken`, or a `webhook` whose `headers` hold no `${VAR}`
+reference. `assertBrowserSafeSinkConfig` (and `submitForm` itself) enforces
+this in code, not just in docs — it throws for `google-sheets` and `file`
+outright (a bearer token, or node-only filesystem access, neither of which a
+browser can ever satisfy), and for any sink config containing a `"${...}"`
+reference, since a credential baked into a client bundle is as public as text
+on the page.

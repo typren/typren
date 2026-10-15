@@ -64,8 +64,8 @@ jsdom, sharp) into a wrangler bundle; it imports only `@typren/core/static-host`
 
 Request flow: canonical-host check (301 if the hostname doesn't match `TYPREN_CANONICAL_HOST`),
 then `resolveStaticHostRequest` (from `@typren/core/static-host`) against the `REDIRECTS` KV
-binding, producing a redirect (301), a rewrite (serves the canonical object path via
-`env.ASSETS.fetch`), or a pass-through.
+binding, producing a redirect (301 by default, or 302/307/308 per a `--map` entry's `status`), a
+rewrite (serves the canonical object path via `env.ASSETS.fetch`), or a pass-through.
 
 > **Security:** if `env.REDIRECTS` is absent (a site deployed before `bootstrap` ran), the lookup
 > degrades to "no redirect" rather than failing the request — `resolveStaticHostRequest` fails

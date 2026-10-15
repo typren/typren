@@ -121,6 +121,12 @@ The workflow additionally waits on a required reviewer for the `release`
 environment, so a merge alone does not publish; someone still approves the run.
 That is deliberate belt and braces, because an npm publish cannot be undone.
 
+### Security review before promoting to main
+
+A PR into `main` (and any push to `main`) needs a whole-repo security review record in `security-reviews/` that covers the
+exact commit, or an expiring waiver. The **Security review** check enforces it. How to run the review, with Claude Code or
+any other agent or by hand, and how to waive it: [docs/security-review.md](docs/security-review.md).
+
 ## Architecture
 
 Read the Architecture section of the [README](README.md#architecture) first.
