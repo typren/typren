@@ -1,5 +1,158 @@
 # @typren/core
 
+## 0.5.0
+
+### Minor Changes
+
+- b0aa508: BREAKING: `ContentAdapter` and `ContentStore` are now fully async (issue #29),
+  `ContentAdapter.root` was removed from the interface in favor of the exported
+  `MarkdownAdapter` type, and the Notion adapter's `spawnSync` bridge is gone in
+  favor of a plain `fetch`. See
+  [`docs/migrations/core-0.5.0.md`](../docs/migrations/core-0.5.0.md) for the
+  fix-up steps, or run `npx typren migrate` once it ships.
+  
+  Also new: `createGithubAdapter`'s `readInit` option for host-cache-tagged
+  content reads, and `@typren/core/github-webhook` for invalidating that cache
+  on a GitHub push (issue #29's "git runtime").
+- d2c9f03: Add `AuthAdapter` mappings for Better Auth, Supabase, and generic OIDC/JWT
+  (covering Okta, Entra ID, Auth0, Keycloak, and Google Workspace SSO), plus a
+  `cfAccessAuthAdapter` preset for Cloudflare Access, so hosts can wire SSO,
+  passkeys, magic links, and enterprise IdPs without Typren implementing any
+  login flow itself.
+- 07a5280: Redirects can now carry a per-entry HTTP status (301, the default, or
+  302/307/308), closing the gap for migrators from `_redirects`/`vercel.json`
+  who expect a temporary (302) or method-preserving permanent (308) redirect
+  instead of a hardcoded 301. A `--map` entry sets it with a `status` field
+  (`{ "from": "/old", "to": "/new", "status": 302 }`); `@typren/core`'s
+  `toRedirectPairs` encodes it as a `"<status> <target>"` prefix on the stored
+  value, and `resolveStaticHostRequest`, the CloudFront function, and the
+  Cloudflare Worker all decode it the same way (an unrecognized status prefix
+  is an invalid entry and fails open, same as any other invalid target).
+- e20d2b8: Fix a GitHub-backed site's markdown mirror route listing every page on each
+  request instead of checking one slug's existence, bound the concurrent
+  fan-out `listPages`/sitemap/llms.txt/redirects open over a site's slugs, give
+  `createGithubAdapter` a real optimistic-lock upgrade path
+  (`ContentAdapter.writeRaw`/`writeDraftRaw` now take an optional
+  `opts.expectedVersion`), and serialize its writes so concurrent per-locale
+  deletes can't race each other's cached blob sha.
+  
+  `createGithubAdapter` also gains `draftBranch`, defaulting to
+  `"typren-drafts"`: drafts now live on their own branch by default instead of
+  the published branch, created lazily on first draft save. Pass
+  `draftBranch: null` to keep the previous single-branch layout. See
+  docs/migrations/core-0.5.0.md.
+- b95f3cd: SVG uploads are now off by default. Set `allowSvg: true` in `CmsConfig` to accept them, and serve media from a
+  separate origin or with `Content-Security-Policy: sandbox` (see docs/site/media-storage.md). Allowed SVGs also
+  lose `<style>`, `<image>` and any `href` that is not a same-document `#fragment`. WebP and AVIF uploads are now
+  re-encoded like every other raster format, which strips EXIF/GPS metadata and applies the 2000 px cap, and
+  `handleMediaUpload` refuses a body whose `Content-Length` is over the limit before buffering it.
+
+### Patch Changes
+
+- 11b4619: Fix several `AuthAdapter` review findings:
+  
+  - OIDC, Better Auth, and Supabase mappings now omit `email` from the
+    resolved `AuthUser` unless the provider reports it verified
+    (`email_verified`, `session.user.emailVerified`, `email_confirmed_at`), so
+    an unverified or unconfirmed email can never match `allowedEmails`.
+  - `oidcAuthAdapter`'s discovery fetch now times out after 5s instead of
+    hanging the adapter open, and `jwtVerify` requires `exp`/`sub` claims.
+  - Better Auth's `rolesFrom` override normalizes a non-array result to no
+    roles instead of leaking a bad shape to callers.
+  - The allowlist's email comparison is ASCII-only: an email containing a
+    non-ASCII character never matches, closing a locale-dependent lowercasing
+    mismatch.
+- 3e432fe: Dependency updates: next 16.4.0, dompurify 3.4.17, js-yaml 5.4.3, jsdom 30.1.2 and dev tooling (vitest, eslint,
+  typescript-eslint, @types/node, @vitejs/plugin-react, lucide-react).
+- 52e172a: Content parsing now refuses JavaScript front matter (`---js` / `---javascript`) in the markdown and GitHub
+  adapters, so a content file can never execute code when it is parsed.
+- 1130d81: Hardening pass on `typren migrate` and the breaking-change migration gate,
+  all bug fixes with no API change:
+  
+  - `typren migrate` now drops (with a warning) a `--remote` note whose
+    package/version isn't validly shaped, strips control characters from a
+    remote note's title/body, and caps the remote fetch to 1 MB while
+    streaming instead of after buffering the whole response.
+  - `@typren/core`'s published package now also carries a `migrations/.min-version`
+    file (the oldest migration note it kept); `migrate` reads it and warns
+    (exiting non-zero) when a project's `--from` predates it, since older
+    notes it may have needed were dropped from this release.
+  - The project file walk `migrate` runs to detect matches no longer follows
+    symlinks, caps per-file reads at 1 MB, reads each file once regardless of
+    how many detect patterns/notes apply to it, and ignores a few more
+    generated-output directories (`coverage`, `build`, `.turbo`, `.vercel`,
+    `.svelte-kit`, `.output`).
+  - Every `execFileSync("git", ...)` call in the CLI (`review`'s git-backed
+    checks, and `--pr`'s checkout/commit/push) now runs with `envWithoutGit()`,
+    closing the same inherited-`GIT_DIR` hazard `migrate`'s own git calls were
+    already guarded against.
+  - `bun run check:migrations` is now part of the local `pre-push` gate (it was
+    already part of `bun run verify`, so CI already ran it); the gate itself
+    now requires a migration note's version to exactly match the version a
+    changeset's bump produces (not just any later version), tolerates
+    CRLF/unquoted-or-single-quoted changeset frontmatter, and only enforces
+    itself against packages whose notes are actually packed into the CLI
+    (`@typren/core`; others get an informational note instead of a failure).
+- f5ec0c8: Round 2 of the auth/settings/proxy security review:
+  
+  - `nextAuthAdapter` and `clerkAuthAdapter` now REQUIRE an allowlist
+    (`allowedEmails`/`allowedRoles`, or `allowedUserIds` for Clerk) at
+    construction, matching `betterAuthAdapter`. Without one, any signed-in user
+    was authorized for every content-write action.
+  - `clerkAuthAdapter` reads the verified primary email instead of
+    `emailAddresses[0]`, so an unverified secondary address can no longer
+    satisfy `allowedEmails`.
+  - `localAuth` now also requires the request Host to resolve to loopback
+    (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`) in addition to the
+    existing `NODE_ENV === "development"` check: a dev server bound to
+    `0.0.0.0` (common in containers/VMs) previously exposed its
+    unauthenticated file writes to anything on the LAN. The scaffold's
+    "Start your dev server" step now says to bind with `next dev -H 127.0.0.1`.
+  - `createMarkdownAdapter` rejects a `locales`/`defaultLocale` entry that
+    isn't BCP-47-ish shaped at construction: those values become path
+    segments, and only membership in the allowlist was checked before, not
+    whether the allowlist's own entries were safe.
+  - `PUT /settings/bootstrap` now validates the merged bootstrap (known keys
+    only, a safe non-reserved `adminRoute`, BCP-47-ish `locales` with
+    `defaultLocale` among them, a real `routing` mode) instead of writing
+    whatever the patch carried straight through. `validateBootstrap` moves
+    from the CLI into `@typren/core` so `typren apply-settings` and this route
+    share one rule set.
+  - `createSettingsStore` throws when `config.siteId` is set (hosted/
+    multi-tenant mode) but no `config.settingsAdapter` is given: the default
+    bootstrap adapter is a single process-wide file that would otherwise
+    collide across tenants.
+  - `typrenBlocksDirectEditorAccess` (new, `@typren/core/proxy`) lets a host
+    404 direct `/editor/**` access after renaming `adminRoute`, which
+    previously kept serving at the old path indefinitely.
+  - Draft, settings, and media-listing GET responses from the HTTP API now set
+    `Cache-Control: private, no-store`, and a 500 response no longer echoes
+    the thrown error's message (logged server-side instead).
+- f5580aa: `createGithubAdapter`'s `listSlugs` now skips files whose names are not valid slugs instead of listing them,
+  so one stray file in the content directory no longer breaks every page listing that reads it.
+- c6f38fa: Notion block conversion now escapes `<`, `>` and `&` in text, keeps only http(s)/mailto link and image URLs
+  (other links keep their text), fences code so its content cannot close the fence, and refuses component
+  directive names outside `[A-Za-z0-9_-]`. A Notion page can no longer inject HTML into the rendered markdown.
+- 8be319f: The GitHub webhook handler now records a delivery id as processed only after `onChange` succeeds, so GitHub's
+  retry of a delivery whose `onChange` failed is processed instead of being dropped as a replay.
+- 87ec75b: Front matter now refuses YAML aliases (`*ref`) and blocks over 256 KB, so a content file can no longer
+  expand into gigabytes of objects (billion laughs) when it is parsed. Timestamps, merge keys and every other
+  value parse exactly as before.
+- d054689: Add `typren migrate`: reads the migration notes bundled with the installed
+  `@typren/core` (`migrations/`, packed at build time from `docs/migrations/`)
+  and checks the project against each one's `detect` patterns, printing
+  file:line matches plus the note's Fix/Verify steps. `--remote` additionally
+  checks `https://typren.com/migrations/index.json` for notes newer than the
+  install, labelled unverified since they aren't pinned by the lockfile.
+  
+  `@typren/core` ships the `migrations/` directory (now in its package `files`)
+  but no notes yet; this is a non-breaking addition and bumps patch.
+  
+  Also adds the breaking-change migration gate (`bun run check:migrations`,
+  wired into `bun run verify`): a changeset whose body starts with `BREAKING:`
+  must have a `docs/migrations/<package>-<version>.md` ahead of that package's
+  current version, or `verify` fails with the missing file named.
+
 ## 0.4.0
 
 ### Minor Changes
