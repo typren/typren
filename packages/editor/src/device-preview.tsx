@@ -31,11 +31,8 @@ export function DevicePreview({
 
   const width = custom ?? WIDTHS[device];
 
-  const pushTheme = () =>
-    iframeRef?.current?.contentWindow?.postMessage(
-      { __typren: true, type: "theme", theme },
-      window.location.origin
-    );
+  // "*" because the sandboxed frame has an opaque origin; the payload is only a theme name.
+  const pushTheme = () => iframeRef?.current?.contentWindow?.postMessage({ __typren: true, type: "theme", theme }, "*");
   // Re-assert theme whenever it changes or the preview reloads (fresh document).
   useEffect(pushTheme, [theme, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -112,6 +109,10 @@ export function DevicePreview({
             key={reloadKey}
             title="Live preview"
             src={src}
+            // The frame renders unpublished draft content. Without allow-same-origin its scripts run in
+            // an opaque origin: no reach into this editor's DOM, document.cookie or storage, and its
+            // requests to the CMS API are cross-origin, so CORS keeps it from reading the responses.
+            sandbox="allow-scripts allow-forms"
             onLoad={pushTheme}
             className="h-full w-full border-0 bg-white"
           />

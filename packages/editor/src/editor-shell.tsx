@@ -132,13 +132,17 @@ export function EditorShell({
   // Messages from the preview iframe: block selection + inline text edits.
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return;
+      // The preview frame is sandboxed without allow-same-origin (see DevicePreview), so its messages
+      // arrive with origin "null", which any other sandboxed frame or opaque document can claim too.
+      // The sender's WindowProxy cannot be forged, so the frame is identified by source, not origin.
+      const frame = iframeRef.current?.contentWindow;
+      if (!frame || e.source !== frame) return;
       const d = e.data;
-      if (!d || d.__typren !== true) return;
-      if (d.type === "select" && typeof d.index === "number") {
+      if (!d || d.__typren !== true || !Number.isInteger(d.index)) return;
+      if (d.type === "select") {
         setSelected(d.index);
       }
-      if (d.type === "edit" && typeof d.index === "number") {
+      if (d.type === "edit") {
         // Map the edited on-canvas text back to the slice's matching string
         // field (by comparing plain text, ignoring **markdown** markers).
         const before = String(d.before ?? "").trim();
@@ -162,12 +166,10 @@ export function EditorShell({
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  // Sidebar selection -> scroll the matching block into view in the preview.
+  // Sidebar selection -> scroll the matching block into view in the preview. An opaque-origin frame
+  // cannot be addressed by origin, so this posts with "*"; the payload is only a block index.
   useEffect(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { __typren: true, type: "select", index: selected },
-      window.location.origin
-    );
+    iframeRef.current?.contentWindow?.postMessage({ __typren: true, type: "select", index: selected }, "*");
   }, [selected, previewV]);
 
   const mutate = (slices: Slice[], nextSelected = selected) => {

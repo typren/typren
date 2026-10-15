@@ -197,6 +197,10 @@ export interface CmsConfig {
    *  fields (see FieldDef) still render, just as a plain text input with no
    *  "Browse library" button. */
   mediaAdapter?: MediaAdapter;
+  /** Accept SVG uploads (sanitized). Off by default: an SVG is a document, so
+   *  serve media from a separate origin or with `Content-Security-Policy:
+   *  sandbox` before turning this on. See docs/site/media-storage.md. */
+  allowSvg?: boolean;
   /** Left-nav section registry. Omit → resolveSections() returns the default
    *  trio (pages, media, settings); existing hosts get byte-identical
    *  behavior, mirroring resolveI18n's omitted-block collapse. */

@@ -402,6 +402,9 @@ export function createGithubAdapter({
       return entries
         .filter((e) => e.type === "file" && e.name.endsWith(".md"))
         .map((e) => e.name.replace(/\.md$/, ""))
+        // A file named outside SAFE_SLUG (`My Page.md`, `.md`) would throw on every later read of it,
+        // taking listPages/sitemap down with it; it is not a page this adapter can serve, so skip it.
+        .filter((slug) => SAFE_SLUG.test(slug))
         .sort((a, b) => a.localeCompare(b));
     },
 

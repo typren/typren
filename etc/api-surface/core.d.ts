@@ -968,10 +968,13 @@ import type { CmsConfig, PreparedFile } from "./types.js";
 export declare const MAX_UPLOAD_BYTES: number;
 /** Validates + web-optimizes a raw upload. Never trusts the client-supplied
  *  mime/extension: sniffs actual bytes via sharp.metadata(). Throws with a
- *  user-facing message on any rejection. */
+ *  user-facing message on any rejection. SVG is refused unless `allowSvg`
+ *  (see `CmsConfig.allowSvg`). */
 export declare function processUpload(input: {
     name: string;
     buffer: Buffer;
+}, opts?: {
+    allowSvg?: boolean;
 }): Promise<PreparedFile>;
 /** Route Handler body. The host's route.ts is a thin wrapper, the same
  *  "host owns the boundary, package supplies the logic" split actions.ts
@@ -2097,6 +2100,10 @@ export interface CmsConfig {
      *  fields (see FieldDef) still render, just as a plain text input with no
      *  "Browse library" button. */
     mediaAdapter?: MediaAdapter;
+    /** Accept SVG uploads (sanitized). Off by default: an SVG is a document, so
+     *  serve media from a separate origin or with `Content-Security-Policy:
+     *  sandbox` before turning this on. See docs/site/media-storage.md. */
+    allowSvg?: boolean;
     /** Left-nav section registry. Omit → resolveSections() returns the default
      *  trio (pages, media, settings); existing hosts get byte-identical
      *  behavior, mirroring resolveI18n's omitted-block collapse. */

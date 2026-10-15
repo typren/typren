@@ -148,16 +148,17 @@ export function createGithubWebhookHandler(options: GithubWebhookOptions): (req:
   const { secret, branch = "main", contentDir = "content", draftSubdir = "_drafts", onChange } = options;
   if (!secret) throw new Error("typren: createGithubWebhookHandler requires a non-empty secret");
 
+  // A delivery counts as seen only once onChange has succeeded for it. Recording it on arrival meant
+  // a failed onChange (500, so GitHub retries) had its retry swallowed as a replay, and the
+  // invalidation never happened. Ignored events are never recorded; re-ignoring them is free.
   const seenDeliveries = new Map<string, true>();
-  function isReplay(deliveryId: string | null): boolean {
-    if (!deliveryId) return false;
-    if (seenDeliveries.has(deliveryId)) return true;
+  function markSeen(deliveryId: string | null): void {
+    if (!deliveryId) return;
     seenDeliveries.set(deliveryId, true);
     if (seenDeliveries.size > MAX_SEEN_DELIVERIES) {
       const oldest = seenDeliveries.keys().next().value;
       if (oldest !== undefined) seenDeliveries.delete(oldest);
     }
-    return false;
   }
 
   return async (req: Request): Promise<Response> => {
@@ -178,7 +179,8 @@ export function createGithubWebhookHandler(options: GithubWebhookOptions): (req:
     const valid = await verifySignature(secret, bodyBuffer, req.headers.get("x-hub-signature-256"));
     if (!valid) return new Response("Invalid signature", { status: 401 });
 
-    if (isReplay(req.headers.get("x-github-delivery"))) {
+    const deliveryId = req.headers.get("x-github-delivery");
+    if (deliveryId && seenDeliveries.has(deliveryId)) {
       return new Response("Already processed", { status: 202 });
     }
 
@@ -201,7 +203,7 @@ export function createGithubWebhookHandler(options: GithubWebhookOptions): (req:
     // is itself truncated (more commits existed than the payload lists) --
     // all three fall back to "everything".
     if (!payload.deleted && (payload.forced || !payload.commits?.length || payload.commits.length >= GITHUB_PUSH_COMMIT_CAP)) {
-      return runOnChange({ paths: [], slugs: [], locales: [], full: true });
+      return runOnChange({ paths: [], slugs: [], locales: [], full: true }, deliveryId);
     }
 
     const allPaths = (payload.commits ?? []).flatMap((c) => [...(c.added ?? []), ...(c.modified ?? []), ...(c.removed ?? [])]);
@@ -217,15 +219,19 @@ export function createGithubWebhookHandler(options: GithubWebhookOptions): (req:
       if (parsed.locale) locales.add(parsed.locale);
     }
 
-    return runOnChange({ paths: paths.map((p) => `${contentDir}/${p}`), slugs: [...slugs], locales: [...locales], full: false });
+    return runOnChange(
+      { paths: paths.map((p) => `${contentDir}/${p}`), slugs: [...slugs], locales: [...locales], full: false },
+      deliveryId
+    );
   };
 
-  async function runOnChange(change: GithubWebhookChange): Promise<Response> {
+  async function runOnChange(change: GithubWebhookChange, deliveryId: string | null): Promise<Response> {
     try {
       await onChange(change);
     } catch (e) {
       return new Response(`onChange failed: ${e instanceof Error ? e.message : String(e)}`, { status: 500 });
     }
+    markSeen(deliveryId);
     return new Response("OK", { status: 200 });
   }
 }

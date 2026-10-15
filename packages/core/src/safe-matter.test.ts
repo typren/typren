@@ -22,6 +22,27 @@ describe("parseMatter", () => {
     expect(parseMatter("---\ntitle: Hi\n---\nbody\n").data).toEqual({ title: "Hi" });
   });
 
+  it("keeps gray-matter's YAML semantics: timestamps as Date, merge keys, yes as a string", () => {
+    const { data } = parseMatter("---\nd: 2024-01-02\nb: yes\nm:\n  <<: {a: 1}\n---\n");
+    expect(data).toEqual({ d: new Date("2024-01-02T00:00:00Z"), b: "yes", m: { a: 1 } });
+  });
+
+  it("refuses YAML aliases, so a billion-laughs block fails fast instead of expanding", () => {
+    const levels = ["a: &a [x, x, x, x, x, x, x, x, x]"];
+    for (let i = 1; i < 10; i++) {
+      const prev = String.fromCharCode(96 + i);
+      const cur = String.fromCharCode(97 + i);
+      levels.push(`${cur}: &${cur} [${Array(9).fill(`*${prev}`).join(", ")}]`);
+    }
+    const started = performance.now();
+    expect(() => parseMatter(`---\n${levels.join("\n")}\n---\n`)).toThrow();
+    expect(performance.now() - started).toBeLessThan(100);
+  });
+
+  it("refuses front matter over 256 KB", () => {
+    expect(() => parseMatter(`---\nt: "${"x".repeat(256 * 1024)}"\n---\n`)).toThrow(/front matter exceeds 256 KB/);
+  });
+
   it("markdown and github adapters refuse JavaScript front matter in parse()", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-safe-matter-"));
     const adapters = [
