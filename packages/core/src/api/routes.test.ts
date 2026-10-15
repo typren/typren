@@ -228,6 +228,11 @@ describe("config factory (per-request resolution)", () => {
         adapter: createMarkdownAdapter({ contentDir: tenant === "a" ? dirA : dirB }),
         previewPath: "/editor/preview",
         siteId: tenant,
+        // Required alongside siteId: the default bootstrap adapter is one
+        // process-wide file, which would collide across tenants.
+        settingsAdapter: createFsSettingsAdapter({
+          file: path.join(tenant === "a" ? dirA : dirB, "typren.config.json"),
+        }),
         auth: openAuth(),
       });
 

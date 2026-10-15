@@ -195,6 +195,25 @@ describe("createSettingsStore", () => {
     expect(() => createSettingsStore(config)).not.toThrow();
   });
 
+  // Regression: a hosted/multi-tenant config (siteId set) with no explicit
+  // settingsAdapter used to silently fall through to the single-process
+  // default (one typren.config.json at process.cwd()), so every tenant's
+  // bootstrap read/write hit the SAME file -- a structural tenant-isolation
+  // break, not a mere misconfiguration.
+  it("throws when siteId is set but no settingsAdapter is given", () => {
+    const config: CmsConfig = { ...makeConfig(), siteId: "tenant-a" };
+    expect(() => createSettingsStore(config)).toThrow(/settingsAdapter/);
+  });
+
+  it("does not throw when siteId is set AND an explicit settingsAdapter is given", () => {
+    const config: CmsConfig = {
+      ...makeConfig(),
+      siteId: "tenant-a",
+      settingsAdapter: createFsSettingsAdapter({ file: path.join(dir, "tenant-a.json") }),
+    };
+    expect(() => createSettingsStore(config)).not.toThrow();
+  });
+
   it("gates writes on the distinct 'admin' auth action, not the content-write action", async () => {
     const actions: AuthAction[] = [];
     const denyAdmin: AuthAdapter = {

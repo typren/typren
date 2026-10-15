@@ -133,6 +133,19 @@ export interface SettingsStore {
 }
 
 export function createSettingsStore(config: CmsConfig): SettingsStore {
+  // A hosted/multi-tenant config (siteId set, per docs/hosted-platform.md)
+  // with no explicit settingsAdapter would otherwise fall through to the
+  // single-process default below (one `typren.config.json` at
+  // `process.cwd()`), which every tenant's CmsConfigFactory call resolves to
+  // the SAME path -- every site's bootstrap (adminRoute, locales, onboarded)
+  // would read/write the same file, structurally breaking tenant isolation
+  // rather than merely risking it. Caught here, once, same as the
+  // settingsContentAdapter checks below.
+  if (config.siteId !== undefined && config.settingsAdapter === undefined) {
+    throw new Error(
+      "typren: config.siteId is set (hosted/multi-tenant mode) but no config.settingsAdapter was given -- the default bootstrap adapter is a single shared file and would collide across tenants"
+    );
+  }
   // Settings is a reserved slug ("settings") written through its own
   // adapter: if that adapter is (or points at the same storage as) the
   // Pages adapter, a page actually named "settings" and the settings doc
