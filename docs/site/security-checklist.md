@@ -11,8 +11,8 @@ guide that explains the reasoning; this page is the checklist form.
 ## Auth
 
 - [ ] `auth` is set to a real `AuthAdapter`, not the dev-only `localAuth()`
-      fallback. (`localAuth()` also refuses a non-loopback request `Host`
-      even in development, but it is still never a production adapter.)
+      fallback. (`localAuth()` also refuses a dev server that isn't bound to
+      loopback, but it is still never a production adapter.)
 - [ ] Every email allowlist entry is backed by an identity provider that
       actually sends a **verified**-email signal (OIDC `email_verified`,
       Clerk's primary-email verification status, Better Auth

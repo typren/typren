@@ -128,13 +128,24 @@ why.
 
 `@typren/core/auth/local`'s `localAuth()` is what `typren init` scaffolds.
 It authorizes every action identically (there's only one tier in local dev,
-so it doesn't branch on `ctx.action`) only when `NODE_ENV === "development"`
-**and** the request's `Host` is loopback (`localhost`, `127.0.0.1`, `[::1]`,
-or a `*.localhost` name), and fails closed in production unless you pass
-`allowInProduction: true` — which you should never do for a real deployment.
-The loopback check exists because `NODE_ENV` alone doesn't stop a
-misconfigured production host from running with `NODE_ENV=development`; the
-scaffolded dev script binds Next to `127.0.0.1` (`next dev -H 127.0.0.1`) so
-the dev server itself is never reachable off-box. See
+so it doesn't branch on `ctx.action`) only when all three hold:
+
+- `NODE_ENV === "development"` (it fails closed in production unless you pass
+  `allowInProduction: true`, which you should never do for a real
+  deployment);
+- the Next server is **bound to loopback**: started with
+  `next dev -H 127.0.0.1` (or `-H ::1`). The default `next dev` listens on
+  every interface, and `-H localhost` is indistinguishable from it at
+  runtime, so both are refused;
+- the request's `Host` is loopback (`localhost`, `127.0.0.1`, `[::1]`, or a
+  `*.localhost` name).
+
+The bind is the actual network boundary. A route handler or server action
+never sees the client's socket address, and the `Host` header is whatever the
+client sends, so a LAN client could spoof `Host: localhost` against a server
+listening on all interfaces. A loopback bind makes the server unreachable
+off-box; the `Host` check stays only as an extra filter against DNS
+rebinding. `localAuth()` reads the bind from Next's own startup state, so a
+`NODE_ENV=development` server bound to a public interface is refused too. See
 [Choosing auth](./choosing-auth.md) for wiring a real provider before you
 deploy.

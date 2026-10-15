@@ -64,7 +64,8 @@ export const cmsStore = createStore(cmsConfig.adapter, { onPublish: cmsConfig.on
   (the fs + markdown `ContentAdapter`; see [Content tiers](./content-tiers.md)
   for the GitHub-backed alternative).
 - **`auth: localAuth()`** — authorizes writes only when
-  `NODE_ENV === "development"`; fails closed in production. Swap for
+  `NODE_ENV === "development"` and the dev server is bound to loopback
+  (`next dev -H 127.0.0.1`); fails closed in production. Swap for
   `@typren/core/auth/next-auth`, `/clerk`, `/better-auth`, `/supabase`, or
   `/oidc` before deploying — see [Auth model](./auth-model.md).
 - **`mediaAdapter`** — `createFsMediaAdapter` over `public/img`, serving

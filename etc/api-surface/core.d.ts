@@ -402,11 +402,12 @@ import type { AuthAdapter } from "../auth-adapter.js";
 /**
  * Dev-only gate (entry `@typren/core/auth/local`, no peer deps outside the
  * `getHost` default above). Refuses in production unless `allowInProduction`
- * is explicitly set, AND refuses any non-loopback Host even in development.
- * The editor writes files, so never ship it open by omission. Doesn't branch
- * on `ctx.action`, so "admin" (settings/onboarding/bootstrap writes) gets the
- * exact same local-only gate as every other write. There's only one tier in
- * local dev.
+ * is explicitly set, refuses unless the Next server is bound to loopback
+ * (`next dev -H 127.0.0.1`, which `typren init` scaffolds), and refuses a
+ * non-loopback Host even then. The editor writes files, so never ship it open
+ * by omission. Doesn't branch on `ctx.action`, so "admin"
+ * (settings/onboarding/bootstrap writes) gets the exact same local-only gate
+ * as every other write. There's only one tier in local dev.
  */
 export declare function localAuth(opts?: {
     /** default: NODE_ENV === "development" */
@@ -414,7 +415,7 @@ export declare function localAuth(opts?: {
     /** default: false */
     allowInProduction?: boolean;
     /** Resolve the request's Host header. Default: Next's `headers()` (see
-     *  `defaultGetHost`). Override for a non-Next host, or in tests. */
+     *  `defaultGetHost`). Override in tests. Only ever narrows access. */
     getHost?: () => Promise<string | null>;
 }): AuthAdapter;
 
