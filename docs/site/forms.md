@@ -142,3 +142,32 @@ if (!result.ok) showErrors(result.errors);
 reserved `_page`/`_locale` meta keys from `location`/`document` when
 available, and POSTs JSON to the handler. There are no framework wrappers
 (React, Vue) yet — `submitForm` is the whole client surface.
+
+## Static sites with no server
+
+A site with no server runtime at all (static export, S3/CDN) can't mount
+`createFormHandler` anywhere. For that case, pass `sink` instead of
+`endpoint`:
+
+```ts
+import { submitForm } from "@typren/forms/client";
+
+const result = await submitForm(formElement, {
+  sink: { type: "hubspot", portalId: "123", formGuid: "abc" },
+  schema: contactForm,
+});
+```
+
+This runs validate → honeypot → deliver entirely in the browser, against the
+sink directly — the same semantics as the server handler, minus the trust
+boundary. That last part matters: **this is UX and spam hygiene only, not a
+security boundary.** There is no server left to re-validate, so a visitor
+can always read the page's own JS and submit whatever they want by hand.
+Only credential-free sinks are even allowed here: a `hubspot` sink with no
+`accessToken`, or a `webhook` with no `${VAR}` reference in its `headers`.
+Passing `google-sheets`, `file`, or any sink config containing a `"${...}"`
+reference throws immediately — `submitForm` refuses to bundle a secret into
+client code, it doesn't just document the rule. A site that needs
+server-authoritative validation or a credentialed sink deploys
+`createFormHandler` instead (Workers, a Lambda function URL, a Next route
+handler); `sink` mode is the no-server fallback, not a replacement for it.
