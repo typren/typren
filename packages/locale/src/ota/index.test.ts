@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { createNodePurifier } from "../build/node-purifier";
 import { hashCatalog } from "../canonicalize";
 import { merge } from "../delta";
 import type { Catalog, Manifest } from "../types";
@@ -11,8 +12,8 @@ const MANIFEST_URL = "https://cdn.example/manifest/site.json";
 const catalogUrl = (hash: string) => `https://cdn.example/catalog/site/en/${hash}.json`;
 const deltaUrl = (fromHash: string, toHash: string) => `https://cdn.example/delta/site/en/${fromHash}-${toHash}.json`;
 
-function manifestWithHash(hash: string): Manifest {
-  return { v: 1, buildVersion: BUILD_VERSION, apps: { [APP]: { [LANG]: { hash } } } };
+function manifestWithHash(hash: string, deltas?: Record<string, string>): Manifest {
+  return { v: 1, buildVersion: BUILD_VERSION, apps: { [APP]: { [LANG]: { hash, ...(deltas && { deltas }) } } } };
 }
 
 function memoryStorage(): KVStorage {
@@ -167,9 +168,10 @@ describe("loadMessages", () => {
     expect(result).toEqual({ Greeting: { Hello: "Hey {name}" }, Nav: { Legacy: "Old link" } });
     expect(errors).toEqual([]);
 
+    // The cache holds the verified remote content (so a later read can re-hash it), not the merge.
     const cached = JSON.parse(localStorage.getItem(`locale:${APP}:${LANG}:${BUILD_VERSION}`)!);
     expect(cached.hash).toBe(remoteHash);
-    expect(cached.catalog).toEqual(result);
+    expect(cached.catalog).toEqual(remote);
 
     // cache-hit path serves the merged catalog without refetching
     let catalogFetches = 0;
@@ -477,7 +479,7 @@ describe("loadMessages", () => {
     const delta = { changed, additiveHash: remoteHash };
 
     const fetchImpl = async (url: string) => {
-      if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
+      if (url === MANIFEST_URL) return manifestWithHash(remoteHash, { [bakedHash]: remoteHash });
       if (url === deltaUrl(bakedHash, remoteHash)) return delta;
       throw new Error(`unexpected fetch (full catalog must never be fetched on a verified delta hit): ${url}`);
     };
@@ -508,7 +510,7 @@ describe("loadMessages", () => {
     let catalogFetched = false;
 
     const fetchImpl = async (url: string) => {
-      if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
+      if (url === MANIFEST_URL) return manifestWithHash(remoteHash, { [bakedHash]: remoteHash });
       if (url === deltaUrl(bakedHash, remoteHash)) throw new Error("request failed: 404");
       if (url === catalogUrl(remoteHash)) {
         catalogFetched = true;
@@ -541,11 +543,11 @@ describe("loadMessages", () => {
     const remote: Catalog = { A: "b" };
     const remoteHash = await hashCatalog(remote);
     const errors: unknown[] = [];
-    // Shape-valid, but the claimed hash doesn't match what applying `changed` onto baked actually produces.
-    const badDelta = { changed: { A: "b" }, additiveHash: "deadbeef".repeat(8) };
+    // Shape-valid, but the manifest's expected hash doesn't match what applying `changed` onto baked produces.
+    const badDelta = { changed: { A: "b" }, additiveHash: remoteHash };
 
     const fetchImpl = async (url: string) => {
-      if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
+      if (url === MANIFEST_URL) return manifestWithHash(remoteHash, { [bakedHash]: "deadbeef".repeat(8) });
       if (url === deltaUrl(bakedHash, remoteHash)) return badDelta;
       if (url === catalogUrl(remoteHash)) return remote;
       throw new Error(`unexpected fetch: ${url}`);
@@ -578,7 +580,7 @@ describe("loadMessages", () => {
     const delta = { changed, additiveHash: remoteHash };
 
     const fetchImpl = async (url: string) => {
-      if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
+      if (url === MANIFEST_URL) return manifestWithHash(remoteHash, { [bakedHash]: remoteHash });
       if (url === deltaUrl(bakedHash, remoteHash)) return delta;
       throw new Error(`unexpected fetch (full catalog must never be fetched on a verified delta hit): ${url}`);
     };
@@ -725,6 +727,116 @@ describe("loadMessages with omitted bakedHash", () => {
     } finally {
       Object.defineProperty(globalThis, "crypto", { value: realCrypto, configurable: true });
     }
+  });
+});
+
+describe("loadMessages integrity", () => {
+  const base = { app: APP, lang: LANG, buildVersion: BUILD_VERSION, manifestUrl: MANIFEST_URL, catalogUrl, deltaUrl };
+
+  it("a tampered delta that restates its own additiveHash is rejected: only the manifest's hash counts", async () => {
+    const baked: Catalog = { A: "a" };
+    const bakedHash = await hashCatalog(baked);
+    const remote: Catalog = { A: "b" };
+    const remoteHash = await hashCatalog(remote);
+    const evilChanged = { A: "evil" };
+    const tampered = { changed: evilChanged, additiveHash: await hashCatalog(merge(baked, { changed: evilChanged, removed: [] })) };
+    const errors: unknown[] = [];
+
+    const result = await loadMessages({
+      ...base,
+      bakedCatalog: baked,
+      bakedHash,
+      fetchImpl: async (url) => {
+        if (url === MANIFEST_URL) return manifestWithHash(remoteHash, { [bakedHash]: remoteHash });
+        if (url === deltaUrl(bakedHash, remoteHash)) return tampered;
+        if (url === catalogUrl(remoteHash)) return remote;
+        throw new Error(`unexpected fetch: ${url}`);
+      },
+      onError: (e) => errors.push(e),
+    });
+
+    expect(result).toEqual({ A: "b" });
+    expect(String(errors[0])).toMatch(/manifest expects/);
+  });
+
+  it("a delta the manifest does not vouch for is never fetched", async () => {
+    const baked: Catalog = { A: "a" };
+    const remote: Catalog = { A: "b" };
+    const remoteHash = await hashCatalog(remote);
+    const calls: string[] = [];
+
+    const result = await loadMessages({
+      ...base,
+      bakedCatalog: baked,
+      fetchImpl: async (url) => {
+        calls.push(url);
+        return url === MANIFEST_URL ? manifestWithHash(remoteHash) : remote;
+      },
+    });
+
+    expect(result).toEqual(remote);
+    expect(calls).toEqual([MANIFEST_URL, catalogUrl(remoteHash)]);
+  });
+
+  it("re-runs the HTML gate at load: a hostile string keeps its baked value, the rest still updates", async () => {
+    const baked: Catalog = { A: "a", B: "b" };
+    // Hash-valid on purpose: a compromised publisher can sign whatever it serves.
+    const remote: Catalog = { A: '<img src=x onerror="alert(1)">', B: "new" };
+    const remoteHash = await hashCatalog(remote);
+    const errors: unknown[] = [];
+
+    const result = await loadMessages({
+      ...base,
+      deltaUrl: undefined,
+      bakedCatalog: baked,
+      fetchImpl: async (url) => (url === MANIFEST_URL ? manifestWithHash(remoteHash) : remote),
+      onError: (e) => errors.push(e),
+      purifier: createNodePurifier(),
+    });
+
+    expect(result).toEqual({ A: "a", B: "new" });
+    expect(String(errors[0])).toMatch(/html gate dropped site\/en keys .*: A$/);
+  });
+
+  it("a tampered localStorage entry is re-verified on read and treated as a miss", async () => {
+    const baked: Catalog = { A: "a" };
+    const remote: Catalog = { A: "b" };
+    const remoteHash = await hashCatalog(remote);
+    const storage = memoryStorage();
+    storage.setItem(`locale:${APP}:${LANG}:${BUILD_VERSION}`, JSON.stringify({ hash: remoteHash, catalog: { A: "evil" } }));
+    let catalogFetches = 0;
+
+    const result = await loadMessages({
+      ...base,
+      deltaUrl: undefined,
+      bakedCatalog: baked,
+      storage,
+      fetchImpl: async (url) => {
+        if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
+        catalogFetches++;
+        return remote;
+      },
+    });
+
+    expect(result).toEqual(remote);
+    expect(catalogFetches).toBe(1);
+  });
+
+  it("the memo is keyed by manifestUrl: another manifest never gets this one's object back", async () => {
+    const baked: Catalog = { A: "a" };
+    const remote: Catalog = { A: "b" };
+    const remoteHash = await hashCatalog(remote);
+    const opts = {
+      ...base,
+      deltaUrl: undefined,
+      bakedCatalog: baked,
+      storage: memoryStorage(),
+      fetchImpl: async (url: string) => (url.includes("manifest") ? manifestWithHash(remoteHash) : remote),
+    };
+
+    const first = await loadMessages(opts);
+    expect(await loadMessages(opts)).toBe(first);
+    expect(await loadMessages({ ...opts, manifestUrl: "https://staging.example/manifest/site.json" })).not.toBe(first);
   });
 });
 

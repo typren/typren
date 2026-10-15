@@ -32,9 +32,10 @@ export interface BuildResult {
 export interface PublishedDelta extends Delta {
   /**
    * Hash of `merge(fromCatalog, delta, {allowRemove:false})`: the catalog an
-   * OLD client's additive merge must produce. Pre-wires delta-first OTA. A
-   * client applying this delta verifies against `additiveHash`, not the
-   * release hash, which a removal release makes unreachable additively.
+   * OLD client's additive merge must produce (a removal release makes the
+   * release hash unreachable additively). Informational here: the same value
+   * is published in the manifest's `deltas` map, and the OTA client verifies
+   * against that copy, since a tampered delta could restate its own hash.
    */
   additiveHash: string;
 }
@@ -165,16 +166,13 @@ export async function buildCatalogs(
     catalogPaths[lang] = catalogPath;
   }
 
-  const manifestPath = joinInside(outDir, "manifest", `${options.app}.json`);
-  mkdirSync(dirname(manifestPath), { recursive: true });
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-
   const history = readHistory(outDir, options.app);
   const deltaPaths: string[] = [];
   let deltaCandidates = 0;
   let missingFromPaths = 0;
   for (const [lang, catalog] of Object.entries(catalogsByLang)) {
-    const toHash = manifest.apps[options.app]![lang]!.hash;
+    const entry = manifest.apps[options.app]![lang]!;
+    const toHash = entry.hash;
     for (const release of history) {
       const fromHash = release.hashes[lang];
       if (!fromHash || fromHash === toHash) continue; // no prior release for this lang, or unchanged since it
@@ -188,10 +186,16 @@ export async function buildCatalogs(
 
       const fromCatalog: Catalog = JSON.parse(readFileSync(fromPath, "utf8"));
       const destPath = joinInside(outDir, "delta", options.app, lang, `${fromHash}-${toHash}.json`);
-      await writeDelta(fromCatalog, catalog, destPath);
+      const { additiveHash } = await writeDelta(fromCatalog, catalog, destPath);
+      // The client trusts this manifest-bound hash, never the delta body's own claim.
+      (entry.deltas ??= {})[fromHash] = additiveHash;
       deltaPaths.push(destPath);
     }
   }
+
+  const manifestPath = joinInside(outDir, "manifest", `${options.app}.json`);
+  mkdirSync(dirname(manifestPath), { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   if (deltaCandidates > 0 && missingFromPaths === deltaCandidates) {
     console.warn(
       `buildCatalogs: history for ${options.app} lists ${deltaCandidates} prior release catalog(s) but none exist under ${outDir} — zero deltas emitted (fresh checkout? publish the previous build output alongside).`,

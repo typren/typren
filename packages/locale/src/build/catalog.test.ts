@@ -117,6 +117,10 @@ describe("buildCatalogs", () => {
       merge({ A: "old" }, diff({ A: "old" }, { A: "new", B: "added" }), { allowRemove: false }),
     );
     expect(written.additiveHash).toBe(expectedAdditive);
+    // The client verifies against the manifest's copy, so it must be published there (and on disk).
+    expect(second.manifest.apps.demo!.en!.deltas).toEqual({ [fromHash]: expectedAdditive });
+    const onDisk = JSON.parse(readFileSync(second.manifestPath, "utf8"));
+    expect(onDisk.apps.demo.en.deltas).toEqual({ [fromHash]: expectedAdditive });
   });
 
   it("fails the publish when a delta'd string changes its {var} placeholder set", async () => {

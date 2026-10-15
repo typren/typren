@@ -1,6 +1,7 @@
 import type { Catalog, Manifest } from "../types";
 import { diff, merge } from "../delta";
 import { hashCatalog } from "../canonicalize";
+import { isUnsafeHtml, type Purifier } from "../no-html";
 
 /**
  * Minimal storage contract, shaped like `localStorage` (`getItem`/`setItem`)
@@ -110,14 +111,14 @@ function parseCacheEntry(raw: string): CacheEntry | null {
 
 /**
  * Shape this client needs from a `PublishedDelta` (see `build/catalog.ts`):
- * just enough to verify and apply an additive delta. The fetched catalog is
- * already a trust boundary here (CDN compromise, MITM on a misconfigured
- * origin), so a fetched delta gets the same shape check before its
- * `changed` keys ever reach `merge`.
+ * just enough to apply an additive delta. The fetched catalog is already a
+ * trust boundary here (CDN compromise, MITM on a misconfigured origin), so a
+ * fetched delta gets a shape check before its `changed` keys ever reach
+ * `merge`. Its own `additiveHash` is deliberately not read: the expected hash
+ * comes from the manifest.
  */
 interface FetchedDelta {
   changed: Record<string, string>;
-  additiveHash: string;
 }
 
 function isFetchedDelta(value: unknown): value is FetchedDelta {
@@ -125,8 +126,7 @@ function isFetchedDelta(value: unknown): value is FetchedDelta {
     typeof value === "object" &&
     value !== null &&
     typeof (value as FetchedDelta).changed === "object" &&
-    (value as FetchedDelta).changed !== null &&
-    typeof (value as FetchedDelta).additiveHash === "string"
+    (value as FetchedDelta).changed !== null
   );
 }
 
@@ -185,6 +185,37 @@ export interface LoadMessagesOptions {
   storage?: KVStorage;
   /** Alert-not-silent hook: fired on a content-hash mismatch or any swallowed failure. */
   onError?: (error: unknown) => void;
+  /**
+   * DOMPurify instance for the load-time HTML gate. Defaults to one bound to the page's `window`;
+   * SSR in Node passes `createNodePurifier()` from `@typren/locale/build`, or every load there
+   * resolves to baked (the gate cannot run without a DOM, and the client fails closed).
+   */
+  purifier?: Purifier;
+}
+
+/**
+ * Applies `content` (a hash-verified remote catalog or additive merge) onto baked, without removals,
+ * after re-running the publish-time HTML gate on every changed string. The hash only proves the bytes
+ * are what the manifest named; a compromised publisher or manifest can still name hostile copy. A
+ * failing key keeps its baked value and is reported, rather than discarding the whole update.
+ */
+function applyGated(
+  baked: Catalog,
+  content: Catalog,
+  purifier: Purifier | undefined,
+  onError: ((error: unknown) => void) | undefined,
+  label: string,
+): Catalog {
+  const changed: Record<string, string> = {};
+  const dropped: string[] = [];
+  for (const [key, value] of Object.entries(diff(baked, content).changed)) {
+    if (typeof value === "string" && !isUnsafeHtml(value, purifier)) changed[key] = value;
+    else dropped.push(key);
+  }
+  if (dropped.length > 0) {
+    onError?.(new Error(`ota html gate dropped ${label} keys (baked value kept): ${dropped.join(", ")}`));
+  }
+  return merge(baked, { changed, removed: [] }, { allowRemove: false });
 }
 
 async function defaultFetch(url: string): Promise<unknown> {
@@ -196,38 +227,41 @@ async function defaultFetch(url: string): Promise<unknown> {
 /**
  * Fail-safe OTA delta loader. Never throws: any fetch/parse failure resolves
  * to `bakedCatalog`, because a bad OTA payload must never break the app. It
- * can only skip the update. Order of operations:
+ * can only skip the update. Every hash this trusts comes from the freshly
+ * fetched manifest, never from the payload or storage it is checking.
+ * Order of operations:
  *
- *  1. GET the manifest to get remote hash R for {app,lang}.
- *  2. A module-level memo keyed by {app,lang,buildVersion,R} returns the
- *     SAME object reference on a repeat poll against an unchanged R, with no
- *     storage read and no catalog/delta fetch beyond the manifest. This
- *     matters downstream: callers gate a re-render on reference equality.
- *  3. If a cache entry for {app,lang,buildVersion} already carries hash R,
- *     reuse its already-merged catalog (skips re-fetching and re-merging).
- *     Keying by buildVersion means a stale build's cache entry can never be
- *     read by a newer build, since that build uses a different key, so it
- *     can never leak mismatched content forward across a deploy.
- *  4. Else if R equals bakedHash (passed in, or computed here when omitted),
+ *  1. GET the manifest to get remote hash R for {app,lang}, plus its
+ *     `deltas` map (prior release hash -> expected additive-merge hash).
+ *  2. A module-level memo keyed by {manifestUrl,app,lang,buildVersion,R}
+ *     returns the SAME object reference on a repeat poll against an
+ *     unchanged R, with no storage read and no catalog/delta fetch beyond
+ *     the manifest. This matters downstream: callers gate a re-render on
+ *     reference equality.
+ *  3. If R equals bakedHash (passed in, or computed here when omitted),
  *     return baked as-is (no catalog fetch at all).
- *  5. Else, when `deltaUrl` is set, try the precomputed additive delta
- *     first: fetch it, apply its `changed` keys onto baked with
- *     `allowRemove:false`, and verify the merge hashes to the delta's
- *     `additiveHash`. A verified hit is far cheaper than the full catalog on
- *     a typical poll. Any fetch, parse, or shape failure falls through
- *     silently to step 6 (a 404 just means the baked hash fell outside the
- *     precomputed window, e.g. a fresh CI build with no history yet). A
- *     hash mismatch reports through `onError` and also falls through to
- *     step 6, rather than straight to baked, so a delta bug never blocks an
- *     update the full-catalog path could still deliver.
+ *  4. A cache entry for {app,lang,buildVersion} is reused only when its
+ *     hash is one the manifest vouches for (R, or the expected additive
+ *     hash for this baked build) AND its stored catalog re-hashes to it, so
+ *     a tampered or stale localStorage entry is a cache miss. Keying by
+ *     buildVersion means a stale build's entry is never even read.
+ *  5. Else, when `deltaUrl` is set and the manifest lists an expected hash
+ *     for this baked build, try the precomputed additive delta first: fetch
+ *     it, apply its `changed` keys onto baked with `allowRemove:false`, and
+ *     verify the merge hashes to the manifest's expected value. Any fetch,
+ *     parse, or shape failure falls through silently to step 6 (a 404 just
+ *     means the baked hash fell outside the precomputed window). A hash
+ *     mismatch reports through `onError` and also falls through to step 6.
  *  6. Fetch the full catalog at R and verify the FETCHED content hashes to R
- *     (a content-address check; corruption or tampering reports via
- *     `onError` and falls back to baked). Then merge over baked with
- *     `allowRemove:false` (a delta must never remove keys for an old build),
- *     cache the merged result under R, and return it. The merged catalog is
- *     deliberately NOT required to hash to R: a release that removed keys
- *     makes that unsatisfiable by design, since the no-remove merge keeps
- *     them, and requiring it would permanently brick OTA for such releases.
+ *     (corruption or tampering reports via `onError` and falls back to
+ *     baked). The merged result is deliberately NOT required to hash to R: a
+ *     release that removed keys makes that unsatisfiable by design, since
+ *     the no-remove merge keeps them.
+ *
+ *  Whatever passed verification (the remote catalog, or the additive merge)
+ *  is what gets cached, so step 4 can re-verify it. It is then applied onto
+ *  baked through the HTML gate (see `applyGated`): a string outside the
+ *  publish allowlist keeps its baked value.
  */
 export async function loadMessages(options: LoadMessagesOptions): Promise<Catalog> {
   const {
@@ -242,31 +276,24 @@ export async function loadMessages(options: LoadMessagesOptions): Promise<Catalo
     fetchImpl = defaultFetch,
     storage = defaultStorage(),
     onError,
+    purifier,
   } = options;
 
   const cacheKey = `locale:${app}:${lang}:${buildVersion}`;
+  const label = `${app}/${lang}`;
 
   try {
     const manifest = (await fetchImpl(manifestUrl)) as Manifest;
-    const remoteHash = manifest.apps[app]?.[lang]?.hash;
+    const entry = manifest.apps[app]?.[lang];
+    const remoteHash = entry?.hash;
     if (!remoteHash) return bakedCatalog; // nothing published for this app/lang
 
-    const memoKey = `${cacheKey}:${remoteHash}`;
+    const memoKey = `${manifestUrl}|${cacheKey}:${remoteHash}`;
     const memoized = memoCache.get(memoKey);
     if (memoized) return memoized;
 
-    const cachedRaw = safeGet(storage, cacheKey);
-    if (cachedRaw) {
-      const cached = parseCacheEntry(cachedRaw);
-      if (cached && cached.hash === remoteHash) {
-        memoSet(memoKey, cached.catalog);
-        return cached.catalog;
-      }
-    }
-
-    // Computed only past the memo and cache paths, which never need it, so
-    // repeat polls stay hash-free. When the environment lacks `crypto.subtle`
-    // this throws into the outer fail-to-baked catch below.
+    // When the environment lacks `crypto.subtle` this throws into the outer
+    // fail-to-baked catch below.
     const resolvedBakedHash = bakedHash ?? (await hashCatalog(bakedCatalog));
 
     if (remoteHash === resolvedBakedHash) {
@@ -274,25 +301,39 @@ export async function loadMessages(options: LoadMessagesOptions): Promise<Catalo
       return bakedCatalog;
     }
 
-    if (deltaUrl) {
+    const expectedDeltaHash = Object.hasOwn(entry.deltas ?? {}, resolvedBakedHash)
+      ? entry.deltas![resolvedBakedHash]
+      : undefined;
+    const finish = (verified: Catalog, hash: string, store: boolean): Catalog => {
+      if (store) {
+        const written = safeSet(storage, cacheKey, JSON.stringify({ hash, catalog: verified } satisfies CacheEntry));
+        if (written) evictStaleEntries(storage, `locale:${app}:${lang}:`, cacheKey);
+      }
+      const result = applyGated(bakedCatalog, verified, purifier, onError, label);
+      memoSet(memoKey, result);
+      return result;
+    };
+
+    const cachedRaw = safeGet(storage, cacheKey);
+    const cached = cachedRaw ? parseCacheEntry(cachedRaw) : null;
+    if (
+      cached &&
+      (cached.hash === remoteHash || cached.hash === expectedDeltaHash) &&
+      (await hashCatalog(cached.catalog)) === cached.hash
+    ) {
+      return finish(cached.catalog, cached.hash, false);
+    }
+
+    if (deltaUrl && expectedDeltaHash) {
       try {
         const rawDelta = await fetchImpl(deltaUrl(resolvedBakedHash, remoteHash));
         if (isFetchedDelta(rawDelta)) {
           const additiveMerged = merge(bakedCatalog, { changed: rawDelta.changed, removed: [] }, { allowRemove: false });
           const additiveMergedHash = await hashCatalog(additiveMerged);
-          if (additiveMergedHash === rawDelta.additiveHash) {
-            const written = safeSet(
-              storage,
-              cacheKey,
-              JSON.stringify({ hash: remoteHash, catalog: additiveMerged } satisfies CacheEntry),
-            );
-            if (written) evictStaleEntries(storage, `locale:${app}:${lang}:`, cacheKey);
-            memoSet(memoKey, additiveMerged);
-            return additiveMerged;
-          }
+          if (additiveMergedHash === expectedDeltaHash) return finish(additiveMerged, additiveMergedHash, true);
           onError?.(
             new Error(
-              `ota delta additive-hash mismatch for ${app}/${lang}: delta claims ${rawDelta.additiveHash}, additive merge hashes to ${additiveMergedHash}`,
+              `ota delta additive-hash mismatch for ${label}: manifest expects ${expectedDeltaHash}, additive merge hashes to ${additiveMergedHash}`,
             ),
           );
         }
@@ -307,16 +348,10 @@ export async function loadMessages(options: LoadMessagesOptions): Promise<Catalo
     const remoteCatalog = (await fetchImpl(catalogUrl(remoteHash))) as Catalog;
     const contentHash = await hashCatalog(remoteCatalog);
     if (contentHash !== remoteHash) {
-      onError?.(new Error(`ota content-hash mismatch for ${app}/${lang}: manifest says ${remoteHash}, fetched catalog hashes to ${contentHash}`));
+      onError?.(new Error(`ota content-hash mismatch for ${label}: manifest says ${remoteHash}, fetched catalog hashes to ${contentHash}`));
       return bakedCatalog;
     }
-
-    const merged = merge(bakedCatalog, diff(bakedCatalog, remoteCatalog), { allowRemove: false });
-
-    const written = safeSet(storage, cacheKey, JSON.stringify({ hash: remoteHash, catalog: merged } satisfies CacheEntry));
-    if (written) evictStaleEntries(storage, `locale:${app}:${lang}:`, cacheKey);
-    memoSet(memoKey, merged);
-    return merged;
+    return finish(remoteCatalog, remoteHash, true);
   } catch (error) {
     onError?.(error);
     return bakedCatalog;

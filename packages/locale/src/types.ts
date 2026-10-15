@@ -10,6 +10,11 @@ export interface Catalog {
 
 export interface ManifestEntry {
   hash: string;
+  /**
+   * Prior release hash -> hash the OTA client's additive merge of that release's precomputed delta
+   * must produce. Lives in the manifest so a delta file can never vouch for its own content.
+   */
+  deltas?: Record<string, string>;
 }
 
 /** Per {app,lang} content hash, published alongside each release. */
