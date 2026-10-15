@@ -60,11 +60,16 @@ jobs:
 
       # Re-run the gate on a clean checkout. The local hook already ran it, but
       # that was against a working tree, and this proves main builds green from
-      # nothing, which is the artifact people actually install.
+      # nothing, which is the artifact people actually install. typecheck needs
+      # @typren/core's dist (see .husky/pre-push), so build once for it, then
+      # wipe every dist and build again as the LAST step before staging: lint
+      # and test run a much larger dependency tree than tsc and postbuild, and
+      # none of it may get the chance to rewrite what ships.
       - run: bun run build
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run test
+      - run: rm -rf packages/*/dist packages/core/migrations && bun run build
 
       # Everything else `npm publish` packs (each package's package.json, src,
       # README, LICENSE, CHANGELOG.md) is already committed to main by the
@@ -118,7 +123,7 @@ jobs:
     # `id-token: write` for its whole
     # duration (a job-scoped permission, not a per-step one), so any install
     # or build step here could mint and exfiltrate the OIDC token itself,
-    # trusted-publish gets requested at all. `dist/` comes from the `build`
+    # whether or not a trusted publish is ever requested. `dist/` comes from the `build`
     # job's artifact as-is; `NPM_CONFIG_IGNORE_SCRIPTS` below stops
     # `npm publish`'s own `prepublishOnly` hook from re-running `npm run
     # build` here (confirmed empirically: a prepublishOnly script does not
@@ -170,6 +175,9 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+          # Never restore a cache into the OIDC job; setup-node turns caching on
+          # by itself as soon as package.json declares an npm packageManager.
+          package-manager-cache: false
 
       # Trusted publishing (OIDC) needs npm >= 11.5.1; the version bundled with
       # actions/setup-node's Node 22 isn't guaranteed to clear that, so pin it
