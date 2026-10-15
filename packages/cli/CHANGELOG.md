@@ -1,5 +1,20 @@
 # typren
 
+## 0.5.1
+
+### Patch Changes
+
+- 086a883: `typren init` now binds `package.json`'s `dev` script to loopback (`next dev -H 127.0.0.1`), which the scaffolded `localAuth()` requires. The docs already claimed it did; it only printed advice, and `next dev` listens on all interfaces by default. A script it can't safely rewrite is left alone with a warning.
+- Updated dependencies [e78fa80]
+- Updated dependencies [d8b5925]
+- Updated dependencies [dc12381]
+- Updated dependencies [38ee2d8]
+- Updated dependencies [8db92cc]
+- Updated dependencies [bd91499]
+- Updated dependencies [1d632a0]
+- Updated dependencies [7183ffa]
+  - @typren/core@0.5.1
+
 ## 0.5.0
 
 ### Minor Changes
