@@ -1,5 +1,11 @@
 import type { FormSchema, ValidationError, ValidationResult } from "./types";
 
+// Applied to every field without its own maxLength, before the pattern test
+// below ever sees the value: an author's pattern runs against whatever length
+// the attacker sends, and an unbounded string is a ReDoS surface the schema
+// author never opted into.
+const DEFAULT_MAX_LENGTH = 10_000;
+
 // Deliberately loose: one non-space local part, one @, a dot somewhere in the
 // domain. Real deliverability can only be proven by sending mail; a stricter
 // check only rejects real addresses. String operations rather than a regex:
@@ -54,7 +60,8 @@ export function validate(schema: FormSchema, fields: Record<string, string | boo
       errors.push({ field: field.name, code: "invalid_option" });
       continue;
     }
-    if (field.maxLength !== undefined && value.length > field.maxLength) {
+    const maxLength = field.maxLength ?? DEFAULT_MAX_LENGTH;
+    if (value.length > maxLength) {
       errors.push({ field: field.name, code: "too_long" });
       continue;
     }

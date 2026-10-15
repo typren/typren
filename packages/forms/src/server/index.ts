@@ -38,6 +38,10 @@ export interface FormHandlerConfig {
   cors?: { origins: "*" | string[] };
   fetchImpl?: typeof fetch;
   env?: EnvRecord;
+  /** Hard cap on the request body, checked against bytes actually read off the
+   *  stream rather than trusted from Content-Length (a chunked request carries
+   *  none). Default 64 KB; a form with large textareas can raise it. */
+  maxBodyBytes?: number;
   /**
    * Receives one line per failed sink and per verifier error. Lines carry the
    * form id and sink outcome only, never submission field values (PII stays
@@ -61,21 +65,63 @@ function json(status: number, body: FormResponseBody, headers: Record<string, st
   });
 }
 
+const DEFAULT_MAX_BODY_BYTES = 64 * 1024;
+
+/** Reads the request body incrementally, counting bytes as they arrive, and
+ *  bails out (canceling the stream, never buffering the rest) the moment the
+ *  running total exceeds `maxBytes`. Copied from core's github-webhook
+ *  capped reader: forms can't import core internals across the package
+ *  boundary, and a Content-Length check alone never fires for a chunked
+ *  request that carries no such header. */
+async function readBodyCapped(request: Request, maxBytes: number): Promise<ArrayBuffer | null> {
+  if (!request.body) return new ArrayBuffer(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out.buffer;
+}
+
 /**
  * Parses a JSON or form-encoded (urlencoded/multipart) request body into a
- * null-prototype record. Returns null for anything unparseable or any JSON
- * that is not a plain object. File parts are dropped: submissions carry
- * text, not uploads.
+ * null-prototype record. Returns null for anything unparseable, oversized, or
+ * any JSON that is not a plain object. File parts are dropped: submissions
+ * carry text, not uploads.
  */
-async function parseBody(request: Request): Promise<Record<string, unknown> | null> {
+async function parseBody(request: Request, maxBodyBytes: number): Promise<Record<string, unknown> | null> {
+  const contentLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxBodyBytes) return null;
+
+  const buffer = await readBodyCapped(request, maxBodyBytes);
+  if (buffer === null) return null;
+
   const contentType = request.headers.get("content-type") ?? "";
   try {
+    // Re-wrap the already-capped bytes in a Request so the existing
+    // json()/formData() parsing logic is untouched; the stream itself was
+    // only ever read once, here.
+    const capped = new Request(request.url, { method: "POST", headers: request.headers, body: buffer });
     if (contentType.includes("application/json")) {
-      const parsed: unknown = await request.json();
+      const parsed: unknown = await capped.json();
       if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
       return Object.assign(Object.create(null), parsed) as Record<string, unknown>;
     }
-    const form = await request.formData();
+    const form = await capped.formData();
     const body: Record<string, unknown> = Object.create(null);
     for (const [key, value] of form) {
       if (typeof value === "string") body[key] = value;
@@ -102,6 +148,7 @@ export function createFormHandler(config: FormHandlerConfig): (request: Request)
     required: "deliver" in entry ? false : (entry.required ?? false),
   }));
   const logger = config.logger ?? ((message: string) => console.error(message));
+  const maxBodyBytes = config.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
 
   return async (request) => {
     const cors = corsHeaders(request, config.cors);
@@ -119,7 +166,7 @@ export function createFormHandler(config: FormHandlerConfig): (request: Request)
       return new Response(null, { status: 405, headers: { ...cors, allow: "POST" } });
     }
 
-    const body = await parseBody(request);
+    const body = await parseBody(request, maxBodyBytes);
     if (body === null) {
       return json(400, { ok: false, errors: [{ field: "", code: "bad_request" }] }, cors);
     }
@@ -164,6 +211,10 @@ export function createFormHandler(config: FormHandlerConfig): (request: Request)
     }
 
     const ok = sinks.every(({ required }, index) => !required || outcomes[index].ok);
-    return json(ok ? 200 : 502, { ok, sinks: outcomes }, cors);
+    // Sink failure detail (vendor response bodies, stack messages) is server
+    // log material, not a public response field: it can leak vendor internals
+    // (endpoint shapes, auth hints) to whoever submitted the form.
+    const publicSinks: SinkOutcome[] = outcomes.map(({ type, ok: sinkOk }) => ({ type, ok: sinkOk }));
+    return json(ok ? 200 : 502, { ok, sinks: publicSinks }, cors);
   };
 }
