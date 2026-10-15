@@ -123,9 +123,9 @@ site's objects. `"siteA/"` can't.
 
 ### SVG uploads are off by default
 
-`processUpload` rejects `image/svg+xml` unless the caller opts in with
-`allowSvg: true` (threaded from the media config into whichever adapter
-calls it). The error message points back to this page. When enabled, the SVG
+`processUpload` rejects `image/svg+xml` unless your `CmsConfig` sets
+`allowSvg: true`. Only turn it on once media is served from a separate origin
+or with `Content-Security-Policy: sandbox` (see below). The error message points back to this page. When enabled, the SVG
 still goes through DOMPurify's SVG profile, hardened further than a stock
 profile: `style` and `image` tags are forbidden outright (both are live
 script/exfiltration vectors inside an SVG), and `href`/`xlink:href` values
