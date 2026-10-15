@@ -34,10 +34,11 @@ against its own per-application policy before issuing the token.
 Every mapping that can satisfy `allowedEmails` only lets a **provider-verified**
 email match it:
 
-- `next-auth`: no verification signal is checked (the session shape doesn't
-  carry one), so `allowedEmails` there just matches whatever email the
-  session carries. Prefer `allowedRoles` if your NextAuth config can supply
-  one.
+- `next-auth`: the session shape carries no standard verification signal,
+  so `allowedEmails` requires an `isEmailVerified(session)` callback (it
+  throws at construction without one), and the email only counts when the
+  callback returns `true`. Prefer `allowedRoles` if your NextAuth config can
+  supply one.
 - `clerk`: only the user's **primary** email, and only when
   `primaryEmailAddress?.verification?.status === "verified"`.
 - `better-auth`: only when `session.user.emailVerified === true`.
@@ -91,9 +92,18 @@ import { auth as nextAuth } from "@/auth"; // your NextAuth(config) export
 const auth = nextAuthAdapter({
   auth: nextAuth,
   allowedEmails: ["editor@example.com"],
+  // Your NextAuth callbacks must put this on the session; only return true
+  // for a provider that actually verified the address.
+  isEmailVerified: (session) => (session.user as { emailVerified?: boolean } | undefined)?.emailVerified === true,
   adminRoles: ["admin"],
 });
 ```
+
+`isEmailVerified` is required with `allowedEmails`. NextAuth has no
+built-in verified flag on the session: Credentials and many OAuth providers
+never verify the email, so forward your provider's signal (for example an
+OIDC profile's `email_verified`) through the `jwt`/`session` callbacks and
+read it here.
 
 ### Clerk
 
@@ -101,6 +111,7 @@ const auth = nextAuthAdapter({
 import { clerkAuthAdapter } from "@typren/core/auth/clerk";
 
 const auth = clerkAuthAdapter({
+  organizationId: "org_2abc...", // your site's Clerk organization
   allowedRoles: ["org:editor"],
   adminRoles: ["org:admin"],
 });
@@ -111,6 +122,15 @@ directly; nothing is injected. Throws at construction unless at least one of
 `allowedEmails`, `allowedRoles`, or `allowedUserIds` is set. `allowedEmails`
 is matched against the user's primary email only, and only when Clerk reports
 it as verified.
+
+`allowedRoles` and `adminRoles` require `organizationId`, and a role only
+counts while that organization is the session's active org. Clerk lets
+signed-up users create organizations by default, and the creator is that
+org's `org:admin`, so an unbound role check would let anyone grant themselves
+admin. Both session token versions are read: v1's `org_id`/`org_role` and
+v2's `o.id`/`o.rol` (v2 drops the `org:` prefix; Typren adds it back, so keep
+writing roles as `"org:admin"`). The `"admin"` action must also pass
+`allowedUserIds`/`allowedEmails`/`allowedRoles` when those are set.
 
 ### Better Auth
 
