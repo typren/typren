@@ -248,6 +248,14 @@ describe("createGithubAdapter: listSlugs", () => {
     expect(await adapter.listSlugs()).toEqual(["about", "zebra"]);
   });
 
+  it("skips files whose names fail SAFE_SLUG instead of throwing on them later", async () => {
+    const { adapter, files } = makeAdapter();
+    await adapter.writeRaw("about", "a");
+    files.set("content/My Page.md", { content: "x", sha: "s1" });
+    files.set("content/..md", { content: "x", sha: "s2" });
+    expect(await adapter.listSlugs()).toEqual(["about"]);
+  });
+
   it("listLocales reports only the locales that actually have the page", async () => {
     const { adapter } = makeAdapter({ locales: ["en", "fr"], defaultLocale: "en" });
     await adapter.writeRaw("about", "en content");
