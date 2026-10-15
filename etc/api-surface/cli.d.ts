@@ -6,6 +6,7 @@ export type ScaffoldResult = {
     baseDir: string;
     created: string[];
     skipped: string[];
+    devScript: DevScriptStatus;
 } | {
     ok: false;
     error: string;
@@ -19,6 +20,10 @@ export type ScaffoldResult = {
 export declare function scaffold(cwd: string, opts?: {
     force?: boolean;
 }): ScaffoldResult;
+/** What `scaffold` did to package.json's `dev` script. "custom" means a
+ *  script it couldn't safely rewrite (not plain `next dev`, or an explicit
+ *  non-loopback `-H`), so the user has to bind it themselves. */
+export type DevScriptStatus = "bound" | "already-bound" | "custom" | "no-package-json";
 /** "created" only when no next.config.* existed yet (nothing to corrupt, so
  *  it's safe to write ours). An existing file is only ever READ. */
 type NextConfigStatus = "created" | "already-wired" | "needs-manual-update";

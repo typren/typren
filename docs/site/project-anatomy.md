@@ -8,7 +8,11 @@ order: 2
 `npx typren init` writes a fixed set of files relative to your project's
 detected base dir (`src/` if you have `src/app`, otherwise the project root).
 Two files always land at the project root regardless of that base dir:
-`typren.config.json` and `next.config.ts`.
+`typren.config.json` and `next.config.ts`. It also edits one existing file:
+`package.json`'s `dev` script becomes `next dev -H 127.0.0.1`, because the
+scaffolded `localAuth()` refuses a dev server that isn't bound to loopback.
+If the script isn't a plain `next dev` (or has no `package.json`), `init`
+leaves it alone and prints a warning instead.
 
 ## `typren.config.json` (project root)
 
@@ -64,7 +68,8 @@ export const cmsStore = createStore(cmsConfig.adapter, { onPublish: cmsConfig.on
   (the fs + markdown `ContentAdapter`; see [Content tiers](./content-tiers.md)
   for the GitHub-backed alternative).
 - **`auth: localAuth()`** — authorizes writes only when
-  `NODE_ENV === "development"`; fails closed in production. Swap for
+  `NODE_ENV === "development"` and the dev server is bound to loopback
+  (`next dev -H 127.0.0.1`); fails closed in production. Swap for
   `@typren/core/auth/next-auth`, `/clerk`, `/better-auth`, `/supabase`, or
   `/oidc` before deploying — see [Auth model](./auth-model.md).
 - **`mediaAdapter`** — `createFsMediaAdapter` over `public/img`, serving

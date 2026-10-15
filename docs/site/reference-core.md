@@ -590,7 +590,7 @@ The reference `AuthAdapter`: a dev-only gate.
 
 | Export | Signature | Notes |
 |---|---|---|
-| `localAuth(opts?)` | `(opts?: { predicate?: () => boolean; allowInProduction?: boolean }) => AuthAdapter` | Refuses in production unless `allowInProduction` is explicitly set. Doesn't branch on `ctx.action`: `"admin"` gets the exact same local-only gate as every other write, since there is only one tier in local dev. |
+| `localAuth(opts?)` | `(opts?: { predicate?: () => boolean; allowInProduction?: boolean; getHost?: () => Promise<string \| null> }) => AuthAdapter` | Refuses in production unless `allowInProduction` is explicitly set, and refuses unless the Next server is bound to loopback (`next dev -H 127.0.0.1` or `-H ::1`; the default all-interfaces bind and `-H localhost` are refused) and the request `Host` is loopback. `getHost` overrides the Host lookup (tests); it can only narrow access. Doesn't branch on `ctx.action`: `"admin"` gets the exact same local-only gate as every other write, since there is only one tier in local dev. |
 
 | Option | Type | Default |
 |---|---|---|

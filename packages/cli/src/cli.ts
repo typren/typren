@@ -25,7 +25,7 @@ function pathExists(p: string): boolean {
 }
 
 export type ScaffoldResult =
-  | { ok: true; baseDir: string; created: string[]; skipped: string[] }
+  | { ok: true; baseDir: string; created: string[]; skipped: string[]; devScript: DevScriptStatus }
   | { ok: false; error: string };
 
 /**
@@ -66,7 +66,35 @@ export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldR
     created.push(rel);
   }
 
-  return { ok: true, baseDir, created, skipped };
+  return { ok: true, baseDir, created, skipped, devScript: bindDevScriptToLoopback(cwd) };
+}
+
+/** What `scaffold` did to package.json's `dev` script. "custom" means a
+ *  script it couldn't safely rewrite (not plain `next dev`, or an explicit
+ *  non-loopback `-H`), so the user has to bind it themselves. */
+export type DevScriptStatus = "bound" | "already-bound" | "custom" | "no-package-json";
+
+/** localAuth refuses every request unless the Next server is bound to
+ *  127.0.0.1 or ::1 (see @typren/core's auth/local.ts), and `next dev`
+ *  listens on all interfaces by default, so the scaffold has to own this.
+ *  ponytail: a regex over the script string, not a shell parser. Anything
+ *  past "add -H to a plain `next dev`" is reported as "custom" instead of
+ *  guessed at. */
+function bindDevScriptToLoopback(cwd: string): DevScriptStatus {
+  const file = path.join(cwd, "package.json");
+  let pkg: { scripts?: Record<string, string> };
+  try {
+    pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return "no-package-json";
+  }
+  const dev = pkg.scripts?.dev;
+  if (dev !== undefined && /(^|\s)(-H|--hostname)[\s=](127\.0\.0\.1|::1)(\s|$)/.test(dev)) return "already-bound";
+  if (dev !== undefined && !/^next dev(\s|$)/.test(dev)) return "custom";
+  if (dev !== undefined && /(^|\s)(-H|--hostname)(\s|=|$)/.test(dev)) return "custom";
+  pkg.scripts = { ...pkg.scripts, dev: dev === undefined ? "next dev -H 127.0.0.1" : dev.replace(/^next dev/, "next dev -H 127.0.0.1") };
+  fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+  return "bound";
 }
 
 const NEXT_CONFIG_CANDIDATES = ["next.config.ts", "next.config.mjs", "next.config.js"];
@@ -843,9 +871,10 @@ Next steps:
      const page = await cmsStore.getPublished("home");
      return <SliceZone slices={page.slices} />;
 
-3. Start your dev server bound to loopback only (\`localAuth\` now requires a
-   loopback Host, matching the default \`next dev\` already binds to, but set
-   it explicitly if your own scripts pass \`-H\`):
+3. Start your dev server bound to loopback. \`localAuth\` refuses every write
+   unless Next listens on 127.0.0.1 (the default \`next dev\` listens on all
+   interfaces, and \`-H localhost\` can't be told apart from that), so keep
+   the flag \`typren init\` added to your \`dev\` script:
 
      next dev -H 127.0.0.1
 
@@ -1124,7 +1153,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   }
   record("init");
 
-  const { created, skipped, baseDir } = result;
+  const { created, skipped, baseDir, devScript } = result;
   console.log(`typren init: ${created.length} file(s) created, ${skipped.length} skipped (already exist).`);
   if (created.length) {
     console.log("\nCreated:");
@@ -1133,6 +1162,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   if (skipped.length) {
     console.log("\nSkipped (already exist; rerun with --force to overwrite):");
     skipped.forEach((f) => console.log(`  ${f}`));
+  }
+  if (devScript === "bound") console.log('\nUpdated package.json: "dev" now runs `next dev -H 127.0.0.1`.');
+  if (devScript === "custom" || devScript === "no-package-json") {
+    console.warn(
+      "\nWarning: couldn't bind your dev script to loopback automatically. localAuth denies every write\n" +
+        "until Next is started with `-H 127.0.0.1` (or `-H ::1`); add it to your dev command."
+    );
   }
   printNextSteps(baseDir);
 }

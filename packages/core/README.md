@@ -46,7 +46,8 @@ await actions.saveDraft("home", { meta: { title: "Hello" }, slices: [], body: ""
 `makeActions` is where the auth boundary lives: every handler it returns
 calls `auth.authorize()` before touching the store. Wire it up to whatever
 calls your Server Actions and it's the only place that needs an identity.
-`localAuth()` is a development-only stand-in, gated on `NODE_ENV`; swap in
+`localAuth()` is a development-only stand-in, gated on `NODE_ENV` and a
+loopback-bound dev server (`next dev -H 127.0.0.1`); swap in
 `@typren/core/auth/next-auth`, `@typren/core/auth/clerk`, or your own
 `AuthAdapter` before this reaches production.
 
