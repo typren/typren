@@ -10,6 +10,20 @@ import { firstRunNotice, isEnabled, readCliVersion, record, setEnabled } from ".
 import { parseMatter } from "./safe-matter";
 import { envWithoutGit, migrate, printMigrateReport, parseMigrateArgs } from "./migrate";
 
+/** `fs.existsSync` follows symlinks, so a dangling symlink at a scaffold
+ *  target reads as "doesn't exist" and `writeFileSync` then creates a file at
+ *  wherever the link points, which may be outside the project. `lstatSync`
+ *  sees the link itself, so a dangling (or any) symlink counts as "exists"
+ *  and is left alone unless `--force`. */
+function pathExists(p: string): boolean {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type ScaffoldResult =
   | { ok: true; baseDir: string; created: string[]; skipped: string[] }
   | { ok: false; error: string };
@@ -43,7 +57,7 @@ export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldR
     // the project root, never under baseDir. See buildTemplates' doc comment.
     const abs = relPath.startsWith("/") ? path.join(cwd, relPath.slice(1)) : path.join(cwd, baseDir, relPath);
     const rel = path.relative(cwd, abs);
-    if (fs.existsSync(abs) && !opts.force) {
+    if (pathExists(abs) && !opts.force) {
       skipped.push(rel);
       continue;
     }
@@ -306,9 +320,15 @@ function findContentFile(cwd: string, slug: string, paths: ReviewPaths): string 
   return null;
 }
 
+/** `--base`/a brief's ref is attacker-reachable (a PR description, a CI env
+ *  var) and gets handed straight to `git` as a positional argument. Without
+ *  `--end-of-options`, a ref string starting with "-" (e.g.
+ *  `--upload-pack=...`) would be parsed as an option instead of a revision;
+ *  `review()` also rejects such refs outright before any git call is made,
+ *  this is defense in depth at the actual call sites. */
 function gitShow(cwd: string, ref: string, relFile: string): string | null {
   try {
-    return execFileSync("git", ["show", `${ref}:${relFile}`], { cwd, encoding: "utf8", env: envWithoutGit() });
+    return execFileSync("git", ["show", "--end-of-options", `${ref}:${relFile}`], { cwd, encoding: "utf8", env: envWithoutGit() });
   } catch {
     return null; // file didn't exist at `ref` (e.g. a new page), treated as empty "before"
   }
@@ -316,7 +336,7 @@ function gitShow(cwd: string, ref: string, relFile: string): string | null {
 
 function gitDiffRaw(cwd: string, base: string, relFile: string): string {
   try {
-    return execFileSync("git", ["diff", base, "--", relFile], { cwd, encoding: "utf8", env: envWithoutGit() });
+    return execFileSync("git", ["diff", "--end-of-options", base, "--", relFile], { cwd, encoding: "utf8", env: envWithoutGit() });
   } catch (e) {
     return `(unable to compute diff against "${base}": ${e instanceof Error ? e.message : String(e)})`;
   }
@@ -328,7 +348,11 @@ function gitChangedContentFiles(
   contentDir: string
 ): { ok: true; files: string[] } | { ok: false; error: string } {
   try {
-    const out = execFileSync("git", ["diff", "--name-only", base, "--", contentDir], { cwd, encoding: "utf8", env: envWithoutGit() });
+    const out = execFileSync("git", ["diff", "--name-only", "--end-of-options", base, "--", contentDir], {
+      cwd,
+      encoding: "utf8",
+      env: envWithoutGit(),
+    });
     return { ok: true, files: out.split("\n").map((l) => l.trim()).filter((l) => l.endsWith(".md")) };
   } catch (e) {
     return {
@@ -619,6 +643,15 @@ function buildBrief(cwd: string, relFile: string, base: string, paths: ReviewPat
  */
 export function review(cwd: string, opts: { slug?: string; base?: string } = {}): ReviewResult {
   const base = opts.base ?? "origin/main";
+  // `base` is a positional argument to every `git` call below (gitShow,
+  // gitDiffRaw, gitChangedContentFiles, and later the branch checkout in
+  // openOrUpdateContentPr). A ref starting with "-" would otherwise be
+  // parseable as a git option rather than a revision; reject it here, the
+  // one place every caller (CLI and library) funnels through, rather than
+  // relying solely on each call site's `--end-of-options`.
+  if (base.startsWith("-")) {
+    return { ok: false, error: `"${base}" is not a valid --base ref (refs starting with "-" are rejected)` };
+  }
   const paths = resolveReviewPaths(cwd);
   if (opts.slug) {
     const relFile = findContentFile(cwd, opts.slug, paths);
@@ -648,7 +681,20 @@ export type PrResult =
   | { ok: true; action: "created" | "updated" | "skipped-no-gh"; number?: number; url?: string; notes: string[] }
   | { ok: false; error: string };
 
+/** A fence has to be longer than the longest backtick run already inside the
+ *  content it wraps, or that run closes the fence early. `brief.diff.raw` is
+ *  literal file content (a writer's markdown can itself contain a ```
+ *  code block), so the JSON embedding it can carry arbitrarily long backtick
+ *  runs; a fixed "```json" fence would let that content escape into the rest
+ *  of the PR body. */
+function codeFence(content: string): string {
+  const longestRun = Math.max(0, ...[...content.matchAll(/`+/g)].map((m) => m[0].length));
+  return "`".repeat(Math.max(3, longestRun + 1));
+}
+
 function briefToMarkdown(brief: ReviewBrief): string {
+  const json = JSON.stringify(brief, null, 2);
+  const fence = codeFence(json);
   return [
     `Content: \`${brief.slug}\`, an auto-generated review brief vs \`${brief.baseRef}\``,
     "",
@@ -656,9 +702,9 @@ function briefToMarkdown(brief: ReviewBrief): string {
     "",
     "<details><summary>Review brief (JSON)</summary>",
     "",
-    "```json",
-    JSON.stringify(brief, null, 2),
-    "```",
+    `${fence}json`,
+    json,
+    fence,
     "</details>",
   ].join("\n");
 }
@@ -694,7 +740,13 @@ export function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): PrResult
   }
 
   const branch = `content/${brief.slug}`;
-  const bodyFile = path.join(os.tmpdir(), `typren-review-${brief.slug}-${Date.now()}.md`);
+  // A predictable name directly under the shared os.tmpdir() (the prior
+  // `typren-review-<slug>-<timestamp>.md`) is guessable and poolable:
+  // another local process could pre-create a symlink at that exact path
+  // before writeFileSync runs. mkdtempSync's random suffix gives this a
+  // private directory nothing else could have predicted.
+  const bodyDir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-review-"));
+  const bodyFile = path.join(bodyDir, "body.md");
   try {
     const existing = JSON.parse(
       execFileSync("gh", ["pr", "list", "--head", branch, "--json", "number,url"], { cwd, encoding: "utf8" })
@@ -715,7 +767,9 @@ export function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): PrResult
         return false;
       }
     })();
-    execFileSync("git", branchExists ? ["checkout", branch] : ["checkout", "-b", branch, brief.baseRef], {
+    // brief.baseRef is review()'s already-validated `base` (rejects a
+    // leading "-"); --end-of-options is belt-and-braces at the call site.
+    execFileSync("git", branchExists ? ["checkout", branch] : ["checkout", "-b", branch, "--end-of-options", brief.baseRef], {
       cwd,
       env: envWithoutGit(),
     });
@@ -742,7 +796,7 @@ export function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): PrResult
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   } finally {
-    if (fs.existsSync(bodyFile)) fs.rmSync(bodyFile);
+    fs.rmSync(bodyDir, { recursive: true, force: true });
   }
 }
 
