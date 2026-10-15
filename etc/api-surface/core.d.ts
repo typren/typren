@@ -381,20 +381,26 @@ import type { AuthAdapter } from "../auth-adapter.js";
  * `allowedUserIds` counts as an allowlist on its own (a fixed roster of Clerk
  * user ids is a legitimate, closed policy) even with no email/role check.
  *
- * "admin" (settings/onboarding/bootstrap writes) is gated separately from
- * ordinary content writes: it needs `adminRoles` set and a matching org role
- * claim, full stop. Unmapped (no `adminRoles` configured) denies rather than
- * falling back to `allowedRoles`/`allowedUserIds`. A host must opt in to who
- * gets to reconfigure the site.
+ * Roles are org-scoped: `allowedRoles`/`adminRoles` require `organizationId`,
+ * and a role claim only counts while that org is the session's active org.
+ *
+ * "admin" (settings/onboarding/bootstrap writes) must first pass the same
+ * allowlist as content writes, then also match `adminRoles`. Unmapped (no
+ * `adminRoles` configured) denies. A host must opt in to who gets to
+ * reconfigure the site.
  */
 export declare function clerkAuthAdapter(opts?: {
     /** Case-insensitive match on the user's verified primary email. */
     allowedEmails?: string[];
-    /** Org role claim, e.g. "org:admin". */
+    /** Org role claim, e.g. "org:admin". Requires `organizationId`. */
     allowedRoles?: string[];
     allowedUserIds?: string[];
-    /** Org role claim required for the "admin" action, e.g. "org:admin". */
+    /** Org role claim the "admin" action additionally requires, e.g.
+     *  "org:admin". Requires `organizationId`. */
     adminRoles?: string[];
+    /** The Clerk organization id ("org_...") whose roles count. Required
+     *  when `allowedRoles` or `adminRoles` is set. */
+    organizationId?: string;
 }): AuthAdapter;
 
 // ---- dist/auth/local.d.ts ----
@@ -441,12 +447,19 @@ type Session = {
  * `adminRoles` set and an intersecting role, full stop. Unmapped (no
  * `adminRoles` configured) denies rather than falling back to `allowedRoles`.
  * A host must opt in to who gets to reconfigure the site.
+ *
+ * next-auth's session carries no standard verified-email signal (Credentials
+ * and many OAuth providers never verify one), so `allowedEmails` requires an
+ * `isEmailVerified(session)` callback; the email only reaches the allowlist
+ * when it returns `true`, mirroring better-auth.ts's `emailVerified`.
  */
 export declare function nextAuthAdapter(opts: {
     /** The host's `auth` from `NextAuth(config)` (reads the session cookie). */
     auth: () => Promise<Session>;
-    /** Case-insensitive match on session.user.email. */
+    /** Case-insensitive match on session.user.email, once `isEmailVerified` vouches for it. */
     allowedEmails?: string[];
+    /** Whether the session's email is provider-verified. Required with `allowedEmails`. */
+    isEmailVerified?: (session: NonNullable<Session>) => boolean;
     /** Any-intersection with session.user.roles. */
     allowedRoles?: string[];
     /** Any-intersection with session.user.roles, required for the "admin" action. */
