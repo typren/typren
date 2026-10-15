@@ -1,5 +1,0 @@
----
-"@typren/core": patch
----
-
-Fixes for low-severity findings from the security review: `buildRedirects` now refuses a frontmatter alias that would claim "/", a `/.well-known/*` path, a path with a file extension, or a host-declared `reservedPrefixes` entry (another locale or collection), warning and skipping it instead of letting it become a permanent edge redirect; slice-name lookups in the scaffolded `SliceZone`, `collectSliceJsonLd`, and `renderSlicesAsMarkdown`'s override registry now use `Object.hasOwn` so a slice named `constructor`/`toString`/`__proto__` can't resolve an inherited `Object.prototype` member; the API's read authorization now passes `slug`, `collectionId`, and `locale` into `AuthContext` the same way writes pass `slug`, so a per-slug/per-collection `AuthAdapter` policy can actually see what's being read; `GET /pages` and `GET /collections/:id` now send `Cache-Control: no-store` like the other draft-state endpoints; and `validateBootstrap` now rejects a non-boolean `onboarded`, matching what the docs already claimed `PUT /settings/bootstrap` enforced.
