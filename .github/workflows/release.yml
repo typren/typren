@@ -82,27 +82,30 @@ jobs:
       # internal paths are unambiguous: upload-artifact computes a shared root
       # across multiple patterns, and this skips having to reason about what
       # that root ends up being.
+      # Not a dot-directory: upload-artifact skips hidden files by default, and
+      # a hidden staging dir uploaded nothing at all.
       # rm first: everything above ran repo and dependency code, which could
-      # have pre-seeded .release-artifact/ with files (scripts/, manifests)
+      # have pre-seeded release-artifact/ with files (scripts/, manifests)
       # meant to land in the publish job. The publish job filters again on
       # its side; this just keeps the artifact honest.
       - name: Stage dist/ and core's migrations/ for the release job
         run: |
           set -eu
           shopt -s nullglob
-          rm -rf .release-artifact
+          rm -rf release-artifact
           for dir in packages/*/dist; do
             pkg=$(basename "$(dirname "$dir")")
-            mkdir -p ".release-artifact/packages/$pkg"
-            cp -r "$dir" ".release-artifact/packages/$pkg/dist"
+            mkdir -p "release-artifact/packages/$pkg"
+            cp -r "$dir" "release-artifact/packages/$pkg/dist"
           done
-          mkdir -p .release-artifact/packages/core
-          cp -r packages/core/migrations .release-artifact/packages/core/migrations
+          mkdir -p release-artifact/packages/core
+          cp -r packages/core/migrations release-artifact/packages/core/migrations
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-dist
-          path: .release-artifact
+          path: release-artifact
+          if-no-files-found: error
           retention-days: 1
 
   publish:
@@ -145,7 +148,7 @@ jobs:
       # checkout already has, plus core's migrations/, are copied across;
       # anything else in the artifact is ignored, and a symlink in either
       # place is refused rather than followed.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-dist
           path: ${{ runner.temp }}/release-dist
