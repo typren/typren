@@ -68,7 +68,7 @@ var STATUS_TEXT = {
 function parseRedirectValue(raw) {
   if (raw.length > 3 && raw.charAt(3) === " " && isThreeDigits(raw)) {
     var status = Number(raw.slice(0, 3));
-    return STATUS_TEXT[status] ? { status: status, target: raw.slice(4) } : null;
+    return STATUS_TEXT[status] && raw.length > 4 ? { status: status, target: raw.slice(4) } : null;
   }
   return { status: 301, target: raw };
 }

@@ -52,6 +52,10 @@ export function createStaticHostRoutingContractSuite(name: string, run: StaticHo
       });
     });
 
+    it("treats a status prefix with no target as an invalid entry (fails open)", async () => {
+      await expect(run({ path: "/a", redirects: { "/a": "302 " } })).resolves.toEqual({ status: 301, location: "/a/" });
+    });
+
     it("applies the unsafe-target check to the target AFTER the status prefix is stripped", async () => {
       await expect(run({ path: "/a", redirects: { "/a": "302 //evil.example/" } })).resolves.toEqual({
         status: 301,
@@ -179,6 +183,10 @@ export function createBareUrlStaticHostRoutingContractSuite(name: string, run: S
       await expect(run({ path: "/pricing", redirects: { "/pricing": "404 /new-path" } })).resolves.toEqual({
         serve: "/pricing.html",
       });
+    });
+
+    it("treats a status prefix with no target as an invalid entry (fails open)", async () => {
+      await expect(run({ path: "/pricing", redirects: { "/pricing": "302 " } })).resolves.toEqual({ serve: "/pricing.html" });
     });
 
     it.each([

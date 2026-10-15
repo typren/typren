@@ -70,13 +70,14 @@ function withQuery(location: string, query: string): string {
  *  is the only prefix form recognized; a recognized shape whose status is
  *  outside the allowlist (e.g. `"404 /x"`) is an INVALID entry, not a
  *  request to serve a 404; the caller treats it as "no redirect" (fail
- *  open), same as any other invalid target. Unsafe-target checks run on
- *  `target`, i.e. after this prefix is stripped. */
+ *  open), same as any other invalid target, and so is a prefix with nothing
+ *  after it (`"301 "`), which would otherwise redirect to an empty Location.
+ *  Unsafe-target checks run on `target`, i.e. after this prefix is stripped. */
 function parseRedirectValue(raw: string): { status: RedirectStatus; target: string } | null {
   const match = /^(\d{3}) ([\s\S]*)$/.exec(raw);
   if (!match) return { status: 301, target: raw };
   const status = Number(match[1]);
-  return (REDIRECT_STATUSES as readonly number[]).includes(status)
+  return match[2] && (REDIRECT_STATUSES as readonly number[]).includes(status)
     ? { status: status as RedirectStatus, target: match[2] }
     : null;
 }
