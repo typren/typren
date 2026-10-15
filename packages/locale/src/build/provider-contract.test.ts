@@ -7,6 +7,7 @@ import { hashCatalog } from "../canonicalize";
 import type { Catalog } from "../types";
 import { createFsSourceProvider } from "./fs-provider";
 import { createExportApiSourceProvider } from "./export-api";
+import { exportApiPresets } from "./presets";
 import type { LocaleSourceProvider } from "./provider";
 
 const BASE_URL = "https://tms.example";
@@ -434,13 +435,45 @@ describe("createExportApiSourceProvider", () => {
 
   it("a bundle URL on a foreign origin is refused before it is fetched", async () => {
     const { provider, fetchImpl } = zipProvider(smallZip(), "https://attacker.example/bundle.zip");
-    await expect(provider.loadSource()).rejects.toThrow(/origin "https:\/\/attacker\.example" is not allowed/);
+    await expect(provider.loadSource()).rejects.toThrow(/"https:\/\/attacker\.example\/bundle\.zip" is not allowed/);
     expect(fetchImpl).not.toHaveBeenCalledWith("https://attacker.example/bundle.zip");
   });
 
   it("bundleOrigins admits a TMS's separate export host", async () => {
     const { provider } = zipProvider(smallZip(), "https://exports.tms.example/b.zip", ["https://exports.tms.example/"]);
     await expect(provider.loadSource()).resolves.toEqual({ en: { Greeting: "Hi" } });
+  });
+
+  const lokalise = exportApiPresets.lokalise!.bundleOrigins;
+  const crowdin = exportApiPresets.crowdin!.bundleOrigins;
+
+  it.each([
+    ["lokalise's own bucket", "https://s3-eu-west-1.amazonaws.com/lokalise-assets/files/export/p/b.zip", lokalise],
+    ["a crowdin download subdomain", "https://production-enterprise-importer.downloads.crowdin.com/x/b.zip", crowdin],
+  ])("preset bundleOrigins admit %s", async (_label, url, origins) => {
+    await expect(zipProvider(smallZip(), url, origins).provider.loadSource()).resolves.toEqual({ en: { Greeting: "Hi" } });
+  });
+
+  it.each([
+    ["another bucket on the same S3 host", "https://s3-eu-west-1.amazonaws.com/evil-bucket/b.zip", lokalise],
+    ["a bucket sharing the prefix text", "https://s3-eu-west-1.amazonaws.com/lokalise-assets-evil/b.zip", lokalise],
+    ["a dot-segment escape from the bucket", "https://s3-eu-west-1.amazonaws.com/lokalise-assets/../evil/b.zip", lokalise],
+    ["plain http to the bucket", "http://s3-eu-west-1.amazonaws.com/lokalise-assets/b.zip", lokalise],
+    ["a look-alike prefix host", "https://evildownloads.crowdin.com/b.zip", crowdin],
+    ["a look-alike suffix host", "https://x.downloads.crowdin.com.evil.example/b.zip", crowdin],
+    ["the bare suffix domain", "https://downloads.crowdin.com/b.zip", crowdin],
+    ["plain http to a subdomain", "http://a.downloads.crowdin.com/b.zip", crowdin],
+  ])("preset bundleOrigins reject %s", async (_label, url, origins) => {
+    await expect(zipProvider(smallZip(), url, origins).provider.loadSource()).rejects.toThrow(/is not allowed/);
+  });
+
+  it.each([
+    ["an http entry", "http://exports.tms.example/", /must be https/],
+    ["a path prefix without a trailing slash", "https://s3.example/bucket", /must end in "\/"/],
+    ["a malformed host suffix", "https://*.", /not a valid host suffix/],
+  ])("a bundleOrigins entry that is %s is a config error", async (_label, entry, error) => {
+    const { provider } = zipProvider(smallZip(), "https://elsewhere.example/b.zip", [entry]);
+    await expect(provider.loadSource()).rejects.toThrow(error);
   });
 
   it("a zip bomb past the 50 MB inflate cap is refused", async () => {

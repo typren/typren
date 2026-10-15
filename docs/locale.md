@@ -176,10 +176,13 @@ Two providers ship today:
   `{ type: "export-api", preset: "lokalise", projectId, token: "${ENV_VAR}" }`.
   Tokens are always environment references; a literal-looking token is
   rejected at load time. The bundle URL comes from the TMS response, so it
-  must share the create endpoint's origin unless its origin is listed in
-  `bundleOrigins` (TMSes that hand out a storage/CDN download link need their
-  export host added there). Zip bundles are capped at 50 MB inflated and 1000
-  entries.
+  must share the create endpoint's origin or match a `bundleOrigins` entry
+  (https only): an exact origin, an origin plus a path prefix ending in `/`
+  (for shared storage hosts), or a `https://*.suffix` host suffix. The presets
+  ship theirs: `lokalise` admits only its own bucket on path-style S3
+  (`https://s3-eu-west-1.amazonaws.com/lokalise-assets/`, not every bucket on
+  that host), and `crowdin` admits `https://*.downloads.crowdin.com`. Zip
+  bundles are capped at 50 MB inflated and 1000 entries.
 
 A platform whose protocol genuinely diverges from create/poll/fetch gets its
 own provider only when demand shows up; each new source is a config shape

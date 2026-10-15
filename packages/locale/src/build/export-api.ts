@@ -54,10 +54,11 @@ export interface ExportApiSourceConfig {
   zipLocaleFrom?: "filename" | "dir";
   langMap?: Record<string, string>;
   /**
-   * Origins (e.g. `"https://exports.tms.example"`) the bundle URL may point at, besides the create
-   * endpoint's own origin, which is always allowed. The URL comes from the TMS response, so without
-   * this list a hostile or spoofed response could aim the fetch anywhere. TMSes that hand out a
-   * storage/CDN link need that origin listed here.
+   * Where the bundle URL may point, besides the create endpoint's own origin (always allowed). The
+   * URL comes from the TMS response, so without this list a hostile or spoofed response could aim the
+   * fetch anywhere. https only. Each entry is an exact origin (`"https://exports.tms.example"`), an
+   * origin plus a path prefix ending in "/" (`"https://s3.example/bucket/"`, for shared storage hosts),
+   * or a host suffix (`"https://*.downloads.tms.example"`, any subdomain).
    */
   bundleOrigins?: string[];
 }
@@ -109,19 +110,35 @@ function resolveConfig(config: ExportApiSourceConfig): ResolvedConfig {
   };
 }
 
+const WILDCARD_HOST = "https://*.";
+
+/** Whether `url` matches one `bundleOrigins` entry; a malformed entry throws, since it is config, not input. */
+function matchesBundleOrigin(url: URL, entry: string): boolean {
+  if (entry.startsWith(WILDCARD_HOST)) {
+    // Dot-anchored: ".downloads.crowdin.com" never matches "evildownloads.crowdin.com".
+    const suffix = `.${entry.slice(WILDCARD_HOST.length).toLowerCase()}`;
+    if (!/^(\.[a-z0-9-]+){2,}$/.test(suffix)) throw new Error(`export-api: bundleOrigins entry "${entry}" is not a valid host suffix`);
+    return url.protocol === "https:" && url.port === "" && url.hostname.endsWith(suffix);
+  }
+  const allowed = new URL(entry);
+  if (allowed.protocol !== "https:") throw new Error(`export-api: bundleOrigins entry "${entry}" must be https`);
+  // A shared host (path-style S3) is only safe narrowed to one bucket, so a path must end in "/" to
+  // stop "/lokalise-assets" from also admitting "/lokalise-assets-evil".
+  if (!allowed.pathname.endsWith("/")) throw new Error(`export-api: bundleOrigins path prefix in "${entry}" must end in "/"`);
+  return url.origin === allowed.origin && url.pathname.startsWith(allowed.pathname);
+}
+
 function assertBundleOrigin(bundleUrl: string, createUrl: string, bundleOrigins: string[]): void {
-  let origin: string;
+  let url: URL;
   try {
-    origin = new URL(bundleUrl, createUrl).origin;
+    url = new URL(bundleUrl, createUrl);
   } catch {
     throw new Error(`export-api: bundle URL "${bundleUrl}" is not a valid URL`);
   }
-  const allowed = [new URL(createUrl).origin, ...bundleOrigins.map((o) => new URL(o).origin)];
-  if (!allowed.includes(origin)) {
-    throw new Error(
-      `export-api: bundle URL origin "${origin}" is not allowed (allowed: ${allowed.join(", ")}); add it to "bundleOrigins" if this TMS serves exports from it`,
-    );
-  }
+  if (url.origin === new URL(createUrl).origin || bundleOrigins.some((entry) => matchesBundleOrigin(url, entry))) return;
+  throw new Error(
+    `export-api: bundle URL "${url.origin}${url.pathname}" is not allowed (create origin or bundleOrigins: ${bundleOrigins.join(", ") || "none"}); add its origin to "bundleOrigins" if this TMS serves exports from it`,
+  );
 }
 
 // A zip bomb inflates a few KB into gigabytes in memory, and a real TMS export is nowhere near either cap.
