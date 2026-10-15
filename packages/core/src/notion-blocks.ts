@@ -109,6 +109,10 @@ function runToMarkdown(run: Record<string, unknown>): string {
   let text = (run.plain_text as string | undefined) ?? (asObj(run.text).content as string | undefined) ?? "";
   const a = asObj(run.annotations);
   if (a.code) {
+    // A line ending inside a code span ends the paragraph (a blank line, or a line that opens an
+    // HTML block), leaving the rest live markup. CommonMark renders code-span line endings as
+    // spaces anyway, so collapse them first.
+    text = text.replace(/\r\n?|\n/g, " ");
     const fence = fenceFor(text, 1);
     const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
     text = `${fence}${pad}${text}${pad}${fence}`;

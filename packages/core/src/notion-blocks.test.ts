@@ -29,6 +29,22 @@ describe("richTextToMarkdown", () => {
     expect(richTextToMarkdown(text("`y", { annotations: { code: true } }))).toBe("`` `y ``");
   });
 
+  // Regression: a line ending inside an inline-code run ended the paragraph and left the rest as a
+  // live HTML block.
+  it("collapses line endings inside inline code so the span can't end its paragraph", () => {
+    const payload = "<div><img src=x onerror=alert(1)></div>";
+    for (const nl of ["\n", "\r", "\r\n", "\n\n"]) {
+      const md = richTextToMarkdown(text(`x${nl}${payload}`, { annotations: { code: true } }));
+      expect(md).not.toMatch(/[\r\n]/);
+      expect(md).toMatch(/^`x +<div>.*`$/);
+    }
+    const caption = blocksToMarkdown([
+      block("bookmark", { url: "https://ok.test", caption: text(`a\n\n${payload}`, { annotations: { code: true } }) }),
+    ]);
+    expect(caption).not.toMatch(/\n\s*<div>/);
+    expect(caption).toContain("`a  <div><img src=x onerror=alert(1)></div>`");
+  });
+
   it("keeps the text but drops a link whose scheme is not http(s) or mailto", () => {
     expect(richTextToMarkdown(text("x", { href: "javascript:alert(1)" }))).toBe("x");
     expect(richTextToMarkdown(text("x", { href: "data:text/html,<b>" }))).toBe("x");
