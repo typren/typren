@@ -1,5 +1,88 @@
 # typren
 
+## 0.5.0
+
+### Minor Changes
+
+- d054689: Add `typren migrate`: reads the migration notes bundled with the installed
+  `@typren/core` (`migrations/`, packed at build time from `docs/migrations/`)
+  and checks the project against each one's `detect` patterns, printing
+  file:line matches plus the note's Fix/Verify steps. `--remote` additionally
+  checks `https://typren.com/migrations/index.json` for notes newer than the
+  install, labelled unverified since they aren't pinned by the lockfile.
+  
+  `@typren/core` ships the `migrations/` directory (now in its package `files`)
+  but no notes yet; this is a non-breaking addition and bumps patch.
+  
+  Also adds the breaking-change migration gate (`bun run check:migrations`,
+  wired into `bun run verify`): a changeset whose body starts with `BREAKING:`
+  must have a `docs/migrations/<package>-<version>.md` ahead of that package's
+  current version, or `verify` fails with the missing file named.
+
+### Patch Changes
+
+- 84ae104: Harden `typren review`'s git handling and PR-body generation:
+  
+  - `--base <ref>` (and a brief's stored `baseRef`) now rejects a value
+    starting with `-`, so it can never be parsed as a git option instead of a
+    revision; every git call that still takes the ref also passes
+    `--end-of-options` as defense in depth.
+  - `--pr`'s PR body writes to a fresh `mkdtempSync` directory instead of a
+    predictable `typren-review-<slug>-<timestamp>.md` path directly under the
+    shared temp dir.
+  - The PR body's embedded JSON code fence is now sized past the longest
+    backtick run already present in the diff content it wraps.
+  - `typren init` no longer writes through a dangling symlink at a scaffold
+    target; it's skipped like an existing file unless `--force`.
+- 3e432fe: Dependency updates: next 16.4.0, dompurify 3.4.17, js-yaml 5.4.3, jsdom 30.1.2 and dev tooling (vitest, eslint,
+  typescript-eslint, @types/node, @vitejs/plugin-react, lucide-react).
+- 1130d81: Hardening pass on `typren migrate` and the breaking-change migration gate,
+  all bug fixes with no API change:
+  
+  - `typren migrate` now drops (with a warning) a `--remote` note whose
+    package/version isn't validly shaped, strips control characters from a
+    remote note's title/body, and caps the remote fetch to 1 MB while
+    streaming instead of after buffering the whole response.
+  - `@typren/core`'s published package now also carries a `migrations/.min-version`
+    file (the oldest migration note it kept); `migrate` reads it and warns
+    (exiting non-zero) when a project's `--from` predates it, since older
+    notes it may have needed were dropped from this release.
+  - The project file walk `migrate` runs to detect matches no longer follows
+    symlinks, caps per-file reads at 1 MB, reads each file once regardless of
+    how many detect patterns/notes apply to it, and ignores a few more
+    generated-output directories (`coverage`, `build`, `.turbo`, `.vercel`,
+    `.svelte-kit`, `.output`).
+  - Every `execFileSync("git", ...)` call in the CLI (`review`'s git-backed
+    checks, and `--pr`'s checkout/commit/push) now runs with `envWithoutGit()`,
+    closing the same inherited-`GIT_DIR` hazard `migrate`'s own git calls were
+    already guarded against.
+  - `bun run check:migrations` is now part of the local `pre-push` gate (it was
+    already part of `bun run verify`, so CI already ran it); the gate itself
+    now requires a migration note's version to exactly match the version a
+    changeset's bump produces (not just any later version), tolerates
+    CRLF/unquoted-or-single-quoted changeset frontmatter, and only enforces
+    itself against packages whose notes are actually packed into the CLI
+    (`@typren/core`; others get an informational note instead of a failure).
+- 87ec75b: Front matter now refuses YAML aliases (`*ref`) and blocks over 256 KB, so a content file can no longer
+  expand into gigabytes of objects (billion laughs) when it is parsed. Timestamps, merge keys and every other
+  value parse exactly as before.
+- Updated dependencies [b0aa508]
+- Updated dependencies [d2c9f03]
+- Updated dependencies [11b4619]
+- Updated dependencies [3e432fe]
+- Updated dependencies [07a5280]
+- Updated dependencies [52e172a]
+- Updated dependencies [1130d81]
+- Updated dependencies [e20d2b8]
+- Updated dependencies [f5ec0c8]
+- Updated dependencies [f5580aa]
+- Updated dependencies [b95f3cd]
+- Updated dependencies [c6f38fa]
+- Updated dependencies [8be319f]
+- Updated dependencies [87ec75b]
+- Updated dependencies [d054689]
+  - @typren/core@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes
