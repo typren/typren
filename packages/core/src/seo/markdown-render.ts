@@ -29,7 +29,7 @@ function flattenSlice(slice: Slice): string {
  *  consumers, so a slice-shape fix only happens once. */
 export function renderSlicesAsMarkdown(slices: Slice[], overrides: SliceMarkdownRegistry = {}): string {
   return slices
-    .map((s) => (overrides[s.slice] ? overrides[s.slice](s) : flattenSlice(s)))
+    .map((s) => (Object.hasOwn(overrides, s.slice) ? overrides[s.slice](s) : flattenSlice(s)))
     .filter(Boolean)
     .join("\n\n");
 }

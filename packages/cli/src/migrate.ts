@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { createRequire } from "node:module";
 import { parseMatter } from "./safe-matter";
 
 export interface MigrationDetectPattern {
@@ -136,16 +135,35 @@ export function fromVersionFromGit(cwd: string): string | null {
 }
 
 /** Resolves the installed `@typren/core` from the TARGET project (`cwd`),
- *  never from this CLI's own install, and returns its package.json path. */
+ *  never from this CLI's own install, and returns its package.json path.
+ *  Walks `node_modules` by hand instead of `require.resolve`/`exports`
+ *  resolution: an installed core whose `exports` map doesn't list
+ *  `./package.json` (true of every published core before this fix) makes
+ *  Node's resolver throw ERR_PACKAGE_PATH_NOT_EXPORTED even though the file
+ *  is right there on disk, which crashed `migrate` on every project. */
 function resolveInstalledCore(cwd: string): string {
-  const require = createRequire(path.join(cwd, "package.json"));
-  return require.resolve("@typren/core/package.json", { paths: [cwd] });
+  let dir = path.resolve(cwd);
+  for (;;) {
+    const candidate = path.join(dir, "node_modules", "@typren", "core", "package.json");
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(
+    `typren migrate: cannot find @typren/core installed above ${cwd} (no node_modules/@typren/core/package.json). ` +
+      "Install your project's dependencies first."
+  );
 }
 
 const PACKAGE_NAME_RE = /^@?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/i;
 
+/** Anchored at both ends: a remote note's `version` is untrusted and gets
+ *  printed straight to the terminal (and, with --json, round-tripped as a
+ *  string), so a prefix match that accepted "1.2.3<escape sequence>" would
+ *  let that trailing junk through disguised as a valid version. */
 function isValidSemver(v: string): boolean {
-  return /^\d+\.\d+\.\d+/.test(v);
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(v);
 }
 
 /** Strips ASCII control bytes other than \n and \t. A remote note's title
@@ -365,20 +383,22 @@ async function fetchRemoteNotes(fetchImpl: typeof fetch): Promise<MigrationNote[
     const notes: MigrationNote[] = [];
     for (const entry of index as { package?: string; version?: string; url?: string }[]) {
       if (typeof entry.url !== "string" || !entry.url.startsWith(REMOTE_URL_PREFIX)) {
-        console.warn(`typren migrate: ignoring remote index entry with an untrusted url: ${String(entry.url)}`);
+        console.warn(`typren migrate: ignoring remote index entry with an untrusted url: ${stripControlChars(String(entry.url))}`);
         continue;
       }
       const raw = await fetchCapped(entry.url, fetchImpl);
       const note = parseNote(raw, "remote");
       if (!note) {
-        console.warn(`typren migrate: ignoring a remote migration note with an invalid package/version: ${entry.url}`);
+        console.warn(`typren migrate: ignoring a remote migration note with an invalid package/version: ${stripControlChars(entry.url)}`);
         continue;
       }
       notes.push(note);
     }
     return notes;
   } catch (err) {
-    console.warn(`typren migrate: --remote fetch failed, falling back to bundled notes only (${(err as Error).message})`);
+    console.warn(
+      `typren migrate: --remote fetch failed, falling back to bundled notes only (${stripControlChars((err as Error).message)})`
+    );
     return [];
   }
 }

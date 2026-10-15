@@ -89,6 +89,19 @@ describe("richTextToMarkdown", () => {
     expect(richTextToMarkdown(text("+ not a list"))).toBe("\\+ not a list");
     expect(richTextToMarkdown(text("1. not a list"))).toBe("1\\. not a list");
   });
+
+  it("escapes a bare line of = or - so it can't become a setext heading underline or thematic break", () => {
+    expect(richTextToMarkdown(text("Title\n===="))).toBe("Title\n\\====");
+    expect(richTextToMarkdown(text("Title\n----"))).toBe("Title\n\\----");
+    expect(richTextToMarkdown(text("Title\n--"))).toBe("Title\n\\--");
+    expect(richTextToMarkdown(text("- - -"))).toBe("\\- - -"); // a leading single "-" already escapes the rest inert
+    // a single "-" is still caught by the existing bullet-marker escape, not double-escaped
+    expect(richTextToMarkdown(text("-"))).toBe("\\-");
+  });
+
+  it("escapes a pipe so plain text can't open a table column it never asked for", () => {
+    expect(richTextToMarkdown(text("a | b"))).toBe("a \\| b");
+  });
 });
 
 describe("blocksToMarkdown", () => {

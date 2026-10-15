@@ -55,6 +55,15 @@ describe("createWebhookSink", () => {
     expect(await sink.deliver(submission, schema)).toEqual({ ok: false, detail: "webhook responded 500" });
   });
 
+  it("aborts the fetch after the configured timeout so a slow receiver can't pin the request", async () => {
+    const impl = ((_url: unknown, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+      })) as typeof fetch;
+    const sink = createWebhookSink({ type: "webhook", url: "https://hooks.example/f" }, { fetchImpl: impl, timeoutMs: 5 });
+    await expect(sink.deliver(submission, schema)).rejects.toThrow();
+  });
+
   it("requests manual redirect handling and treats a 3xx response as a failed delivery", async () => {
     const calls: Array<{ init: RequestInit }> = [];
     const impl = (async (_url: unknown, init?: RequestInit) => {

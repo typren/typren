@@ -40,11 +40,25 @@ function publishUnpublished(packages, { isOnNpm, publish }) {
   return result;
 }
 
+// npm 11 refuses to publish a prerelease version (e.g. "1.0.0-beta.1") without an explicit --tag,
+// since it would otherwise move the registry's "latest" tag onto a prerelease. The first dot-separated
+// identifier after the "-" is the conventional npm dist-tag (semver's own meaning for it: "beta.1"
+// sorts under the "beta" prerelease line). Stable versions are unaffected.
+function prereleaseTag(version) {
+  const match = /^\d+\.\d+\.\d+-([0-9A-Za-z-]+)/.exec(version);
+  return match ? match[1] : null;
+}
+
+function npmPublishArgs(version) {
+  const tag = prereleaseTag(version);
+  return tag ? ["publish", "--access", "public", "--tag", tag] : ["publish", "--access", "public"];
+}
+
 // No NODE_AUTH_TOKEN: under trusted publishing npm exchanges the job's OIDC token for a short-lived
 // credential and attaches provenance itself. `--access public` is what .changeset/config.json's
 // `access` used to pass. No shell, so nothing in a package name or path is ever interpreted.
 function publishReal(pkg) {
-  execFileSync("npm", ["publish", "--access", "public"], { cwd: pkg.dir, stdio: "inherit" });
+  execFileSync("npm", npmPublishArgs(pkg.version), { cwd: pkg.dir, stdio: "inherit" });
 }
 
 function run(repoRoot) {
@@ -57,4 +71,4 @@ function run(repoRoot) {
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 if (isMain && run(process.cwd()).failed.length > 0) process.exit(1);
 
-export { publishUnpublished, run };
+export { publishUnpublished, run, npmPublishArgs };

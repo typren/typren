@@ -1,4 +1,4 @@
-import { defaultEnv, resolveEnvRef } from "./env";
+import { DEFAULT_SINK_TIMEOUT_MS, defaultEnv, resolveEnvRef } from "./env";
 import type { FormSink, SinkRuntime, WebhookSinkConfig } from "./types";
 
 export function createWebhookSink(config: WebhookSinkConfig, runtime: SinkRuntime = {}): FormSink {
@@ -20,6 +20,7 @@ export function createWebhookSink(config: WebhookSinkConfig, runtime: SinkRuntim
         headers,
         body: JSON.stringify(submission),
         redirect: "manual",
+        signal: AbortSignal.timeout(runtime.timeoutMs ?? DEFAULT_SINK_TIMEOUT_MS),
       });
       if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
         return { ok: false, detail: `webhook redirected (${response.status || "opaque"})` };

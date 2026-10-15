@@ -116,6 +116,14 @@ export type ReviewPaths = {
  * checkFaqRegistration), never a hard failure and never a silent pass.
  */
 export declare function resolveReviewPaths(cwd: string): ReviewPaths;
+/** Slice names with a `@typren/core/seo` seoRegistry entry. Scans line by
+ *  line with plain string ops rather than a single `^\s*(\w+):\s*(?:async\s*)?\(`
+ *  regex `matchAll` over the whole (repo-controlled) file: `indexOf`/`slice`
+ *  are guaranteed linear in the file size regardless of content, so this
+ *  can't regress into backtracking blowup if the pattern ever grows another
+ *  quantifier. Returns null when the file can't be read (check that depends
+ *  on it degrades to "skip", not a guess). */
+export declare function getSeoRegistryKeys(cwd: string, paths: ReviewPaths): string[] | null;
 /**
  * Core of `typren review [slug] [--base <ref>]`. No slug: one brief per
  * content file changed against `base` (default `origin/main`, working-tree

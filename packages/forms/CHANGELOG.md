@@ -1,5 +1,12 @@
 # @typren/forms
 
+## 0.2.1
+
+### Patch Changes
+
+- bc69c96: The `hubspot` sink now reads `hutk` from the request's `hubspotutk` cookie instead of the submission body, matching the documented guarantee. A submitter could previously claim an arbitrary HubSpot tracking identity by putting any value in the `hutkField`-named form field.
+- 52512fc: Every fetch-backed sink (`webhook`, `hubspot`, `google-sheets`) now aborts its request after a 10-second default timeout (override with `SinkRuntime.timeoutMs`), so a slow or unresponsive receiver can no longer pin a form submission handler open.
+
 ## 0.2.0
 
 ### Minor Changes

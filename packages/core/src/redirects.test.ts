@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { buildRedirects } from "./redirects";
 import { fakeStore } from "./seo/test-fixtures";
 
@@ -78,6 +78,33 @@ describe("buildRedirects", () => {
     const store = fakeStore([{ slug: "about" }]);
     await buildRedirects(store);
     expect(store.listPagesCalls).toBe(0);
+  });
+
+  it.each([
+    ["the site root", "/"],
+    ["a /.well-known path", "/.well-known/apple-app-site-association"],
+    ["a path with a file extension", "/robots.txt"],
+  ])("warns and skips an alias claiming %s, without throwing", async (_label, bad) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = fakeStore([{ slug: "about", meta: { aliases: [bad] } }]);
+    expect(await buildRedirects(store)).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(bad));
+    warn.mockRestore();
+  });
+
+  it("warns and skips an alias under a reserved prefix (another locale or collection)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = fakeStore([{ slug: "about", meta: { aliases: ["/blog/old-post"] } }]);
+    expect(await buildRedirects(store, { reservedPrefixes: ["/blog"] })).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("/blog"));
+    warn.mockRestore();
+  });
+
+  it("still accepts an alias that is merely a prefix of a reserved path, not under it", async () => {
+    const store = fakeStore([{ slug: "about", meta: { aliases: ["/blogging"] } }]);
+    expect(await buildRedirects(store, { reservedPrefixes: ["/blog"] })).toEqual([
+      { from: "/blogging", to: "/about", slug: "about" },
+    ]);
   });
 
   it("still reports the duplicate owner by page order, not read-completion order", async () => {

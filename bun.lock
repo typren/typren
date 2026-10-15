@@ -32,7 +32,7 @@
     },
     "packages/adapter-cloudflare": {
       "name": "@typren/adapter-cloudflare",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "typren-cloudflare": "./dist/cli.js",
       },
@@ -47,7 +47,7 @@
     },
     "packages/adapter-cloudfront": {
       "name": "@typren/adapter-cloudfront",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "bin": {
         "typren-cloudfront": "./dist/cli.js",
       },
@@ -62,7 +62,7 @@
     },
     "packages/adapter-media-s3": {
       "name": "@typren/adapter-media-s3",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "aws4fetch": "^1.0.20",
       },
@@ -77,7 +77,7 @@
     },
     "packages/cli": {
       "name": "typren",
-      "version": "0.4.0",
+      "version": "0.5.1",
       "bin": {
         "typren": "./dist/cli.js",
       },
@@ -102,7 +102,7 @@
     },
     "packages/core": {
       "name": "@typren/core",
-      "version": "0.4.0",
+      "version": "0.5.1",
       "dependencies": {
         "dompurify": "^3.4.17",
         "gray-matter": "^4.0.3",
@@ -142,7 +142,7 @@
     },
     "packages/editor": {
       "name": "@typren/editor",
-      "version": "0.4.0",
+      "version": "0.5.1",
       "dependencies": {
         "@typren/core": "workspace:*",
         "class-variance-authority": "^0.7.1",
@@ -167,7 +167,7 @@
     },
     "packages/forms": {
       "name": "@typren/forms",
-      "version": "0.1.2",
+      "version": "0.2.0",
       "devDependencies": {
         "@types/node": "^26.6.5",
         "typescript": "^6.0.3",
@@ -175,7 +175,7 @@
     },
     "packages/locale": {
       "name": "@typren/locale",
-      "version": "0.2.1",
+      "version": "0.3.1",
       "bin": {
         "typren-locale": "./dist/cli/index.js",
       },

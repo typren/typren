@@ -79,6 +79,7 @@ export function validateBootstrap(bs: SiteSettingsBootstrap): string | null {
     return `locales must be a non-empty array of BCP-47-ish locale codes, got ${JSON.stringify(bs.locales)}`;
   if (!ROUTING_MODES.includes(bs.routing))
     return `routing "${bs.routing}" must be one of ${ROUTING_MODES.join(", ")}`;
+  if (typeof bs.onboarded !== "boolean") return `onboarded must be a boolean, got ${JSON.stringify(bs.onboarded)}`;
   try {
     resolveI18n({ locales: bs.locales, defaultLocale: bs.defaultLocale, routing: bs.routing });
   } catch (e) {

@@ -13,13 +13,21 @@ pushes to `main`) passes when a file in `security-reviews/` has:
 - a `reviewedHead` that is the commit being promoted or one of its ancestors;
 - no security-sensitive changes between `reviewedHead` and that commit.
 
-Sensitive means anything the release build executes or the published tarballs carry: everything under `packages/` and
-`apps/` (source, tests, fixtures, build scripts, tsconfigs, manifests), every root-level file (`package.json`, `bun.lock`,
-`vitest.config.ts`, `eslint.config.mjs`, `tsconfig.base.json`, `.npmrc` and any config added later), `scripts/`,
-`.husky/`, `.github/`, `.changeset/config.json`, `.claude/workflows/`, and `docs/migrations/`, whose notes core packs into
-its tarball. Tests count because the release job runs them before it stages `dist/`. Markdown is exempt except under
-`docs/migrations/` and a package's `src/`, so docs, changeset notes and review records may change after a review without
-invalidating it. Anything else means re-review the delta.
+The check is deny-by-default: every changed path is sensitive unless it matches one of these exceptions, so a new
+top-level directory, workflow, or config file is covered automatically rather than needing this list to learn its name.
+Not sensitive:
+
+- `docs/**`, except `docs/migrations/**` (core packs those notes into its tarball, and `typren migrate` runs their
+  `detect` regexes, so they stay sensitive like any other shipped file);
+- any other `*.md`, except under a package's own `src/` (a README re-exported as docs still ships);
+- `.changeset/*.md`;
+- `security-reviews/**` (the records themselves).
+
+Everything else — `packages/`, `apps/`, `scripts/`, every root-level manifest and config, `.husky/`, `.github/`,
+`.changeset/config.json`, `.claude/`, generated snapshots like `etc/api-surface/`, and any path not listed above — is
+sensitive. Tests count because the release job runs them before it stages `dist/`. Markdown exemptions let docs,
+changeset notes and review records change after a review without invalidating it; anything else means re-review the
+delta.
 
 The CI check runs the gate script from the base branch, so a PR cannot edit the gate to pass itself. Make **Security review**
 a required status check on `main` in branch protection.

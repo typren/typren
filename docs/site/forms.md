@@ -99,7 +99,10 @@ treats any `3xx` response as a delivery failure rather than following it:
 a webhook endpoint that silently redirects elsewhere is not the endpoint the
 site owner configured. The `file` sink caps the size of each appended line,
 so one oversized submission can't balloon the JSONL file or stall a reader
-that assumes bounded lines.
+that assumes bounded lines. Every fetch-backed sink (`webhook`, `hubspot`,
+`google-sheets`) aborts its request after a 10-second default timeout
+(`SinkRuntime.timeoutMs` to override), so a slow or unresponsive receiver
+can't pin a submission handler open.
 
 A custom vendor implements `FormSink` directly and is passed in place of a
 config entry:

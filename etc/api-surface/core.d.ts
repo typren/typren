@@ -266,6 +266,14 @@ export type AuthContext = {
     action: AuthAction;
     /** Target slug when the action has one (undefined for "read" of the index / createPage). */
     slug?: string;
+    /** Collection section id (see sections.ts's CollectionSection) when the
+     *  action targets a collection record, undefined for a Pages action. Lets
+     *  a policy grant/deny per collection the way `slug` lets it grant/deny
+     *  per page. */
+    collectionId?: string;
+    /** Locale the action targets, when the caller resolved one. Undefined
+     *  means the adapter's default locale. */
+    locale?: string;
     /** Hosted-platform tenant scope, resolved server-side (session -> user ->
      *  account -> membership -> site) and NEVER taken from client input.
      *  Optional: a single-site local/self-host config omits both and every
@@ -408,9 +416,10 @@ import type { AuthAdapter } from "../auth-adapter.js";
 /**
  * Dev-only gate (entry `@typren/core/auth/local`, no peer deps outside the
  * `getHost` default above). Refuses in production unless `allowInProduction`
- * is explicitly set, refuses unless the Next server is bound to loopback
- * (`next dev -H 127.0.0.1`, which `typren init` scaffolds), and refuses a
- * non-loopback Host even then. The editor writes files, so never ship it open
+ * is explicitly set, refuses unless the server is bound to loopback (Next:
+ * `next dev -H 127.0.0.1`, which `typren init` scaffolds; other hosts pass
+ * `isBoundToLoopback` and `getHost`), and refuses a non-loopback Host even
+ * then. Any throw from a check denies. The editor writes files, so never ship it open
  * by omission. Doesn't branch on `ctx.action`, so "admin"
  * (settings/onboarding/bootstrap writes) gets the exact same local-only gate
  * as every other write. There's only one tier in local dev.
@@ -423,6 +432,11 @@ export declare function localAuth(opts?: {
     /** Resolve the request's Host header. Default: Next's `headers()` (see
      *  `defaultGetHost`). Override in tests. Only ever narrows access. */
     getHost?: () => Promise<string | null>;
+    /** True only when the server is listening on loopback alone. Default:
+     *  Next's startup state (see `isBoundToLoopback`). A non-Next host must
+     *  supply it from the address its server actually bound -- e.g. Astro's
+     *  `astro:server:start` hook -- never from anything a request carries. */
+    isBoundToLoopback?: () => boolean;
 }): AuthAdapter;
 
 // ---- dist/auth/next-auth.d.ts ----
@@ -1389,6 +1403,12 @@ export type BuildRedirectsOptions = {
      *  safety valve against a runaway or malicious frontmatter edit, not a
      *  realistic target. */
     maxEntries?: number;
+    /** Path prefixes an alias must never claim beyond this store's own pages:
+     *  another locale's URL prefix (e.g. "/es"), a collection's public base
+     *  (e.g. "/blog"), or any other route the host owns outside this
+     *  ContentStore. This module reads one store and has no i18n/collection
+     *  config of its own, so the host passes whatever it knows is reserved. */
+    reservedPrefixes?: string[];
 };
 /**
  * One entry per page-declared alias (frontmatter `aliases: string[]`),
@@ -1408,6 +1428,14 @@ export type BuildRedirectsOptions = {
  * page's own canonical path (including a page aliasing itself, which would
  * be a redirect loop), a duplicate alias claimed by two pages, or more total
  * aliases than `maxEntries`.
+ *
+ * Warns and SKIPS (does not throw) an alias that claims a path this store
+ * can't see as already owned but that must never become a permanent edge
+ * redirect regardless: "/" (when no page's canonical path is already "/"),
+ * anything under `/.well-known/`, a path with a file extension (a static
+ * asset route), or a `reservedPrefixes` entry (another locale/collection).
+ * These are newly restricted, so an existing site's frontmatter may already
+ * declare one; skipping keeps this fix from turning into a build break.
  */
 export declare function buildRedirects(store: ContentStore, opts?: BuildRedirectsOptions): Promise<RedirectEntry[]>;
 

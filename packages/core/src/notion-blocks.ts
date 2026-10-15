@@ -57,8 +57,11 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 // CommonMark's own rule for literal ASCII punctuation; `<`/`>`/`&` are
 // handled separately by `escapeHtml` above, as entities rather than
 // backslashes, since that's what keeps them inert in a raw-HTML-enabled
-// renderer too.
-const MD_METACHARS = /[\\[\]()!*_~`]/g;
+// renderer too. `|` has no inline meaning on its own, but it is what GFM
+// table rows and cells key off, so it is always escaped rather than only
+// line-leading, the same way a table cell's own text must not be able to
+// open a column Notion never asked for.
+const MD_METACHARS = /[\\[\]()!*_~`|]/g;
 // A marker at the START of a line turns plain text into a heading or list the
 // author never wrote; mid-line the same characters are inert. Each
 // alternative escapes the one character CommonMark actually keys off: the
@@ -67,6 +70,12 @@ const MD_METACHARS = /[\\[\]()!*_~`]/g;
 // already turns it into the `&gt;` entity, three characters with no literal
 // `>` left for CommonMark's blockquote rule to see.
 const MD_LEADING_MARKER = /^([ \t]*)(?:(#{1,6})(?=[ \t]|$)|([-+])(?=[ \t]|$)|(\d+)(\.)(?=[ \t]|$))/gm;
+// A line made up of nothing but `=` (or nothing but `-`), optionally spaced out, turns the text
+// line above it into a setext heading, or (3+ of either, "-" especially, since "*"/"_" are already
+// defused by MD_METACHARS above) stands alone as a thematic break. CommonMark classifies these at
+// the block level, before backslash escapes are resolved, so escaping only the first character is
+// enough: it stops the line from being "all the same character" and the block rule no longer fires.
+const MD_STRUCTURAL_LINE = /^([ \t]*)([=-])((?:[ \t]*\2)*[ \t]*)$/gm;
 
 /** Prose text, safe to drop into markdown: HTML-entity-escaped (see
  *  `escapeHtml`) and then markdown-metacharacter-escaped, so plain Notion
@@ -79,7 +88,8 @@ function escapeMarkdown(s: string): string {
       if (heading) return `${lead}\\${heading}`;
       if (bullet) return `${lead}\\${bullet}`;
       return `${lead}${digits}\\${dot}`;
-    });
+    })
+    .replace(MD_STRUCTURAL_LINE, (_m, lead: string, char: string, rest: string) => `${lead}\\${char}${rest}`);
 }
 
 /** A backtick fence longer than any backtick run inside `s`, so `s` cannot close it early. */

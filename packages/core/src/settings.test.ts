@@ -264,4 +264,8 @@ describe("validateBootstrap", () => {
   it("rejects a defaultLocale not present in locales", () => {
     expect(validateBootstrap({ ...valid, locales: ["en", "fr"], defaultLocale: "de" })).toMatch(/defaultLocale/);
   });
+
+  it("rejects a non-boolean onboarded", () => {
+    expect(validateBootstrap({ ...valid, onboarded: "true" as unknown as boolean })).toMatch(/onboarded/);
+  });
 });

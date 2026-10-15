@@ -344,7 +344,13 @@ export function createExportApiSourceProvider(
           throw new Error(`export-api: could not read bundle URL at "${urlPath}"`);
         }
         assertBundleOrigin(bundleUrl, createUrl, resolved.bundleOrigins);
-        const bundleResponse = await fetchImpl(bundleUrl);
+        // Manual redirect handling: bundleOrigins only vets the URL above, so
+        // letting fetch follow a redirect would hand the bundle request (and
+        // its auth header) to whatever a 3xx response names, unvetted.
+        const bundleResponse = await fetchImpl(bundleUrl, { redirect: "manual" });
+        if (bundleResponse.type === "opaqueredirect" || (bundleResponse.status >= 300 && bundleResponse.status < 400)) {
+          throw new Error(`export-api: bundle URL "${bundleUrl}" redirected (${bundleResponse.status || "opaque"}); add the redirect target's origin to bundleOrigins and configure it directly`);
+        }
         if (!bundleResponse.ok) {
           throw new Error(`export-api: bundle request failed (${bundleResponse.status} ${bundleResponse.statusText}): ${bundleUrl}`);
         }
