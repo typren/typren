@@ -19,7 +19,7 @@ describe("richTextToMarkdown", () => {
 
   it("escapes markup in prose text so a Notion page cannot inject HTML", () => {
     expect(richTextToMarkdown(text('<img src=x onerror="alert(1)"> & co'))).toBe(
-      '&lt;img src=x onerror="alert(1)"&gt; &amp; co'
+      '&lt;img src=x onerror="alert\\(1\\)"&gt; &amp; co'
     );
   });
 
@@ -46,6 +46,32 @@ describe("richTextToMarkdown", () => {
   it("joins multiple runs and tolerates a non-array input", () => {
     expect(richTextToMarkdown([...text("a"), ...text(" b")])).toBe("a b");
     expect(richTextToMarkdown(undefined)).toBe("");
+  });
+
+  it("escapes a plain-text fake link so it never becomes a live javascript: link", () => {
+    const md = richTextToMarkdown(text("[x](javascript:alert(1))"));
+    expect(md).not.toContain("[x](javascript:alert(1))");
+    expect(md).not.toMatch(/(?<!\\)\[x\](?<!\\)\(javascript:/);
+  });
+
+  it("still renders Notion's own bold/italic/code/link annotations over escaped text", () => {
+    expect(richTextToMarkdown(text("a (b) c", { annotations: { bold: true } }))).toBe("**a \\(b\\) c**");
+    expect(richTextToMarkdown(text("i", { annotations: { italic: true } }))).toBe("_i_");
+    expect(richTextToMarkdown(text("link", { href: "https://x.test" }))).toBe("[link](https://x.test)");
+  });
+
+  it("round-trips ordinary punctuated text to the same visible characters", () => {
+    const original = "Price: $5 (on sale!) - don't miss it.";
+    const escaped = richTextToMarkdown(text(original));
+    expect(escaped.replace(/\\(.)/g, "$1")).toBe(original);
+  });
+
+  it("escapes a line-leading block marker so plain text can't open a heading/quote/list", () => {
+    expect(richTextToMarkdown(text("# not a heading"))).toBe("\\# not a heading");
+    expect(richTextToMarkdown(text("> not a quote"))).toBe("&gt; not a quote"); // escapeHtml already defuses this
+    expect(richTextToMarkdown(text("- not a list"))).toBe("\\- not a list");
+    expect(richTextToMarkdown(text("+ not a list"))).toBe("\\+ not a list");
+    expect(richTextToMarkdown(text("1. not a list"))).toBe("1\\. not a list");
   });
 });
 
@@ -138,6 +164,14 @@ describe("blocksToMarkdown", () => {
       block("code", { rich_text: text("```\n<script>alert(1)</script>", { annotations: { bold: true } }), language: "js\n<x>" }),
     ]);
     expect(md).toBe("````\n```\n<script>alert(1)</script>\n````");
+  });
+
+  it("escapes a bookmark/image caption so it can't close its wrapper early and open a javascript: link", () => {
+    const md = blocksToMarkdown([
+      block("bookmark", { url: "https://ok.test", caption: text("a](javascript:alert(2)) [b") }),
+      block("image", { external: { url: "https://ok.test/a.png" }, caption: text("a](javascript:alert(3)) [b") }),
+    ]);
+    expect(md).not.toMatch(/\]\(javascript:/);
   });
 
   describe("keeps every nested code block line indented inside its container (regression: fence breakout)", () => {

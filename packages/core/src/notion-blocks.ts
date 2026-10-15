@@ -27,12 +27,6 @@ import type { PageContent, Slice } from "./types";
  * Malformed JSON, a missing name, or an empty prop body after the `::name`
  * line all degrade to treating the block as ordinary prose rather than
  * throwing, a typo in Notion should never break the whole page read.
- *
- * Third-party Notion text (any workspace collaborator's content, not just the
- * integration owner's) is escaped and scheme-checked here specifically so it
- * can't become live markup or a script-executing link. As defense in depth, a
- * host should still render the resulting markdown with raw HTML disabled or
- * sanitized, rather than trusting this module as the only layer.
  */
 
 /** One Notion block, trimmed to what conversion needs. `children` is only
@@ -57,6 +51,36 @@ const asArr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.m
 // as live markup, so prose text is entity-escaped; code is fenced instead
 // (markdown never decodes entities inside code, so escaping would show them).
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// Markdown metacharacters plain Notion text could otherwise use to open a
+// link, image or emphasis span it never asked for. Backslash-escaping is
+// CommonMark's own rule for literal ASCII punctuation; `<`/`>`/`&` are
+// handled separately by `escapeHtml` above, as entities rather than
+// backslashes, since that's what keeps them inert in a raw-HTML-enabled
+// renderer too.
+const MD_METACHARS = /[\\[\]()!*_~`]/g;
+// A marker at the START of a line turns plain text into a heading or list the
+// author never wrote; mid-line the same characters are inert. Each
+// alternative escapes the one character CommonMark actually keys off: the
+// first `#`, the bullet, or (for an ordered marker) the `.`. A line-leading
+// `>` needs no entry here: `escapeHtml` (run first, see `escapeMarkdown`)
+// already turns it into the `&gt;` entity, three characters with no literal
+// `>` left for CommonMark's blockquote rule to see.
+const MD_LEADING_MARKER = /^([ \t]*)(?:(#{1,6})(?=[ \t]|$)|([-+])(?=[ \t]|$)|(\d+)(\.)(?=[ \t]|$))/gm;
+
+/** Prose text, safe to drop into markdown: HTML-entity-escaped (see
+ *  `escapeHtml`) and then markdown-metacharacter-escaped, so plain Notion
+ *  text can never become a link, image, emphasis span or block syntax once
+ *  it's wrapped in `[...]`/`![...]`/annotation markup. */
+function escapeMarkdown(s: string): string {
+  return escapeHtml(s)
+    .replace(MD_METACHARS, "\\$&")
+    .replace(MD_LEADING_MARKER, (_m, lead: string, heading?: string, bullet?: string, digits?: string, dot?: string) => {
+      if (heading) return `${lead}\\${heading}`;
+      if (bullet) return `${lead}\\${bullet}`;
+      return `${lead}${digits}\\${dot}`;
+    });
+}
 
 /** A backtick fence longer than any backtick run inside `s`, so `s` cannot close it early. */
 const fenceFor = (s: string, min: number) =>
@@ -89,7 +113,7 @@ function runToMarkdown(run: Record<string, unknown>): string {
     const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
     text = `${fence}${pad}${text}${pad}${fence}`;
   } else {
-    text = escapeHtml(text);
+    text = escapeMarkdown(text);
   }
   if (a.bold) text = `**${text}**`;
   if (a.italic) text = `_${text}_`;
@@ -238,7 +262,7 @@ function renderBlock(block: NotionBlock, depth: number, numberedIndex: number): 
     case "embed": {
       const url = safeUrl(payload.url);
       const caption = richTextToMarkdown(payload.caption);
-      return indent + (url ? `[${caption || escapeHtml(url)}](${url})` : caption);
+      return indent + (url ? `[${caption || escapeMarkdown(url)}](${url})` : caption);
     }
     case "table":
       return tableMarkdown(block, indent);
