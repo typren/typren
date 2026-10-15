@@ -101,6 +101,7 @@ const auth = nextAuthAdapter({
 import { clerkAuthAdapter } from "@typren/core/auth/clerk";
 
 const auth = clerkAuthAdapter({
+  organizationId: "org_2abc...", // your site's Clerk organization
   allowedRoles: ["org:editor"],
   adminRoles: ["org:admin"],
 });
@@ -111,6 +112,15 @@ directly; nothing is injected. Throws at construction unless at least one of
 `allowedEmails`, `allowedRoles`, or `allowedUserIds` is set. `allowedEmails`
 is matched against the user's primary email only, and only when Clerk reports
 it as verified.
+
+`allowedRoles` and `adminRoles` require `organizationId`, and a role only
+counts while that organization is the session's active org. Clerk lets
+signed-up users create organizations by default, and the creator is that
+org's `org:admin`, so an unbound role check would let anyone grant themselves
+admin. Both session token versions are read: v1's `org_id`/`org_role` and
+v2's `o.id`/`o.rol` (v2 drops the `org:` prefix; Typren adds it back, so keep
+writing roles as `"org:admin"`). The `"admin"` action must also pass
+`allowedUserIds`/`allowedEmails`/`allowedRoles` when those are set.
 
 ### Better Auth
 

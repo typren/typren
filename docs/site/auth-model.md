@@ -97,7 +97,13 @@ signed-in user themselves:
 - **Better Auth**: `session.user.role`, split on commas by default
   (the admin plugin stores multi-role users as a comma-separated string);
   override with `rolesFrom`.
-- **Clerk**: the `org_role` session claim (e.g. `"org:admin"`).
+- **Clerk**: the active org role session claim (v1 `org_role`, v2 `o.rol`
+  normalized to the `"org:admin"` form), and only while the active org id
+  (v1 `org_id`, v2 `o.id`) equals the required `organizationId` option. Any
+  signed-up user can create an org and be its `org:admin`, so a role from
+  any other org never counts. Clerk's `"admin"` action also has to pass the
+  ordinary allowlist (`allowedUserIds`/`allowedEmails`/`allowedRoles`)
+  before `adminRoles` is checked.
 - **Generic OIDC**: a configurable claim (default `"roles"`), normalized from
   either a string or a string array.
 - **Cloudflare Access**: the `groups` claim — present only when the Access

@@ -628,19 +628,19 @@ Does not throw at construction. `authorize()` fails closed (returns `false`) on 
 
 | Export | Signature | Notes |
 |---|---|---|
-| `clerkAuthAdapter(opts?)` | `(opts?: { allowedRoles?: string[]; allowedUserIds?: string[]; adminRoles?: string[] }) => AuthAdapter` | Clerk's `auth()`/`currentUser()` are global request-scoped helpers, so they're imported directly rather than injected. |
+| `clerkAuthAdapter(opts)` | `(opts: { allowedEmails?: string[]; allowedRoles?: string[]; allowedUserIds?: string[]; adminRoles?: string[]; organizationId?: string }) => AuthAdapter` | Clerk's `auth()`/`currentUser()` are global request-scoped helpers, so they're imported directly rather than injected. |
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
-| `allowedRoles` | `string[]` | none | Org role claim, e.g. `"org:admin"`. |
+| `allowedEmails` | `string[]` | none | Case-insensitive match on the user's verified primary email. |
+| `allowedRoles` | `string[]` | none | Org role claim, e.g. `"org:admin"`. Requires `organizationId`. |
 | `allowedUserIds` | `string[]` | none | |
-| `adminRoles` | `string[]` | none | Org role claim required for `"admin"`. Unmapped denies rather than falling back to `allowedRoles`/`allowedUserIds`. |
-
-> **Security: default-open caveat.** Like `next-auth`, construction does not throw when `allowedRoles`/`allowedUserIds` are both omitted: any signed-in Clerk user is then authorized for ordinary content writes.
+| `adminRoles` | `string[]` | none | Org role the `"admin"` action requires on top of the ordinary allowlist. Requires `organizationId`. Unmapped denies. |
+| `organizationId` | `string` | none | The Clerk org whose roles count. A role claim only counts while this org is the session's active org (v1 `org_id`, v2 `o.id`); v2's unprefixed `o.rol` is compared as `"org:<rol>"`. |
 
 ### Errors
 
-Does not throw at construction. `authorize()` fails closed on any error resolving `auth()`.
+Throws at construction if none of `allowedEmails`/`allowedRoles`/`allowedUserIds` is set, or if `allowedRoles`/`adminRoles` is set without `organizationId`. `authorize()` fails closed on any error resolving `auth()`.
 
 ## "./auth/better-auth"
 
