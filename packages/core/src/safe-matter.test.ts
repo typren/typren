@@ -79,4 +79,24 @@ describe("stringifyMatter", () => {
     const data = { title: "x".repeat(256 * 1024) };
     expect(() => stringifyMatter("", data)).toThrow(/front matter exceeds 256 KB/);
   });
+
+  // Regression: noRefs expanded a tiny DAG of shared references exponentially
+  // before the byte cap ran, so a ~1 KB saveDraft payload exhausted memory.
+  it("refuses an exponentially shared DAG fast instead of expanding it", () => {
+    let node: object = { v: "x" };
+    for (let i = 0; i < 25; i++) node = { l: node, r: node };
+    const adapter = createMarkdownAdapter({ contentDir: fs.mkdtempSync(path.join(os.tmpdir(), "typren-safe-matter-")) });
+    const start = Date.now();
+    expect(() => stringifyMatter("", { slices: [{ slice: "hero", p: node }] })).toThrow(/front matter too large/);
+    expect(() => adapter.serialize({ meta: {}, slices: [{ slice: "hero", p: node } as never], body: "" })).toThrow(
+      /front matter too large/
+    );
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it("refuses a circular reference instead of recursing forever", () => {
+    const loop: Record<string, unknown> = { v: "x" };
+    loop.self = loop;
+    expect(() => stringifyMatter("", { loop })).toThrow(/circular reference/);
+  });
 });
