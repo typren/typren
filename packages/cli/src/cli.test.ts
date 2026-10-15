@@ -316,6 +316,13 @@ describe("nextSteps", () => {
   it("points at `typren migrate` for future @typren upgrades", () => {
     expect(nextSteps("src")).toContain("npx typren migrate");
   });
+
+  // Regression: the scaffolded localAuth() now requires a loopback Host (see
+  // auth/local.ts); the default `next dev` binds to loopback already, but the
+  // scaffold used to just say "Start your dev server" with no mention of it.
+  it("tells the scaffold to bind its dev server to loopback", () => {
+    expect(nextSteps("src")).toContain("next dev -H 127.0.0.1");
+  });
 });
 
 describe("resolveReviewPaths", () => {

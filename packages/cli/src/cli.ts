@@ -815,7 +815,11 @@ Next steps:
      const page = await cmsStore.getPublished("home");
      return <SliceZone slices={page.slices} />;
 
-3. Start your dev server.
+3. Start your dev server bound to loopback only (\`localAuth\` now requires a
+   loopback Host, matching the default \`next dev\` already binds to, but set
+   it explicitly if your own scripts pass \`-H\`):
+
+     next dev -H 127.0.0.1
 
 4. After upgrading any @typren package, run \`npx typren migrate\` and follow
    it until it exits 0.
