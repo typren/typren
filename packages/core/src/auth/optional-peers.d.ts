@@ -11,7 +11,13 @@ declare module "@clerk/nextjs/server" {
   export function auth(): Promise<{ userId: string | null; sessionClaims: unknown }>;
   export function currentUser(): Promise<{
     id: string;
-    emailAddresses: Array<{ emailAddress: string }>;
+    // Real Clerk users can hold several email addresses; only the primary
+    // one (and only once Clerk reports it verified) is ever authorization
+    // relevant.
+    primaryEmailAddress: {
+      emailAddress: string;
+      verification: { status: string | null } | null;
+    } | null;
     fullName: string | null;
   } | null>;
 }
