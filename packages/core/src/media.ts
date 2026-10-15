@@ -1,5 +1,5 @@
 import path from "node:path";
-import sharp from "sharp";
+import sharp, { type Metadata } from "sharp";
 import { JSDOM } from "jsdom";
 import DOMPurify, { type WindowLike } from "dompurify";
 import { resolveAuth } from "./auth-adapter";
@@ -8,6 +8,8 @@ import type { CmsConfig, PreparedFile } from "./types";
 /** Pre-conversion upload cap. Sharp's own `limitInputPixels` default
  *  (~268 megapixels) is relied on as-is for decompression-bomb protection. */
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB
+// Room for multipart boundaries and part headers around the file itself.
+const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 const MAX_DIMENSION = 2000; // longest edge, px
 const WEBP_QUALITY = 82; // house rule: web-optimized images only, q~82
 
@@ -30,14 +32,33 @@ const EXT_FOR_MIME: Record<string, string> = {
 // startup cost) and reused, since most CmsConfig setups never touch SVG.
 let svgPurifier: ReturnType<typeof DOMPurify> | null = null;
 function getSvgPurifier(): ReturnType<typeof DOMPurify> {
-  if (!svgPurifier) svgPurifier = DOMPurify(new JSDOM("").window as unknown as WindowLike);
+  if (!svgPurifier) {
+    svgPurifier = DOMPurify(new JSDOM("").window as unknown as WindowLike);
+    // An SVG served from the site's own origin may only point inside itself (`<use href="#id">`).
+    // Any other href is an external fetch or navigation the uploader chose, so it is dropped.
+    svgPurifier.addHook("uponSanitizeAttribute", (_node, data) => {
+      if ((data.attrName === "href" || data.attrName === "xlink:href") && !data.attrValue.startsWith("#")) {
+        data.keepAttr = false;
+      }
+    });
+  }
   return svgPurifier;
 }
 
-/** Strips dangerous elements/attributes from an SVG's source, keeping the rest. */
+/** Strips dangerous elements/attributes from an SVG's source, keeping the rest. `<style>` (CSS can
+ *  fetch and exfiltrate) and `<image>` (loads arbitrary URLs) go too, on top of the svg profiles. */
 function sanitizeSvg(raw: string): string {
-  return getSvgPurifier().sanitize(raw, { USE_PROFILES: { svg: true, svgFilters: true } });
+  return getSvgPurifier().sanitize(raw, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    FORBID_TAGS: ["style", "image"],
+  });
 }
+
+// sharp 0.35 folded AVIF detection into the "heif" decoder: an AVIF file
+// reports format "heif" with compression "av1", while classic HEIC reports
+// "hevc". Checking compression keeps plain HEIC uploads refused.
+const isAvif = (meta: Metadata) => meta.format === "heif" && meta.compression === "av1";
+const RASTER_FORMATS = new Set(["png", "jpeg", "gif", "tiff", "webp"]);
 
 /** basename minus extension, lowercased, non-alnum runs collapsed to "-". */
 function slugifyBase(filename: string): string {
@@ -47,8 +68,12 @@ function slugifyBase(filename: string): string {
 
 /** Validates + web-optimizes a raw upload. Never trusts the client-supplied
  *  mime/extension: sniffs actual bytes via sharp.metadata(). Throws with a
- *  user-facing message on any rejection. */
-export async function processUpload(input: { name: string; buffer: Buffer }): Promise<PreparedFile> {
+ *  user-facing message on any rejection. SVG is refused unless `allowSvg`
+ *  (see `CmsConfig.allowSvg`). */
+export async function processUpload(
+  input: { name: string; buffer: Buffer },
+  opts: { allowSvg?: boolean } = {}
+): Promise<PreparedFile> {
   if (input.buffer.length > MAX_UPLOAD_BYTES) {
     throw new Error(`typren: upload exceeds ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))}MB limit`);
   }
@@ -64,36 +89,31 @@ export async function processUpload(input: { name: string; buffer: Buffer }): Pr
   let height = meta.height;
 
   if (meta.format === "svg") {
+    // Even sanitized, an SVG is a document: opened directly from the site's origin it runs with
+    // that origin's privileges, so accepting it is a deliberate choice with serving precautions.
+    if (!opts.allowSvg) {
+      throw new Error(
+        "SVG uploads are disabled. Set allowSvg: true in the CMS config to enable them; see docs/site/media-storage.md."
+      );
+    }
     mime = "image/svg+xml";
     buffer = Buffer.from(sanitizeSvg(input.buffer.toString("utf8")), "utf8");
-  } else if (
-    meta.format === "png" ||
-    meta.format === "jpeg" ||
-    meta.format === "gif" ||
-    meta.format === "tiff"
-  ) {
-    // .rotate() auto-orients from EXIF before sharp's default metadata-stripping
-    // on output; otherwise phone photos come out sideways.
-    const { data, info } = await sharp(input.buffer)
+  } else if (RASTER_FORMATS.has(meta.format ?? "") || isAvif(meta)) {
+    // Every raster upload is re-encoded, already-WebP/AVIF ones included:
+    // passing those through kept their EXIF/GPS metadata and skipped the
+    // dimension cap. .rotate() auto-orients from EXIF before sharp's default
+    // metadata-stripping on output; otherwise phone photos come out sideways.
+    const avif = isAvif(meta);
+    const pipeline = sharp(input.buffer)
       .rotate()
-      .resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: "inside", withoutEnlargement: true })
-      .webp({ quality: WEBP_QUALITY })
-      .toBuffer({ resolveWithObject: true });
-    mime = "image/webp";
+      .resize({ width: MAX_DIMENSION, height: MAX_DIMENSION, fit: "inside", withoutEnlargement: true });
+    const { data, info } = await (avif ? pipeline.avif() : pipeline.webp({ quality: WEBP_QUALITY })).toBuffer({
+      resolveWithObject: true,
+    });
+    mime = avif ? "image/avif" : "image/webp";
     buffer = data;
     width = info.width;
     height = info.height;
-  } else if (meta.format === "webp" || (meta.format === "heif" && meta.compression === "av1")) {
-    // sharp 0.35 folded AVIF detection into the "heif" decoder: an AVIF file
-    // now reports format "heif" with compression "av1", while classic HEIC
-    // reports "hevc". Checking compression here is what keeps this branch
-    // from silently starting to accept plain HEIC uploads too.
-    //
-    // ponytail: doesn't enforce MAX_DIMENSION on already-webp/avif uploads;
-    // acceptable for a v1 authorize()-gated admin tool, revisit if this ever
-    // becomes open upload.
-    mime = meta.format === "webp" ? "image/webp" : "image/avif";
-    buffer = input.buffer;
   } else {
     throw new Error(`Unsupported image format: ${meta.format}. Upload PNG, JPEG, GIF, WebP, AVIF, or SVG.`);
   }
@@ -120,12 +140,23 @@ export async function handleMediaUpload(config: CmsConfig, request: Request): Pr
   }
   if (!config.mediaAdapter) return new Response("Media not configured", { status: 404 });
 
+  // request.formData() buffers the whole body before processUpload's size
+  // check can run, so a declared oversize body is refused before reading it.
+  // ponytail: a chunked body with no content-length is still buffered in
+  // full; a streamed byte cap like the webhook handler's closes that if needed.
+  if (Number(request.headers.get("content-length")) > MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES) {
+    return Response.json({ error: "Upload too large" }, { status: 413 });
+  }
+
   const form = await request.formData();
   const file = form.get("file");
   if (!(file instanceof File)) return Response.json({ error: "No file" }, { status: 400 });
 
   try {
-    const prepared = await processUpload({ name: file.name, buffer: Buffer.from(await file.arrayBuffer()) });
+    const prepared = await processUpload(
+      { name: file.name, buffer: Buffer.from(await file.arrayBuffer()) },
+      { allowSvg: config.allowSvg }
+    );
     const asset = await config.mediaAdapter.upload(prepared);
     return Response.json(asset);
   } catch (e) {
