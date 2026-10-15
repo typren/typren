@@ -272,6 +272,26 @@ describe("createGithubWebhookHandler: delivery dedupe", () => {
     expect(onChange).toHaveBeenCalledTimes(1); // not called again
   });
 
+  it("processes a retry of a delivery whose onChange failed, then dedupes once it succeeds", async () => {
+    const onChange = vi.fn().mockRejectedValueOnce(new Error("cache down")).mockResolvedValue(undefined);
+    const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
+    const text = JSON.stringify(push("refs/heads/main", [{ modified: ["content/about.md"] }]));
+    const sig = await sign(SECRET, text);
+    const deliver = () =>
+      handler(
+        new Request("https://example.com/hook", {
+          method: "POST",
+          body: text,
+          headers: { "x-github-event": "push", "x-github-delivery": "retry-id", "x-hub-signature-256": sig },
+        })
+      );
+
+    expect((await deliver()).status).toBe(500);
+    expect((await deliver()).status).toBe(200);
+    expect((await deliver()).status).toBe(202);
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
   it("different delivery ids are each processed", async () => {
     const onChange = vi.fn();
     const handler = createGithubWebhookHandler({ secret: SECRET, onChange });
