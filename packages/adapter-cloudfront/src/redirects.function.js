@@ -44,6 +44,13 @@ var PASSTHROUGH = {
   "apple-icon": true,
 };
 
+// Replaced at publish time by readFunctionSource()'s templating with
+// validated --extra-passthrough segments, as a JSON object literal of
+// {segment: true} pairs (see function-source.ts: JSON.stringify, never
+// string concatenation, so an operator-supplied segment can't break out of
+// this literal into surrounding code). Empty object when none configured.
+var EXTRA_PASSTHROUGH = "__TYPREN_EXTRA_PASSTHROUGH__";
+
 var STATUS_TEXT = {
   301: "Moved Permanently",
   302: "Found",
@@ -129,6 +136,7 @@ async function handler(event) {
     uri.charAt(1) !== "/" &&
     uri.indexOf("/.well-known/") !== 0 &&
     !PASSTHROUGH[lastSegment] &&
+    !EXTRA_PASSTHROUGH[lastSegment] &&
     lastSegment.indexOf(".") === -1
   ) {
     return redirect(301, uri + "/", request.querystring);

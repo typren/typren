@@ -13,6 +13,13 @@ export type BootstrapOptions = {
    *  whatever is there has caused a real outage before (see
    *  redirects.function.js's own doc comment). */
   force?: boolean;
+  /** `false` publishes the bare-URL function (redirects-bare-url.function.js)
+   *  instead of the trailing-slash/directory-index one. Mirrors
+   *  sync-redirects' own `--trailing-slash`; keep both in sync for a site. */
+  trailingSlash?: boolean;
+  /** Extra path-convention segments templated into the published function
+   *  (see function-source.ts's `readFunctionSource`); validated there. */
+  extraPassthroughSegments?: string[];
 };
 
 export type BootstrapResult =
@@ -56,7 +63,7 @@ export async function bootstrapDistribution(kvsClient: KvsClient, cfClient: Clou
 
   const { arn: functionArn } = await cfClient.upsertFunction(
     functionName,
-    readFunctionSource(),
+    readFunctionSource({ trailingSlash: opts.trailingSlash, extraPassthroughSegments: opts.extraPassthroughSegments }),
     storeArn,
     "typren canonical viewer-request function (index rewrite + bare→slash + KVS redirects)"
   );

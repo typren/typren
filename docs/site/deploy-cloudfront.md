@@ -61,12 +61,21 @@ accounts). Required IAM: `cloudfront:DescribeKeyValueStore`,
 `cloudfront-keyvaluestore:DescribeKeyValueStore`,
 `cloudfront-keyvaluestore:ListKeys`, `cloudfront-keyvaluestore:UpdateKeys`.
 
-**Site shapes.** The canonical function serves the trailing-slash,
+**Site shapes.** The default function serves the trailing-slash,
 directory-index static-export shape on an S3 REST origin. A bare-URL-canonical
-site (Next's `trailingSlash: false`, Hugo `uglyURLs`, plain `.html` files)
-should not attach this function — bring your own viewer-request function for
-that shape and sync with `--trailing-slash false`, which emits map targets
-verbatim instead of slash-canonicalized.
+site (Next's `trailingSlash: false`, Hugo `uglyURLs`, plain `.html` files) uses
+the bare-URL function instead: pass `--trailing-slash false` to **both**
+`bootstrap` (selects the bare-URL function) and `sync-redirects` (emits map
+targets verbatim instead of slash-canonicalized) — the two must agree, or
+redirects will be stored in the wrong shape for the function serving them.
+
+**Extra passthrough segments.** Both functions treat a small set of Next.js
+static-export metadata routes (`/opengraph-image`, `/twitter-image`, `/icon`,
+`/apple-icon`) and anything under `/.well-known/` as real objects, never
+redirected or rewritten. A site with its own extensionless file-convention
+routes (e.g. a custom `/feed`) adds them with `bootstrap`'s
+`--extra-passthrough feed,manifest` (comma-separated), templated into the
+published function at bootstrap time.
 
 ## Bootstrap
 

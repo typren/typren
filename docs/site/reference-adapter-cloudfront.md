@@ -15,7 +15,7 @@ site on an S3 REST origin, and a `typren-cloudfront` CLI that diff-syncs
 
 | Export | Signature | Notes |
 |---|---|---|
-| `readFunctionSource` | `() => string` | Reads `redirects.function.js` fresh off disk, so `bootstrap`/tests always see whatever this installed package version carries. |
+| `readFunctionSource` | `(opts?: FunctionSourceOptions) => string` | Reads the selected function variant fresh off disk (`redirects.function.js` by default, `redirects-bare-url.function.js` when `opts.trailingSlash` is `false`), templating in `opts.extraPassthroughSegments`. |
 | `toKvsEntries` | `(entries: RedirectEntry[], opts?: ToKvsEntriesOptions) => KvsPair[]` | Wraps core's `toRedirectPairs`, adding the KeyValueStore's byte limits. |
 | `KVS_MAX_KEY_BYTES` | `512` | CloudFront KeyValueStore key size limit. |
 | `KVS_MAX_VALUE_BYTES` | `1024` | CloudFront KeyValueStore value size limit. |
@@ -26,6 +26,13 @@ site on an S3 REST origin, and a `typren-cloudfront` CLI that diff-syncs
 | `scanContentStore`, `loadRedirectMap`, `mergeRedirectEntries` | re-exported from `@typren/core` | Host-agnostic redirect sourcing; re-exported here so this package's public API is self-contained. See [reference-core](./reference-core.md). |
 | `createAwsCliKvsClient`, `createAwsCliCloudFrontClient` | `() => KvsClient` / `() => CloudFrontClient` | Shell out to the `aws` CLI; the CLI's default clients. |
 | `KvsClient`, `CloudFrontClient`, `KvsPair` | types | Injected data/control-plane interfaces (see below), so the diff/chunk/ETag-chain logic and the bootstrap guard are unit-testable without real AWS. |
+
+### `FunctionSourceOptions`
+
+| Option | Type | Default | Notes |
+|---|---|---|---|
+| `trailingSlash` | `boolean` | `true` | `false` reads the bare-URL function instead of the trailing-slash/directory-index one. Mirrors `sync-redirects`' own flag; keep both in sync for a site. |
+| `extraPassthroughSegments` | `string[]` | `[]` | Extra path-convention segments (beyond the built-in Next metadata names and `/.well-known/`) that are real extensionless objects, never redirected or rewritten. Each must match `/^[A-Za-z0-9_-]+$/`; templated into the published function's JS source via `JSON.stringify`, never string concatenation, so an invalid segment is rejected here rather than reaching the template. |
 
 ### `ToKvsEntriesOptions`
 
@@ -50,6 +57,8 @@ site on an S3 REST origin, and a `typren-cloudfront` CLI that diff-syncs
 | `storeName` | `string` | required | |
 | `functionName` | `string` | `DEFAULT_FUNCTION_NAME` ("typren-redirects") | |
 | `force` | `boolean` | `false` | Required to proceed when a DIFFERENT viewer-request function is already attached; `FunctionAssociations` is a whole-list write, and blind-replacing what's there has caused a real outage before. |
+| `trailingSlash` | `boolean` | `true` | Passed through to `readFunctionSource`: `false` publishes the bare-URL function. |
+| `extraPassthroughSegments` | `string[]` | `[]` | Passed through to `readFunctionSource`. |
 
 `BootstrapResult` is `{ ok: true; createdKvs: boolean; functionArn: string } | { ok: false; error: string }`.
 
@@ -83,7 +92,7 @@ viewer-request function:
 | Command | Flags | Notes |
 |---|---|---|
 | `sync-redirects` | `--content-dir`, `--map`, `--store`, `--home-slug`, `--trailing-slash false`, `--allow-empty`, `--dry-run` | Diff-syncs into the named KeyValueStore (default `DEFAULT_STORE_NAME`). Two merged sources, same as `sync-redirects` above. Required IAM: `cloudfront:DescribeKeyValueStore`, `cloudfront-keyvaluestore:DescribeKeyValueStore`, `cloudfront-keyvaluestore:ListKeys`, `cloudfront-keyvaluestore:UpdateKeys`. |
-| `bootstrap` | `--distribution-id` (required), `--store`, `--function-name`, `--force` | One-time, guarded setup on an existing distribution: creates the KeyValueStore if needed, publishes the canonical function, attaches it. Refuses to replace a different already-attached function unless `--force`. |
+| `bootstrap` | `--distribution-id` (required), `--store`, `--function-name`, `--trailing-slash false`, `--extra-passthrough <seg,seg>`, `--force` | One-time, guarded setup on an existing distribution: creates the KeyValueStore if needed, publishes the canonical function, attaches it. `--trailing-slash false` publishes the bare-URL function instead (keep in sync with `sync-redirects`' own flag). `--extra-passthrough` is a comma-separated list of extra path-convention segments, templated into the published function. Refuses to replace a different already-attached function unless `--force`. |
 | `--help` | | Shows usage. |
 
 > **Security:** an `.mjs`/`.js` `--map` file is code and runs when loaded; a CI job executing it

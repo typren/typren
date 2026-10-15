@@ -69,6 +69,11 @@ export type BootstrapCliOptions = {
   storeName?: string;
   functionName?: string;
   force?: boolean;
+  /** `false` publishes the bare-URL function instead of the default
+   *  trailing-slash/directory-index one. Mirrors sync-redirects' own flag. */
+  trailingSlash?: boolean;
+  /** Comma-separated extra passthrough segments, e.g. "feed,manifest". */
+  extraPassthrough?: string;
 };
 
 /** Core of `typren-cloudfront bootstrap`. `kvsClient`/`cfClient` injected for
@@ -84,6 +89,8 @@ export async function runBootstrap(
     storeName: opts.storeName ?? DEFAULT_STORE_NAME,
     functionName: opts.functionName,
     force: opts.force,
+    trailingSlash: opts.trailingSlash,
+    extraPassthroughSegments: opts.extraPassthrough ? opts.extraPassthrough.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
   });
 }
 
@@ -141,23 +148,31 @@ function printHelp(): void {
 
 Usage:
   npx typren-cloudfront sync-redirects [--content-dir <path>] [--map <file>] [--store <name>] [--home-slug <slug>] [--trailing-slash false] [--allow-empty] [--dry-run]
-  npx typren-cloudfront bootstrap --distribution-id <id> [--store <name>] [--function-name <name>] [--force]
+  npx typren-cloudfront bootstrap --distribution-id <id> [--store <name>] [--function-name <name>] [--trailing-slash false] [--extra-passthrough <seg,seg>] [--force]
   npx typren-cloudfront --help
 
   sync-redirects   Diff-sync this site's redirects into the named CloudFront
                    KeyValueStore (default "${DEFAULT_STORE_NAME}"). Two
                    sources, merged: page-declared aliases (@typren/core's
                    redirects()) and an optional --map file (.json/.mjs/.js
-                   exporting { from, to }[]; targets may be on-site paths or
-                   absolute http(s) URLs). A site with no typren content dir
-                   syncs from the map alone. Idempotent; --dry-run prints the
-                   diff without writing.
+                   exporting { from, to, status? }[]; targets may be on-site
+                   paths or absolute http(s) URLs, status one of
+                   301/302/307/308, default 301). A site with no typren
+                   content dir syncs from the map alone. Idempotent;
+                   --dry-run prints the diff without writing.
 
   bootstrap        One-time, guarded setup on an EXISTING distribution: create
                    the KeyValueStore if needed, publish the canonical
                    viewer-request function, and attach it. Does NOT create a
                    bucket or distribution. Refuses to replace a different
                    already-attached function unless --force is given.
+                   --trailing-slash false publishes the bare-URL function
+                   instead (keep in sync with sync-redirects' own flag).
+                   --extra-passthrough is a comma-separated list of extra
+                   path-convention segments (beyond the built-in Next
+                   metadata names and /.well-known/) that are real
+                   extensionless objects at this site, never redirected or
+                   rewritten.
 
   --help           Show this help.
 `);
@@ -219,6 +234,8 @@ export async function main(argv: string[] = process.argv.slice(2), clients: Main
     storeName: stringFlag("store"),
     functionName: stringFlag("function-name"),
     force: flags.force === true,
+    trailingSlash: stringFlag("trailing-slash") !== "false",
+    extraPassthrough: stringFlag("extra-passthrough"),
   };
   if (process.exitCode === 1) return;
   const result = await runBootstrap(opts, kvsClient, clients.cf ?? createAwsCliCloudFrontClient());
