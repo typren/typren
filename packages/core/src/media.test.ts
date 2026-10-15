@@ -100,6 +100,19 @@ describe("processUpload", () => {
     expect(out).toContain('href="#top"');
   });
 
+  it("strips a style attribute and any presentation attribute with an external url() from an allowed SVG", async () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg">' +
+      '<rect style="fill: url(https://evil.test/x.svg#y)" width="1" height="1"/>' +
+      '<circle fill="url(https://evil.test/track.png)" r="1"/>' +
+      '<circle id="safe" fill="url(#gradient)" r="1"/>' +
+      '<circle fill="\\75 rl(https://evil.test/esc.png)" r="1"/>' +
+      "</svg>";
+    const out = (await processUpload({ name: "s2.svg", buffer: Buffer.from(svg) }, SVG_ON)).buffer.toString("utf8");
+    expect(out).not.toMatch(/style=|evil\.test/i);
+    expect(out).toContain('fill="url(#gradient)"');
+  });
+
   // Re-encoded, not passed through: the old passthrough kept EXIF/GPS and skipped the dimension cap.
   const withGps = (img: Sharp) => img.withExif({ IFD3: { GPSLatitudeRef: "N", GPSLatitude: "51/1 30/1 0/1" } });
 
