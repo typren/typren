@@ -22,7 +22,7 @@ npx typren --help
 
 | Command | Flags | Notes |
 |---|---|---|
-| `init` (default) | `--force` | Scaffolds typren's content layer into a Next.js App Router project (detects `src/app` or `app`). Never overwrites an existing file unless `--force` is given. |
+| `init` (default) | `--force` | Scaffolds typren's content layer into a Next.js App Router project (detects `src/app` or `app`). Never overwrites an existing file unless `--force` is given. Also binds `package.json`'s `dev` script to loopback (`next dev` becomes `next dev -H 127.0.0.1`, which `localAuth()` requires); a script it can't safely rewrite (a wrapper command, or an explicit non-loopback `-H`) is left alone with a warning. |
 | `apply-settings` | none | Reconciles `next.config.*`/`cms.config.*` with `typren.config.json`'s `adminRoute`/`locales`/`defaultLocale`. Validates first; writes nothing on an invalid config. Safe to rerun. |
 | `review [slug]` | `--base <ref>`, `--json`, `--pr`, `--update-pr <n>`, `--body-file <path>` | Deterministic content-review brief (SEO title/description length, canonical consistency, alt text, `llms.txt` reachability, …). No slug: one brief per content file changed vs `--base` (default `origin/main`, working tree included). A slug: that page only. |
 | `telemetry [on\|off]` | none | Prints the current state with no argument; otherwise sets it. Also disabled by `DO_NOT_TRACK=1`, `TYPREN_TELEMETRY=0`, or `CI` being set. |
