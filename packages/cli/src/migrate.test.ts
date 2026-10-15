@@ -91,24 +91,6 @@ describe("migrate: @typren/core not installed", () => {
 });
 
 describe("migrate: version range selection", () => {
-  // Regression for a crash seen with every published @typren/core: its
-  // `exports` map never listed `./package.json`, so resolving the installed
-  // core's package.json via `require.resolve(..., { paths: [cwd] })` threw
-  // ERR_PACKAGE_PATH_NOT_EXPORTED even though the file is right there on
-  // disk. migrate() must read it directly off the filesystem instead.
-  it("resolves the installed core's package.json even when its exports map doesn't list it", async () => {
-    const coreDir = path.join(dir, "node_modules", "@typren", "core");
-    fs.mkdirSync(path.join(coreDir, "migrations"), { recursive: true });
-    fs.writeFileSync(
-      path.join(coreDir, "package.json"),
-      JSON.stringify({ name: "@typren/core", version: "0.5.0", exports: { ".": "./dist/index.js" } })
-    );
-    fs.writeFileSync(path.join(coreDir, "migrations", "core-0.5.0.md"), FIXTURE_NOTE);
-    const result = await migrate({ cwd: dir, from: "0.4.0" });
-    expect(result.to).toBe("0.5.0");
-    expect(result.notes).toHaveLength(1);
-  });
-
   it("selects a note strictly after `from` and up to (inclusive) `to`", async () => {
     installFakeCore(dir, "0.5.0");
     const result = await migrate({ cwd: dir, from: "0.4.0" });
@@ -133,6 +115,24 @@ describe("migrate: version range selection", () => {
   it("requires --from when git can't supply one", async () => {
     installFakeCore(dir, "0.5.0");
     await expect(migrate({ cwd: dir })).rejects.toThrow(/--from/);
+  });
+
+  // Regression for a crash seen with every published @typren/core: its
+  // `exports` map never listed `./package.json`, so resolving the installed
+  // core's package.json via `require.resolve(..., { paths: [cwd] })` threw
+  // ERR_PACKAGE_PATH_NOT_EXPORTED even though the file is right there on
+  // disk. migrate() must read it directly off the filesystem instead.
+  it("resolves the installed core's package.json even when its exports map doesn't list it", async () => {
+    const coreDir = path.join(dir, "node_modules", "@typren", "core");
+    fs.mkdirSync(path.join(coreDir, "migrations"), { recursive: true });
+    fs.writeFileSync(
+      path.join(coreDir, "package.json"),
+      JSON.stringify({ name: "@typren/core", version: "0.5.0", exports: { ".": "./dist/index.js" } })
+    );
+    fs.writeFileSync(path.join(coreDir, "migrations", "core-0.5.0.md"), FIXTURE_NOTE);
+    const result = await migrate({ cwd: dir, from: "0.4.0" });
+    expect(result.to).toBe("0.5.0");
+    expect(result.notes).toHaveLength(1);
   });
 
   it("falls back to the @typren/core range committed at HEAD", async () => {
@@ -347,6 +347,49 @@ describe("migrate: --remote", () => {
 
     expect(result.notes.some((n) => n.source === "remote")).toBe(false);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid package/version"));
+  });
+
+  // `isValidSemver` used to be a prefix match (`/^\d+\.\d+\.\d+/`), so a
+  // version like "0.6.0<escape sequence>" passed validation and the escape
+  // sequence rode along into the version string printed to the terminal.
+  it("rejects a remote note whose version is a semver prefix followed by control characters", async () => {
+    installFakeCore(dir, "0.5.0");
+    const withEscapeSuffix = FIXTURE_NOTE.replace('version: "0.5.0"', 'version: "0.6.0\\x1b[31m"');
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === REMOTE_INDEX) return fakeResponse(JSON.stringify([{ package: "@typren/core", version: "0.6.0", url: REMOTE_NOTE }]));
+      if (url === REMOTE_NOTE) return fakeResponse(withEscapeSuffix);
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await migrate({ cwd: dir, from: "0.4.0", to: "0.6.0", remote: true, fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect(result.notes.some((n) => n.source === "remote")).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("invalid package/version"));
+  });
+
+  // The index entry's url is untrusted and gets printed verbatim when it's
+  // rejected; it must not be able to carry an escape sequence into that
+  // warning.
+  it("strips control characters from an untrusted index url before printing it", async () => {
+    installFakeCore(dir, "0.5.0");
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url === REMOTE_INDEX) {
+        return fakeResponse(
+          JSON.stringify([{ package: "@typren/core", version: "0.6.0", url: "https://evil.example/\u001b[31mpwn.md" }])
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await migrate({ cwd: dir, from: "0.4.0", to: "0.6.0", remote: true, fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("untrusted url"));
+    for (const call of warn.mock.calls) {
+      // eslint-disable-next-line no-control-regex -- asserting these control characters are gone
+      expect(call[0]).not.toMatch(/\u001b/);
+    }
   });
 
   it("strips control characters from a remote note's title/body before they're printed", async () => {
