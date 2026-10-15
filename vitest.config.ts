@@ -66,9 +66,9 @@ export default defineConfig({
         // seeded value. See package.json's "test:coverage" and the pre-push hook.
         autoUpdate: true,
         lines: 94.93,
-        statements: 93.02,
-        functions: 92.65,
-        branches: 85.92,
+        statements: 93.03,
+        functions: 92.67,
+        branches: 85.96,
       },
     },
   },
