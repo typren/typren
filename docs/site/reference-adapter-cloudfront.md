@@ -65,8 +65,10 @@ site on an S3 REST origin, and a `typren-cloudfront` CLI that diff-syncs
 One CloudFront Function does three jobs, because a distribution can attach only one
 viewer-request function:
 
-- **KVS-backed redirect lookup → 301.** The map lives in a CloudFront KeyValueStore, not in the
-  function, so a redirect edit never needs a function deploy, only a KVS sync.
+- **KVS-backed redirect lookup → redirect.** The map lives in a CloudFront KeyValueStore, not in
+  the function, so a redirect edit never needs a function deploy, only a KVS sync. Defaults to
+  301; a `--map` entry's `status` (302/307/308) rides along as a `"<status> "` prefix on the
+  stored value.
 - **Directory-index rewrite.** An S3 REST origin has no index-document behavior: `/about/` asks
   for the key `about/` and 404s unless rewritten to `about/index.html`.
 - **Bare-to-slash canonicalization**, so a legacy/indexed bare URL still resolves. A small set of

@@ -10,8 +10,13 @@
 // `createStaticHostRoutingContractSuite` run against both. The CloudFront
 // function implements the trailing-slash shape only.
 
+/** Migrators from `_redirects`/`vercel.json` expect per-entry 301/302/307/308,
+ *  not a hardcoded 301 (see parseRedirectValue). */
+export const REDIRECT_STATUSES = [301, 302, 307, 308] as const;
+export type RedirectStatus = (typeof REDIRECT_STATUSES)[number];
+
 export type StaticHostDecision =
-  | { kind: "redirect"; status: 301; location: string }
+  | { kind: "redirect"; status: RedirectStatus; location: string }
   | { kind: "rewrite"; path: string } // serve this object path instead of the request path
   | { kind: "pass" }; // serve the request path as-is
 
@@ -60,6 +65,22 @@ function withQuery(location: string, query: string): string {
   return location + (location.includes("?") ? "&" : "?") + query;
 }
 
+/** A redirect-store value may carry a status prefix: `"<301|302|307|308>
+ *  <target>"`, bare values default to 301. The three-digit-plus-space shape
+ *  is the only prefix form recognized; a recognized shape whose status is
+ *  outside the allowlist (e.g. `"404 /x"`) is an INVALID entry, not a
+ *  request to serve a 404; the caller treats it as "no redirect" (fail
+ *  open), same as any other invalid target. Unsafe-target checks run on
+ *  `target`, i.e. after this prefix is stripped. */
+function parseRedirectValue(raw: string): { status: RedirectStatus; target: string } | null {
+  const match = /^(\d{3}) ([\s\S]*)$/.exec(raw);
+  if (!match) return { status: 301, target: raw };
+  const status = Number(match[1]);
+  return (REDIRECT_STATUSES as readonly number[]).includes(status)
+    ? { status: status as RedirectStatus, target: match[2] }
+    : null;
+}
+
 /**
  * `path` is the request path exactly as received (CloudFront `uri` / URL
  * `pathname`, percent-encoded). `query` is the raw query string without a
@@ -83,8 +104,11 @@ export async function resolveStaticHostRequest(
   } catch {
     target = null;
   }
-  if (target && !isUnsafeRedirectTarget(target)) {
-    return { kind: "redirect", status: 301, location: withQuery(target, query) };
+  if (target) {
+    const parsed = parseRedirectValue(target);
+    if (parsed && !isUnsafeRedirectTarget(parsed.target)) {
+      return { kind: "redirect", status: parsed.status, location: withQuery(parsed.target, query) };
+    }
   }
 
   if (opts.trailingSlash === false) return bareUrlDecision(path, query);

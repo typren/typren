@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import type { ContentStore } from "./store";
 import type { RedirectEntry } from "./redirects";
 import { parseMatter } from "./safe-matter";
+import { REDIRECT_STATUSES, type RedirectStatus } from "./static-host";
 
 
 /**
@@ -57,8 +58,10 @@ export function scanContentStore(contentDir: string): ContentStore {
 }
 
 /** One entry in a host-supplied redirect map file: an incoming on-site path
- *  and where it should 301 to (an on-site path or an absolute http(s) URL). */
-export type RedirectMapEntry = { from: string; to: string };
+ *  and where it should redirect to (an on-site path or an absolute http(s)
+ *  URL). `status` defaults to 301 (migrators from `_redirects`/`vercel.json`
+ *  expect per-entry 302/307/308; see static-host.ts's REDIRECT_STATUSES). */
+export type RedirectMapEntry = { from: string; to: string; status?: RedirectStatus };
 
 const normalize = (p: string): string => (p.length > 1 && p.endsWith("/") ? p.slice(0, -1) : p);
 
@@ -89,9 +92,10 @@ const UNSAFE_CHARS = /[\s\x00-\x1f\x7f\\]/;
  *
  * Validation (fail loud, never silently drop, matching buildRedirects):
  * `from` must be an absolute on-site path; `to` must be an absolute on-site
- * path or an absolute http(s) URL; duplicate `from`s (after trailing-slash
- * normalization) throw. Entry `slug`s carry the map file's name so a merge
- * collision names its source.
+ * path or an absolute http(s) URL; `status`, if present, must be one of
+ * REDIRECT_STATUSES; duplicate `from`s (after trailing-slash normalization)
+ * throw. Entry `slug`s carry the map file's name so a merge collision names
+ * its source.
  */
 export async function loadRedirectMap(cwd: string, file: string): Promise<RedirectEntry[]> {
   const resolved = path.resolve(cwd, file);
@@ -103,7 +107,7 @@ export async function loadRedirectMap(cwd: string, file: string): Promise<Redire
   const slug = `map:${path.basename(file)}`;
   const seen = new Set<string>();
   return raw.map((entry, i) => {
-    const { from, to } = (entry ?? {}) as Partial<RedirectMapEntry>;
+    const { from, to, status } = (entry ?? {}) as Partial<RedirectMapEntry>;
     if (typeof from !== "string" || !from.startsWith("/") || from.startsWith("//") || UNSAFE_CHARS.test(from)) {
       throw new Error(`typren: ${file} entry ${i}: 'from' must be an absolute on-site path, got ${JSON.stringify(from)}`);
     }
@@ -115,6 +119,9 @@ export async function loadRedirectMap(cwd: string, file: string): Promise<Redire
     // https:// target gives is exactly what it bypasses.
     if (to.startsWith("//")) {
       throw new Error(`typren: ${file} entry ${i}: 'to' must not be protocol-relative (from ${from})`);
+    }
+    if (status !== undefined && (typeof status !== "number" || !(REDIRECT_STATUSES as readonly number[]).includes(status))) {
+      throw new Error(`typren: ${file} entry ${i}: 'status' must be one of ${REDIRECT_STATUSES.join(", ")}, got ${JSON.stringify(status)} (from ${from})`);
     }
     const key = normalize(from);
     if (seen.has(key)) throw new Error(`typren: ${file} declares ${key} twice`);
@@ -129,7 +136,7 @@ export async function loadRedirectMap(cwd: string, file: string): Promise<Redire
     if (!isExternal(to) && target === key) {
       throw new Error(`typren: ${file} entry ${i}: ${key} redirects to itself`);
     }
-    return { from: key, to: target, slug };
+    return { from: key, to: target, slug, status };
   });
 }
 
@@ -187,10 +194,18 @@ export type ToRedirectPairsOptions = {
  */
 export function toRedirectPairs(entries: RedirectEntry[], opts: ToRedirectPairsOptions = {}): { key: string; value: string }[] {
   const appendSlash = opts.appendSlash !== false;
-  return entries.map(({ from, to }) => ({
+  return entries.map(({ from, to, status }) => ({
     key: encodeURI(from),
-    value: appendSlash ? canonicalTarget(to) : to,
+    value: withStatusPrefix(status, appendSlash ? canonicalTarget(to) : to),
   }));
+}
+
+// A non-default status rides along as a "<status> " prefix on the stored
+// value (see static-host.ts's parseRedirectValue, the counterpart that reads
+// it back at request time): the store's value is just a string, so this is
+// the only way to carry it without a schema change on every host's store.
+function withStatusPrefix(status: RedirectEntry["status"], value: string): string {
+  return status !== undefined && status !== 301 ? `${status} ${value}` : value;
 }
 
 function canonicalTarget(to: string): string {

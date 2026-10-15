@@ -1,5 +1,6 @@
 import type { ContentStore } from "./store";
 import { mapLimit } from "./concurrency";
+import type { RedirectStatus } from "./static-host";
 
 const FANOUT_LIMIT = 8;
 
@@ -18,6 +19,10 @@ export type RedirectEntry = {
   to: string;
   /** Slug that declared the alias, for a host's own error/log messages. */
   slug: string;
+  /** HTTP status this redirect should be served with. `undefined` means the
+   *  default, 301. Frontmatter aliases never set this (always 301); only a
+   *  `--map` entry (see redirect-sources.ts's loadRedirectMap) can. */
+  status?: RedirectStatus;
 };
 
 export type BuildRedirectsOptions = {

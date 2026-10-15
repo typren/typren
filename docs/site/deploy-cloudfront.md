@@ -17,9 +17,10 @@ infrastructure-as-code: it never creates a bucket or a distribution.
 `readFunctionSource()`) does three jobs in one CloudFront Function, since a
 distribution can attach only one:
 
-- **KVS-backed redirect lookup → 301.** The map lives in a CloudFront
+- **KVS-backed redirect lookup → redirect.** The map lives in a CloudFront
   KeyValueStore, not in the function, so a redirect edit never needs a
-  function deploy, only a KVS sync.
+  function deploy, only a KVS sync. Defaults to 301; a per-entry `status` of
+  302, 307, or 308 (see below) rides along as a prefix on the stored value.
 - **Directory-index rewrite.** An S3 REST origin has no index-document
   behavior: `/about/` asks for the key `about/` and 404s unless rewritten to
   `about/index.html`. With `trailingSlash: true` every page is a directory
@@ -41,15 +42,18 @@ npx typren-cloudfront sync-redirects --store my-site-redirects --dry-run
 ```
 
 Redirects come from two mergeable sources: `@typren/core`'s `redirects()`
-(page frontmatter `aliases:`) and an optional `--map` file (`.json` array of
-`{ "from": "/old", "to": "/new" }`, or `.mjs`/`.js` default or named
-`REDIRECTS` export of the same shape) for legacy platform URLs, removed
-pages, and paths that moved off-site. Validation fails loud on a `from`
-declared by both sources, a self-redirect, a map `from` that shadows a live
-page's path, and any protocol-relative, backslash, or control-character
-value. An empty desired state refuses to delete every live key unless you
-pass `--allow-empty`. A site with no Typren content at all can sync from the
-map alone.
+(page frontmatter `aliases:`, always a 301) and an optional `--map` file
+(`.json` array of `{ "from": "/old", "to": "/new" }`, or `.mjs`/`.js` default
+or named `REDIRECTS` export of the same shape) for legacy platform URLs,
+removed pages, and paths that moved off-site. A map entry may add a `status`
+of `302`, `307`, or `308` (e.g. migrating a `_redirects`/`vercel.json` file
+that distinguishes temporary from permanent redirects) — omit it for the
+default, 301. Validation fails loud on a `from` declared by both sources, a
+self-redirect, a map `from` that shadows a live page's path, an unrecognized
+`status`, and any protocol-relative, backslash, or control-character value.
+An empty desired state refuses to delete every live key unless you pass
+`--allow-empty`. A site with no Typren content at all can sync from the map
+alone.
 
 This requires the `aws` CLI on `PATH` with credentials for the target
 account (run once per account — prod and staging are usually separate
