@@ -46,7 +46,8 @@ bun run verify     # everything the pre-push gate runs
 
 There are no GitHub Actions for tests. `pre-push` gates on typecheck, lint,
 tests with coverage, the new-code coverage threshold, secret scanning, and the
-build. It then posts a `ci/local` commit status so results still appear in the
+build. Once the push lands, a background retry posts a `ci/local` commit status
+(GitHub only accepts it after the commits arrive) so results still appear in the
 GitHub UI.
 
 There are two workflows in `.github/`, and both are there because they cannot
@@ -120,6 +121,12 @@ before anything reaches the registry rather than after.
 The workflow additionally waits on a required reviewer for the `release`
 environment, so a merge alone does not publish; someone still approves the run.
 That is deliberate belt and braces, because an npm publish cannot be undone.
+
+### Security review before promoting to main
+
+A PR into `main` (and any push to `main`) needs a whole-repo security review record in `security-reviews/` that covers the
+exact commit, or an expiring waiver. The **Security review** check enforces it. How to run the review, with Claude Code or
+any other agent or by hand, and how to waive it: [docs/security-review.md](docs/security-review.md).
 
 ## Architecture
 

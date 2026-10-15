@@ -24,9 +24,16 @@ export function makeCollectionAdapter(config: CmsConfig, section: CollectionSect
   if (!section.dir)
     throw new Error(`typren: collection section "${section.label}" must set exactly one of dir/adapter`);
   const contentDir = path.resolve(process.cwd(), section.dir);
-  const pagesRoot = config.adapter.root;
-  if (isInside(contentDir, pagesRoot) || isInside(pagesRoot, contentDir))
-    throw new Error(`typren: collection dir "${section.dir}" overlaps the Pages content dir`);
+  // The overlap guard only makes sense when the Pages adapter also has a real
+  // directory to overlap (a markdown adapter, which alone carries `root`, see
+  // markdown-adapter.ts's `MarkdownAdapter` type). A network-backed Pages
+  // adapter (GitHub, Notion) has no filesystem root for this collection's own
+  // fs-backed dir to collide with.
+  if ("root" in config.adapter) {
+    const pagesRoot = (config.adapter as { root: string }).root;
+    if (isInside(contentDir, pagesRoot) || isInside(pagesRoot, contentDir))
+      throw new Error(`typren: collection dir "${section.dir}" overlaps the Pages content dir`);
+  }
   return createMarkdownAdapter({
     contentDir,
     locales: config.adapter.locales,
@@ -58,14 +65,18 @@ export function buildCollectionActions(config: CmsConfig): Record<string, PageAc
  *  action, so this is what a host's server-fetch calls into). Reuses the same
  *  adapter construction as makeCollectionActions so the overlap guard and
  *  contentDir resolution can't drift between the read and write paths. */
-export function listCollectionRecords(
+export async function listCollectionRecords(
   config: CmsConfig,
   section: CollectionSection,
   locale?: string
-): CollectionRecordInfo[] {
+): Promise<CollectionRecordInfo[]> {
   const adapter = makeCollectionAdapter(config, section);
-  return adapter.listSlugs(locale).map((slug) => {
-    const { meta, body } = adapter.parse(adapter.readRaw(slug, locale));
-    return { slug, meta, body, hasDraft: adapter.hasDraft(slug, locale), locale };
-  });
+  const slugs = await adapter.listSlugs(locale);
+  return Promise.all(
+    slugs.map(async (slug) => {
+      const [raw, hasDraft] = await Promise.all([adapter.readRaw(slug, locale), adapter.hasDraft(slug, locale)]);
+      const { meta, body } = adapter.parse(raw);
+      return { slug, meta, body, hasDraft, locale };
+    })
+  );
 }

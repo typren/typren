@@ -323,6 +323,52 @@ export declare function resolveAuth(config: {
     authorize?: () => boolean | Promise<boolean>;
 }): AuthAdapter;
 
+// ---- dist/auth/better-auth.d.ts ----
+import type { AuthAdapter } from "../auth-adapter.js";
+/** Better Auth's server instance is created per-app, so `getSession` is
+ *  injected, not imported, matching next-auth.ts (the host passes e.g.
+ *  `() => auth.api.getSession({ headers: await headers() })`). This entry
+ *  (`@typren/core/auth/better-auth`) never resolves `better-auth` itself. */
+type Session = {
+    user?: {
+        id?: string;
+        email?: string;
+        emailVerified?: boolean;
+        name?: string;
+        role?: string | null;
+    };
+} | null;
+/**
+ * REQUIRES AN ALLOWLIST: `allowedEmails` or `allowedRoles` must be set, or
+ * construction throws. A signed-in session with neither would authorize
+ * anyone who can sign in, which is almost never the intended policy for an
+ * editor.
+ *
+ * "admin" is gated separately from ordinary content writes: it needs
+ * `adminRoles` set and an intersecting role, full stop. Unmapped denies
+ * rather than falling back to `allowedRoles`. A host must opt in to who gets
+ * to reconfigure the site.
+ *
+ * Better Auth's admin plugin stores `session.user.role` as a single string,
+ * sometimes comma-separated for multi-role users; `rolesFrom` lets a host
+ * override extraction (e.g. a custom field) and defaults to splitting that
+ * string on commas.
+ */
+export declare function betterAuthAdapter(opts: {
+    /** The host's session lookup, e.g. `() => auth.api.getSession({ headers: await headers() })`. */
+    getSession: () => Promise<Session>;
+    /** Case-insensitive match on session.user.email. */
+    allowedEmails?: string[];
+    /** Any-intersection with the resolved roles. */
+    allowedRoles?: string[];
+    /** Any-intersection with the resolved roles, required for the "admin" action. */
+    adminRoles?: string[];
+    /** Override role extraction from the session. Default: split
+     *  `session.user.role` on commas. */
+    rolesFrom?: (session: NonNullable<Session>) => string[] | undefined;
+}): AuthAdapter;
+export {};
+
 // ---- dist/auth/clerk.d.ts ----
 import type { AuthAdapter } from "../auth-adapter.js";
 /**
@@ -330,34 +376,53 @@ import type { AuthAdapter } from "../auth-adapter.js";
  * Unlike next-auth's injected `auth()`, Clerk's `auth()`/`currentUser()` are
  * global request-scoped helpers, so they're imported directly.
  *
- * "admin" (settings/onboarding/bootstrap writes) is gated separately from
- * ordinary content writes: it needs `adminRoles` set and a matching org role
- * claim, full stop. Unmapped (no `adminRoles` configured) denies rather than
- * falling back to `allowedRoles`/`allowedUserIds`. A host must opt in to who
- * gets to reconfigure the site.
+ * REQUIRES AN ALLOWLIST: `allowedEmails`, `allowedRoles`, or `allowedUserIds`
+ * must be set, or construction throws, matching next-auth.ts/better-auth.ts.
+ * `allowedUserIds` counts as an allowlist on its own (a fixed roster of Clerk
+ * user ids is a legitimate, closed policy) even with no email/role check.
+ *
+ * Roles are org-scoped: `allowedRoles`/`adminRoles` require `organizationId`,
+ * and a role claim only counts while that org is the session's active org.
+ *
+ * "admin" (settings/onboarding/bootstrap writes) must first pass the same
+ * allowlist as content writes, then also match `adminRoles`. Unmapped (no
+ * `adminRoles` configured) denies. A host must opt in to who gets to
+ * reconfigure the site.
  */
 export declare function clerkAuthAdapter(opts?: {
-    /** Org role claim, e.g. "org:admin". */
+    /** Case-insensitive match on the user's verified primary email. */
+    allowedEmails?: string[];
+    /** Org role claim, e.g. "org:admin". Requires `organizationId`. */
     allowedRoles?: string[];
     allowedUserIds?: string[];
-    /** Org role claim required for the "admin" action, e.g. "org:admin". */
+    /** Org role claim the "admin" action additionally requires, e.g.
+     *  "org:admin". Requires `organizationId`. */
     adminRoles?: string[];
+    /** The Clerk organization id ("org_...") whose roles count. Required
+     *  when `allowedRoles` or `adminRoles` is set. */
+    organizationId?: string;
 }): AuthAdapter;
 
 // ---- dist/auth/local.d.ts ----
 import type { AuthAdapter } from "../auth-adapter.js";
 /**
- * Dev-only gate (entry `@typren/core/auth/local`, no peer deps). Refuses in
- * production unless `allowInProduction` is explicitly set. The editor writes
- * files, so never ship it open by omission. Doesn't branch on `ctx.action`, so
- * "admin" (settings/onboarding/bootstrap writes) gets the exact same local-only
- * gate as every other write. There's only one tier in local dev.
+ * Dev-only gate (entry `@typren/core/auth/local`, no peer deps outside the
+ * `getHost` default above). Refuses in production unless `allowInProduction`
+ * is explicitly set, refuses unless the Next server is bound to loopback
+ * (`next dev -H 127.0.0.1`, which `typren init` scaffolds), and refuses a
+ * non-loopback Host even then. The editor writes files, so never ship it open
+ * by omission. Doesn't branch on `ctx.action`, so "admin"
+ * (settings/onboarding/bootstrap writes) gets the exact same local-only gate
+ * as every other write. There's only one tier in local dev.
  */
 export declare function localAuth(opts?: {
     /** default: NODE_ENV === "development" */
     predicate?: () => boolean;
     /** default: false */
     allowInProduction?: boolean;
+    /** Resolve the request's Host header. Default: Next's `headers()` (see
+     *  `defaultGetHost`). Override in tests. Only ever narrows access. */
+    getHost?: () => Promise<string | null>;
 }): AuthAdapter;
 
 // ---- dist/auth/next-auth.d.ts ----
@@ -373,24 +438,178 @@ type Session = {
     };
 } | null;
 /**
- * DEFAULT-OPEN CAVEAT: with neither `allowedEmails` nor `allowedRoles` set,
- * ANY signed-in user is authorized. For a public editor that is almost never
- * what you want. Require at least one allowlist in production.
+ * REQUIRES AN ALLOWLIST: `allowedEmails` or `allowedRoles` must be set, or
+ * construction throws, matching better-auth.ts. A signed-in session with
+ * neither would authorize anyone who can sign in, which is almost never the
+ * intended policy for an editor.
  *
  * "admin" (settings/onboarding/bootstrap writes; they reparameterize what the
  * next boot trusts) is gated separately from ordinary content writes: it needs
  * `adminRoles` set and an intersecting role, full stop. Unmapped (no
  * `adminRoles` configured) denies rather than falling back to `allowedRoles`.
  * A host must opt in to who gets to reconfigure the site.
+ *
+ * next-auth's session carries no standard verified-email signal (Credentials
+ * and many OAuth providers never verify one), so `allowedEmails` requires an
+ * `isEmailVerified(session)` callback; the email only reaches the allowlist
+ * when it returns `true`, mirroring better-auth.ts's `emailVerified`.
  */
 export declare function nextAuthAdapter(opts: {
     /** The host's `auth` from `NextAuth(config)` (reads the session cookie). */
     auth: () => Promise<Session>;
-    /** Case-insensitive match on session.user.email. */
+    /** Case-insensitive match on session.user.email, once `isEmailVerified` vouches for it. */
     allowedEmails?: string[];
+    /** Whether the session's email is provider-verified. Required with `allowedEmails`. */
+    isEmailVerified?: (session: NonNullable<Session>) => boolean;
     /** Any-intersection with session.user.roles. */
     allowedRoles?: string[];
     /** Any-intersection with session.user.roles, required for the "admin" action. */
+    adminRoles?: string[];
+}): AuthAdapter;
+export {};
+
+// ---- dist/auth/oidc.d.ts ----
+import type { AuthAdapter } from "../auth-adapter.js";
+/**
+ * Generic OIDC/JWT gate (entry `@typren/core/auth/oidc`, peer `jose`). Covers
+ * any IdP that hands the host a bearer JWT: Okta, Entra ID, Auth0, Keycloak,
+ * Google Workspace SSO. The host reads the token out of its own
+ * header/cookie and injects `getToken`, same reasoning as next-auth's
+ * injected `auth()`: core never terminates a login flow or imports an IdP
+ * SDK.
+ *
+ * Verifies the signature against the issuer's remote JWKS (resolved once per
+ * adapter instance and cached/rotated by `jose`'s `createRemoteJWKSet`, not
+ * refetched per request) plus `iss`/`aud`/`exp`. Without an explicit
+ * `jwksUri`, the JWKS location is found via standard OIDC discovery: a lazy,
+ * cached-once fetch of `${issuer}/.well-known/openid-configuration` on the
+ * first `authorize()`/`getUser()` call, reading its `jwks_uri` (required to
+ * be `https:`, since an http one would let a network attacker point
+ * verification at their own keys). A discovery failure clears the cache so
+ * the next call retries rather than wedging the adapter open or closed
+ * forever on a transient outage; `authorize()` still fails closed for that
+ * call like any other verification error. Pass `jwksUri` explicitly to skip
+ * discovery entirely (`cfAccessAuthAdapter` below always does, Access's JWKS
+ * endpoint isn't behind discovery).
+ *
+ * REQUIRES AN ALLOWLIST: `allowedEmails` or `allowedRoles` must be set, or
+ * construction throws. A verified token with neither would authorize anyone
+ * who can sign in with the IdP, which is almost never the intended policy
+ * for an editor.
+ *
+ * "admin" is gated separately from ordinary content writes: it needs
+ * `adminRoles` set and an intersecting role, full stop. Unmapped denies
+ * rather than falling back to `allowedRoles`.
+ */
+type OidcOpts = {
+    /** Reads the bearer token from the host's own request, e.g. the
+     *  `Authorization` header. Returns null when absent. */
+    getToken: () => Promise<string | null>;
+    /** Expected `iss` claim, and the default JWKS host. */
+    issuer: string;
+    /** Expected `aud` claim. */
+    audience: string;
+    /** Default: resolved via OIDC discovery (`${issuer}/.well-known/openid-configuration`'s `jwks_uri`). */
+    jwksUri?: string;
+    /** Claim holding roles, normalized to string[] (string -> `[value]`). Default `"roles"`. */
+    rolesClaim?: string;
+    /** Claim holding the email. Default `"email"`. */
+    emailClaim?: string;
+    /** Case-insensitive match on the resolved email. */
+    allowedEmails?: string[];
+    /** Any-intersection with the resolved roles. */
+    allowedRoles?: string[];
+    /** Any-intersection with the resolved roles, required for the "admin" action. */
+    adminRoles?: string[];
+};
+export declare function oidcAuthAdapter(opts: OidcOpts): AuthAdapter;
+/**
+ * Cloudflare Access preset over the same verification `oidcAuthAdapter` uses.
+ * Access issues its own JWT (the `Cf-Access-Jwt-Assertion` header, still
+ * injected via `getToken`, core never reads headers itself) signed by the
+ * team's own JWKS; issuer and JWKS URL are both derived from `teamDomain`, so
+ * a host only supplies the team name and the application's `aud` tag.
+ *
+ * EXEMPT FROM THE ALLOWLIST REQUIREMENT: unlike a bare OIDC provider, Access
+ * only issues this token after its own per-application policy (the set of
+ * emails/groups/IdPs an admin configured for this `aud`) already let the
+ * request through; a verified token here is already allowlisted, by Access
+ * itself. `allowedEmails`/`allowedRoles` remain available for a second,
+ * narrower tier inside Typren.
+ *
+ * NOTE on `allowedRoles`/`adminRoles` here: Access tokens only carry a
+ * `groups` claim when the team has SCIM group sync configured. Without it,
+ * every token omits `groups` and `rolesOf` resolves to `undefined`, so
+ * `allowedRoles`/`adminRoles` silently deny everyone rather than signal
+ * misconfiguration. Confirm SCIM sync is on before relying on role gating
+ * with this preset.
+ */
+export declare function cfAccessAuthAdapter(opts: {
+    /** The Cloudflare Access team name, e.g. `"acme"` for `acme.cloudflareaccess.com`.
+     *  Must be a bare hostname label: no scheme, slashes or dots. */
+    teamDomain: string;
+    /** The Access application's `aud` tag. */
+    audience: string;
+    getToken: () => Promise<string | null>;
+    /** Claim holding roles. Default `"groups"` (Access's group-membership claim). */
+    rolesClaim?: string;
+    emailClaim?: string;
+    allowedEmails?: string[];
+    allowedRoles?: string[];
+    adminRoles?: string[];
+}): AuthAdapter;
+export {};
+
+// ---- dist/auth/supabase.d.ts ----
+import type { AuthAdapter } from "../auth-adapter.js";
+/** Structural shape of the subset of `@supabase/supabase-js`'s client this
+ *  adapter calls, so core never imports or depends on the real package (the
+ *  host's own `createClient(...)` satisfies this). Deliberately uses
+ *  `getUser()`, which revalidates the token against Supabase's server, not
+ *  `getSession()`, which only reads the (client-forgeable) local cookie. */
+type SupabaseClient = {
+    auth: {
+        getUser(): Promise<{
+            data: {
+                user: SupabaseUser | null;
+            };
+            error: unknown;
+        }>;
+    };
+};
+export type SupabaseUser = {
+    id: string;
+    email?: string | null;
+    email_confirmed_at?: string | null;
+    user_metadata?: Record<string, unknown>;
+    app_metadata?: {
+        roles?: string[];
+        role?: string;
+    } & Record<string, unknown>;
+};
+/**
+ * REQUIRES AN ALLOWLIST: `allowedEmails` or `allowedRoles` must be set, or
+ * construction throws. A signed-in user with neither would authorize anyone
+ * who can sign in, which is almost never the intended policy for an editor.
+ *
+ * "admin" is gated separately from ordinary content writes: it needs
+ * `adminRoles` set and an intersecting role, full stop. Unmapped denies
+ * rather than falling back to `allowedRoles`.
+ *
+ * SECURITY: roles are read ONLY from `user.app_metadata` (`roles` array or
+ * singular `role`), never `user_metadata`. Supabase lets the signed-in user
+ * write their own `user_metadata` from the client; trusting it for
+ * authorization would let any user grant themselves roles. `app_metadata` is
+ * writable only via the service-role key, server-side.
+ */
+export declare function supabaseAuthAdapter(opts: {
+    /** The host's Supabase client, e.g. from `createServerClient(...)`. */
+    client: SupabaseClient;
+    /** Case-insensitive match on user.email. */
+    allowedEmails?: string[];
+    /** Any-intersection with app_metadata roles. */
+    allowedRoles?: string[];
+    /** Any-intersection with app_metadata roles, required for the "admin" action. */
     adminRoles?: string[];
 }): AuthAdapter;
 export {};
@@ -411,7 +630,7 @@ export declare function buildCollectionActions(config: CmsConfig): Record<string
  *  action, so this is what a host's server-fetch calls into). Reuses the same
  *  adapter construction as makeCollectionActions so the overlap guard and
  *  contentDir resolution can't drift between the read and write paths. */
-export declare function listCollectionRecords(config: CmsConfig, section: CollectionSection, locale?: string): CollectionRecordInfo[];
+export declare function listCollectionRecords(config: CmsConfig, section: CollectionSection, locale?: string): Promise<CollectionRecordInfo[]>;
 
 // ---- dist/field-schema.d.ts ----
 import type { SliceSchema } from "./types.js";
@@ -481,13 +700,13 @@ export type FsMediaAdapterOptions = {
 /**
  * Filesystem media adapter over a flat directory (mirrors `markdown-adapter.ts`'s
  * conventions: a `create*Adapter(opts)` factory, a `SAFE_*` traversal guard,
- * idempotent delete). Async throughout (unlike `ContentAdapter`) because
+ * idempotent delete). Async throughout, same as `ContentAdapter` (issue #29):
  * `list()` probes image dimensions via sharp. See `types.ts`'s `MediaAdapter`.
  */
 export declare function createFsMediaAdapter({ dir, publicPath }: FsMediaAdapterOptions): MediaAdapter;
 
 // ---- dist/github-adapter.d.ts ----
-import type { PageContent } from "./types.js";
+import type { ContentAdapter } from "./types.js";
 /**
  * True when `relPath` (repo-relative, forward-slash) safely resolves inside
  * one of `allowedRoots` (also repo-relative). Rejects `..`, absolute paths,
@@ -514,6 +733,17 @@ export type GithubAdapterOptions = {
      *  policy this adapter doesn't implement. Point `branch` at a working
      *  branch and open the PR outside this adapter for that. */
     branch?: string;
+    /** Branch draft reads/writes/deletes/hasDraft target, instead of `branch`.
+     *  Default `"typren-drafts"`: an unpublished draft never lands a commit on
+     *  the branch a host builds from, so a draft save can't trigger (or
+     *  pollute) a production/preview deploy, and the draft history stays out
+     *  of `branch`'s own commit log. Pass `null`, or the same value as
+     *  `branch`, to keep the pre-this-option behavior of drafts living under
+     *  `draftSubdir` on `branch` itself. A host that builds every branch
+     *  (Vercel's per-branch previews, CF Pages branch deploys) should tell it
+     *  to ignore `typren-drafts` (Vercel's "Ignored Build Step", CF Pages'
+     *  branch build controls) -- see this package's README. */
+    draftBranch?: string | null;
     /** Repo-relative directory page files live under. Default "content". */
     contentDir?: string;
     /** Repo-relative media directory. No method here writes to it today (this
@@ -533,51 +763,94 @@ export type GithubAdapterOptions = {
      *  dot-dir path segments (see `isAllowedRepoPath`), so a dot-prefixed
      *  default would make every draft write reject itself. "_" is this repo's
      *  existing convention for a reserved/internal name (see
-     *  fs-media-adapter.ts's `_manifest-` prefix). */
+     *  fs-media-adapter.ts's `_manifest-` prefix). Kept deliberately distinct
+     *  from the fs adapter's own default rather than unified with it (issue
+     *  #29): the dotfile rule is a real security boundary for this adapter
+     *  (keeps a draft write from ever landing in `.github/` or another
+     *  dot-prefixed path GitHub treats specially), not an arbitrary naming
+     *  choice to reconcile. */
     draftSubdir?: string;
     /** Injectable for tests; defaults to the global `fetch`. */
     fetchImpl?: typeof fetch;
+    /** Merged into every GET's `RequestInit` (content reads only, never writes).
+     *  Lets a host attach its own fetch-cache tags/options, e.g. Next's
+     *  `{ next: { tags: [...] } }`, so a push webhook can invalidate the host's
+     *  cache for this adapter's reads (see the `@typren/core/github-webhook`
+     *  subpath). Never set this on the editor's own adapter instance: draft
+     *  reads must always be fresh, a cached draft read would show a stale
+     *  version of exactly the content someone is actively editing.
+     *  ponytail: one site-wide cache tag is the common case; a host needing
+     *  per-slug invalidation granularity passes a `relPath`-keyed tag itself
+     *  (this hook already gets `relPath`), cheaper than this adapter inventing
+     *  a tagging scheme. */
+    readInit?: (relPath: string) => RequestInit | undefined;
 };
 /**
  * GitHub Contents API adapter. Mirrors `markdown-adapter.ts`'s factory shape
  * and locale layout (default locale flat at `contentDir`, others under
- * `contentDir/<locale>/`, drafts under `.../<draftSubdir>`) and
- * `fs-media-adapter.ts`'s async convention -- unlike the filesystem adapter,
- * every method here does real network I/O, so none of them can be
- * synchronous. That is a real (structural) divergence from the `ContentAdapter`
- * interface in types.ts, which predates any network-backed implementation
- * and types every method as synchronous. Wiring this adapter into
- * `createStore`/`createMeditorApi` therefore needs that interface widened to
- * `T | Promise<T>` first -- deliberately out of scope here: it ripples into
- * store.ts, collection.ts, settings.ts, and api/routes.ts, which is a much
- * larger change than "add a GitHub adapter" and collides with the parallel
- * per-request-config-resolution work on routes.ts. This adapter is the ready,
- * tested piece that migration plugs in.
+ * `contentDir/<locale>/`, drafts under `.../<draftSubdir>`). Implements
+ * `ContentAdapter` natively: every method does real network I/O and returns a
+ * promise, the same shape the interface itself now requires (issue #29).
  *
- * The upside lands regardless of that wiring: every write here does an
+ * The CAS story lands on top of that: every write here does an
  * immediate read-sha-then-write, and the PUT is atomically compare-and-swapped
  * server-side by GitHub against the sha it's given -- a real CAS, not the fs
  * adapter's unconditional overwrite. That's the shape store.ts's own
  * `saveDraft` ponytail note asks for ("an atomic adapter ... moves the
  * compare into the adapter via an optional expectedVersion hook").
  */
-export declare function createGithubAdapter({ owner, repo, token, branch, contentDir, mediaDir, frontmatterKey, defaultLocale, locales, draftSubdir, fetchImpl, }: GithubAdapterOptions): {
+export declare function createGithubAdapter({ owner, repo, token, branch, draftBranch, contentDir, mediaDir, frontmatterKey, defaultLocale, locales, draftSubdir, fetchImpl, readInit, }: GithubAdapterOptions): ContentAdapter;
+
+// ---- dist/github-webhook.d.ts ----
+/**
+ * GitHub push-webhook handler for a site whose content lives in a
+ * `createGithubAdapter`-backed repo (issue #29's "git runtime"): a host
+ * mounts this at its webhook route, GitHub POSTs on every push, and
+ * `onChange` is the host's own cache-invalidation hook (e.g. Next's
+ * `revalidateTag`, see the README's "Live content from GitHub" section).
+ * Web-standard `Request`/`Response`, same convention as
+ * `@typren/forms`'s `createFormHandler`: one function that mounts on Next
+ * Route Handlers, Workers, Lambda function URLs, or Hono alike.
+ */
+export type GithubWebhookChange = {
+    /** Every added/modified/removed path under `contentDir` this push touched,
+     *  repo-relative (e.g. "content/about.md"), draft paths already excluded. */
+    paths: string[];
+    /** Slugs derived from the `.md` paths above (both locale-prefixed and flat). */
+    slugs: string[];
+    /** Locales present in `paths` (a flat/default-locale path contributes none:
+     *  there is no locale segment to read off it). */
     locales: string[];
-    defaultLocale: string;
-    root: string;
-    parse: (raw: string) => PageContent;
-    serialize: (page: PageContent) => string;
-    listSlugs(locale?: string): Promise<string[]>;
-    listLocales(slug: string): Promise<string[]>;
-    exists: (slug: string, locale?: string) => Promise<boolean>;
-    readRaw: (slug: string, locale?: string) => Promise<string>;
-    writeRaw: (slug: string, raw: string, locale?: string) => Promise<void>;
-    deletePublished: (slug: string, locale?: string) => Promise<void>;
-    readDraftRaw: (slug: string, locale?: string) => Promise<string | null>;
-    writeDraftRaw: (slug: string, raw: string, locale?: string) => Promise<void>;
-    deleteDraft: (slug: string, locale?: string) => Promise<void>;
-    hasDraft: (slug: string, locale?: string) => Promise<boolean>;
+    /** True when the push can't be enumerated reliably (force push, or no
+     *  commit list in the payload): `paths`/`slugs`/`locales` are then empty and
+     *  the host must invalidate ALL Typren content, or the rewritten pages stay
+     *  stale until something else touches them. */
+    full: boolean;
 };
+export type GithubWebhookOptions = {
+    /** The webhook's configured secret, used to verify `X-Hub-Signature-256`.
+     *  Required: a webhook with no secret is an unauthenticated endpoint that
+     *  lets anyone trigger `onChange` by guessing the URL. */
+    secret: string;
+    /** Only a push to this branch triggers `onChange`; every other branch is
+     *  202 Accepted (ignored), not rejected (another branch pushing is normal
+     *  repo activity, not an error). Default "main". */
+    branch?: string;
+    /** Repo-relative content directory, matching the `createGithubAdapter`
+     *  instance this webhook invalidates for. Default "content". */
+    contentDir?: string;
+    /** Draft subdirectory name, matching the adapter's own `draftSubdir`. A
+     *  draft-only push never fires `onChange`: draft reads are never cached
+     *  (see `readInit`'s doc comment on `GithubAdapterOptions`), so there is
+     *  nothing to invalidate. Default "_drafts". */
+    draftSubdir?: string;
+    /** The host's cache-invalidation hook, e.g.
+     *  `() => revalidateTag("typren-content")`. Thrown errors become a 500 so
+     *  GitHub retries/redelivers the webhook rather than silently losing the
+     *  invalidation. */
+    onChange: (change: GithubWebhookChange) => void | Promise<void>;
+};
+export declare function createGithubWebhookHandler(options: GithubWebhookOptions): (req: Request) => Promise<Response>;
 
 // ---- dist/i18n.d.ts ----
 /** Flat, dot-namespaced editor-UI strings. */
@@ -638,9 +911,11 @@ export { filePolicy, type AccessPolicyFile } from "./file-policy.js";
 export { versionOf, ConflictError } from "./version.js";
 export { serializeFieldSchema, parseFieldSchema, isFieldSchema, type SerializedFieldSchema, } from "./field-schema.js";
 export { resolveSections, DEFAULT_SECTIONS, SECTION_API_VERSION, type Section, type SectionKind, type SectionCtx, type ResolvedSection, type PagesSection, type MediaSection, type SettingsSection, type CollectionSection, type CustomSection, type FieldFormMedia, } from "./sections.js";
-export { createSettingsStore, createFsSettingsAdapter, type SiteSettings, type SiteSettingsRuntime, type SiteSettingsBootstrap, type SettingsAdapter, type SettingsStore, } from "./settings.js";
+export { createSettingsStore, createFsSettingsAdapter, validateBootstrap, BOOTSTRAP_KEYS, type SiteSettings, type SiteSettingsRuntime, type SiteSettingsBootstrap, type SettingsAdapter, type SettingsStore, } from "./settings.js";
 export { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection.js";
 export { buildRedirects, type RedirectEntry, type BuildRedirectsOptions, type PageRedirectMeta } from "./redirects.js";
+export { scanContentStore, loadRedirectMap, mergeRedirectEntries, toRedirectPairs, type RedirectMapEntry, type ToRedirectPairsOptions, } from "./redirect-sources.js";
+export { resolveStaticHostRequest, isUnsafeRedirectTarget, STATIC_HOST_PASSTHROUGH, REDIRECT_STATUSES, type StaticHostDecision, type RedirectLookup, type RedirectStatus, } from "./static-host.js";
 
 // ---- dist/localize.d.ts ----
 import type { PageContent } from "./types.js";
@@ -702,7 +977,16 @@ export type MarkdownAdapterOptions = {
  * non-default locales live under `contentDir/<locale>/`. `parse`/`serialize`
  * are locale-agnostic. The locale never enters the file.
  */
-export declare function createMarkdownAdapter({ contentDir, draftDir, frontmatterKey, defaultLocale, locales, draftSubdir, requireSliceArray, }: MarkdownAdapterOptions): ContentAdapter;
+/** `createMarkdownAdapter`'s return type: `ContentAdapter` plus the one extra
+ *  the fs-backed adapter can offer that a network-backed one can't -- an
+ *  absolute on-disk root, for callers that need to site something beside it
+ *  (the `.typren/` settings dir, a collection's dir-overlap guard). Kept off
+ *  `ContentAdapter` itself (see that interface's doc comment) since neither
+ *  the GitHub nor Notion adapter has a real filesystem path to report. */
+export type MarkdownAdapter = ContentAdapter & {
+    readonly root: string;
+};
+export declare function createMarkdownAdapter({ contentDir, draftDir, frontmatterKey, defaultLocale, locales, draftSubdir, requireSliceArray, }: MarkdownAdapterOptions): MarkdownAdapter;
 
 // ---- dist/media.d.ts ----
 import type { CmsConfig, PreparedFile } from "./types.js";
@@ -711,19 +995,30 @@ import type { CmsConfig, PreparedFile } from "./types.js";
 export declare const MAX_UPLOAD_BYTES: number;
 /** Validates + web-optimizes a raw upload. Never trusts the client-supplied
  *  mime/extension: sniffs actual bytes via sharp.metadata(). Throws with a
- *  user-facing message on any rejection. */
+ *  user-facing message on any rejection. SVG is refused unless `allowSvg`
+ *  (see `CmsConfig.allowSvg`). */
 export declare function processUpload(input: {
     name: string;
     buffer: Buffer;
+}, opts?: {
+    allowSvg?: boolean;
 }): Promise<PreparedFile>;
+/** CSRF check for an unsafe request: true when it comes from the request's
+ *  own host or an `allowed` origin. A request with no `Origin` header and no
+ *  cross-site `Sec-Fetch-Site` is a non-browser caller, with no ambient
+ *  credentials to abuse. */
+export declare function sameOrigin(request: Request, allowed: string[]): boolean;
 /** Route Handler body. The host's route.ts is a thin wrapper, the same
  *  "host owns the boundary, package supplies the logic" split actions.ts
  *  already uses for Server Actions.
  *
  *  Route Handlers never run through a parent layout's auth gate (a
  *  `route.ts` renders no layout tree at all), so this re-checks auth itself
- *  via the same `resolveAuth` the action guard uses. */
-export declare function handleMediaUpload(config: CmsConfig, request: Request): Promise<Response>;
+ *  via the same `resolveAuth` the action guard uses, and refuses a
+ *  cross-origin request itself: a multipart POST needs no CORS preflight, so
+ *  any page could otherwise drive a loopback dev server's upload. A host
+ *  serving the editor from another origin passes it in `allowedOrigins`. */
+export declare function handleMediaUpload(config: CmsConfig, request: Request, allowedOrigins?: string[]): Promise<Response>;
 
 // ---- dist/notion-adapter.d.ts ----
 import type { ContentAdapter } from "./types.js";
@@ -754,31 +1049,38 @@ export type NotionPage = {
     id: string;
     archived: boolean;
     properties: Record<string, NotionRawProperty>;
+    /** The database this row actually belongs to (Notion's `parent` field,
+     *  present on any page that is a database row). Checked against the
+     *  configured `databaseId` when a slug resolves straight to a page id (no
+     *  `slugProperty`): a page id is a bare opaque string a caller controls, so
+     *  nothing else stops it from naming a row in a DIFFERENT database this
+     *  adapter instance was never configured for. */
+    parent?: {
+        database_id?: string;
+    };
 };
 /**
  * The seam between the adapter and Notion's HTTP API, mocked directly in
  * tests (see notion-adapter.test.ts), so no network/HTTP-mocking library is
  * needed to unit-test the adapter's read/write/mapping logic. Every method is
- * SYNCHRONOUS to satisfy `ContentAdapter` (see `createFetchNotionClient`'s
- * doc comment for how the real implementation bridges Notion's async HTTP
- * to that).
+ * async, matching `ContentAdapter` (issue #29) and Notion's own HTTP API.
  */
 export interface NotionClient {
     /** Every non-archived row in the database (pagination is the client's problem). */
-    queryDatabase(databaseId: string): NotionPage[];
+    queryDatabase(databaseId: string): Promise<NotionPage[]>;
     /** `null` when the page id doesn't exist OR is archived (this adapter
      *  treats "archived" as "deleted", see `deletePublished`). */
-    retrievePage(pageId: string): NotionPage | null;
-    createPage(databaseId: string, properties: Record<string, NotionRawProperty>): NotionPage;
-    updatePage(pageId: string, properties: Record<string, NotionRawProperty>): NotionPage;
+    retrievePage(pageId: string): Promise<NotionPage | null>;
+    createPage(databaseId: string, properties: Record<string, NotionRawProperty>): Promise<NotionPage>;
+    updatePage(pageId: string, properties: Record<string, NotionRawProperty>): Promise<NotionPage>;
     /** Notion has no hard delete via the API, only archive (= its trash). */
-    archivePage(pageId: string): void;
+    archivePage(pageId: string): Promise<void>;
     /** A page's block children, recursively resolved (each returned block's own
      *  `children` is already populated when `has_children` is true), see
      *  notion-blocks.ts for what they turn into. Only called when a
      *  `NotionAdapterOptions.content` of `"blocks"` is configured; omit it on a
      *  client that never backs such a collection. */
-    listBlockChildren?(pageId: string): NotionBlock[];
+    listBlockChildren?(pageId: string): Promise<NotionBlock[]>;
 }
 export type NotionAdapterOptions = {
     client: NotionClient;
@@ -857,8 +1159,10 @@ export type NotionAdapterOptions = {
 export declare function createNotionAdapter({ client, databaseId, properties, slugProperty, bodyProperty, content, defaultLocale, locales, }: NotionAdapterOptions): ContentAdapter;
 /** Real `NotionClient` against `https://api.notion.com`. `token` is an
  *  internal-integration secret, pass it from `process.env` only (never
- *  commit one); the caller owns getting it there. */
-export declare function createFetchNotionClient(token: string): NotionClient;
+ *  commit one); the caller owns getting it there. `fetchImpl` is injectable
+ *  for tests, same convention as github-adapter.ts, defaults to the global
+ *  `fetch`. */
+export declare function createFetchNotionClient(token: string, fetchImpl?: typeof fetch): NotionClient;
 
 // ---- dist/notion-blocks.d.ts ----
 import type { PageContent } from "./types.js";
@@ -964,9 +1268,100 @@ export declare function previewPathFor(adminRoute: string): string;
 export declare function typrenProxyRewrite(url: URL | string, opts?: {
     configFile?: string;
 }): string | null;
+/**
+ * True when `url` hits `/editor/**` directly while a renamed `adminRoute`
+ * means that's no longer the live admin path. A host wires this ahead of
+ * `typrenProxyRewrite` (see the module doc comment) to 404 it: without this,
+ * renaming the admin route for URL hygiene was purely cosmetic -- the OLD
+ * path kept serving the editor side by side with the new one, forever.
+ */
+export declare function typrenBlocksDirectEditorAccess(url: URL | string, opts?: {
+    configFile?: string;
+}): boolean;
+
+// ---- dist/redirect-sources.d.ts ----
+import type { ContentStore } from "./store.js";
+import type { RedirectEntry } from "./redirects.js";
+import { type RedirectStatus } from "./static-host.js";
+/**
+ * Minimal read-only `ContentStore` built by scanning a content directory's
+ * flat `*.md` files directly, rather than importing a host's `cms.config.ts`
+ * (which imports "server-only" and throws outside a React Server Component
+ * build, the same constraint `typren review`'s `listCmsPageSlugs`/`parsePage`
+ * in packages/cli work around, mirrored here). Only `listPages`/`getPublished`
+ * are real; `buildRedirects` (this module's only caller) needs nothing else.
+ *
+ * ponytail: default-locale, flat-file layout only, same scope `typren review`
+ * already covers. No draft/i18n/collection support: a redirects sync doesn't
+ * need it, and buildRedirects itself is single-locale (see redirects.ts).
+ */
+export declare function scanContentStore(contentDir: string): ContentStore;
+/** One entry in a host-supplied redirect map file: an incoming on-site path
+ *  and where it should redirect to (an on-site path or an absolute http(s)
+ *  URL). `status` defaults to 301 (migrators from `_redirects`/`vercel.json`
+ *  expect per-entry 302/307/308; see static-host.ts's REDIRECT_STATUSES). */
+export type RedirectMapEntry = {
+    from: string;
+    to: string;
+    status?: RedirectStatus;
+};
+/**
+ * Loads a host-supplied redirect map file into validated `RedirectEntry[]`,
+ * the same shape `buildRedirects` emits, so both sources merge into one
+ * sync. This is what makes a host's redirect sync useful beyond a typren
+ * site: frontmatter aliases describe pages that exist in a content store,
+ * while a map file carries everything else a real site accumulates (legacy
+ * platform URLs, removed pages, paths that moved off-site entirely).
+ *
+ * Formats, by extension:
+ *   - `.json`: an array of `{ "from": "/old", "to": "/new-or-https-url" }`
+ *   - `.mjs`/`.js`: a module whose default export (or a named `REDIRECTS` /
+ *     `redirects` export) is that same array. A config module may compute its
+ *     entries; the JSON form exists for hosts that would rather not execute
+ *     code from the map.
+ *
+ * Validation (fail loud, never silently drop, matching buildRedirects):
+ * `from` must be an absolute on-site path; `to` must be an absolute on-site
+ * path or an absolute http(s) URL; `status`, if present, must be one of
+ * REDIRECT_STATUSES; duplicate `from`s (after trailing-slash normalization)
+ * throw. Entry `slug`s carry the map file's name so a merge collision names
+ * its source.
+ */
+export declare function loadRedirectMap(cwd: string, file: string): Promise<RedirectEntry[]>;
+/**
+ * Merges content-derived entries with map-file entries, refusing a `from`
+ * claimed by both sources (a silent override in either direction would make
+ * one source's edit mysteriously not take effect) and a map `from` that
+ * shadows a live page's canonical path (which would 301 a real page away;
+ * the same guard buildRedirects applies to frontmatter aliases, which the
+ * map path would otherwise bypass). `pagePaths` are the canonical public
+ * paths of the scanned pages; pass nothing when there is no content store to
+ * shadow.
+ */
+export declare function mergeRedirectEntries(content: RedirectEntry[], map: RedirectEntry[], pagePaths?: string[]): RedirectEntry[];
+export type ToRedirectPairsOptions = {
+    /** Append the canonical trailing slash to on-site page targets (the
+     *  `trailingSlash: true` static-export shape, and the default). A site
+     *  whose canonical URLs are the bare form passes `false` and targets are
+     *  emitted verbatim. */
+    appendSlash?: boolean;
+};
+/**
+ * Converts validated `RedirectEntry[]` into the key/value pairs a host's
+ * redirect store wants: the `from` percent-encoded (the form an edge sees a
+ * request path in) and the `to` canonicalized to the site's trailing-slash
+ * convention. Host-agnostic; a vendor-specific byte-limit check (CloudFront's
+ * KVS, say) belongs at the emitter that knows about it, not here (see
+ * `@typren/adapter-cloudfront`'s `toKvsEntries`, a thin wrapper around this).
+ */
+export declare function toRedirectPairs(entries: RedirectEntry[], opts?: ToRedirectPairsOptions): {
+    key: string;
+    value: string;
+}[];
 
 // ---- dist/redirects.d.ts ----
 import type { ContentStore } from "./store.js";
+import type { RedirectStatus } from "./static-host.js";
 /** Per-page redirect frontmatter. Lives inside a page's existing `meta`
  *  (frontmatter minus `slices:`), no new file format, same convention as
  *  seo/types.ts's PageSeoMeta. Each alias is an absolute, on-site path that
@@ -981,6 +1376,10 @@ export type RedirectEntry = {
     to: string;
     /** Slug that declared the alias, for a host's own error/log messages. */
     slug: string;
+    /** HTTP status this redirect should be served with. `undefined` means the
+     *  default, 301. Frontmatter aliases never set this (always 301); only a
+     *  `--map` entry (see redirect-sources.ts's loadRedirectMap) can. */
+    status?: RedirectStatus;
 };
 export type BuildRedirectsOptions = {
     /** Slug that maps to the site root ("/") instead of "/<slug>", e.g. "home"
@@ -1010,7 +1409,7 @@ export type BuildRedirectsOptions = {
  * be a redirect loop), a duplicate alias claimed by two pages, or more total
  * aliases than `maxEntries`.
  */
-export declare function buildRedirects(store: ContentStore, opts?: BuildRedirectsOptions): RedirectEntry[];
+export declare function buildRedirects(store: ContentStore, opts?: BuildRedirectsOptions): Promise<RedirectEntry[]>;
 
 // ---- dist/sections.d.ts ----
 import type { ComponentType } from "react";
@@ -1222,7 +1621,7 @@ import { type SliceMarkdownRegistry } from "./markdown-render.js";
  *  store: the "llms-full.txt" companion to a hand-curated llms.txt (this
  *  function does NOT replace a curated summary file: a hand-authored
  *  llms.txt still needs a human author for marketing copy). */
-export declare function generateLlmsFullTxt(store: ContentStore, renderOverrides?: SliceMarkdownRegistry): string;
+export declare function generateLlmsFullTxt(store: ContentStore, renderOverrides?: SliceMarkdownRegistry): Promise<string>;
 
 // ---- dist/seo/markdown-render.d.ts ----
 import type { Slice } from "../types.js";
@@ -1315,7 +1714,7 @@ export type BuildSitemapOptions = {
 /** One entry per page in the store, honoring per-page `noindex`/`sitemap`
  *  frontmatter overrides. Does NOT know about non-CMS collections (e.g. a
  *  separate hosted-resources collection). The host concats those itself. */
-export declare function buildSitemap(store: ContentStore, config: SeoConfig, opts?: BuildSitemapOptions): MetadataRoute.Sitemap;
+export declare function buildSitemap(store: ContentStore, config: SeoConfig, opts?: BuildSitemapOptions): Promise<MetadataRoute.Sitemap>;
 
 // ---- dist/seo/slice-registry.d.ts ----
 import type { Slice } from "../types.js";
@@ -1430,24 +1829,78 @@ export interface SettingsAdapter {
     readBootstrap(): SiteSettingsBootstrap;
     writeBootstrap(patch: Partial<SiteSettingsBootstrap>): void;
 }
+/** Keys `PUT /settings/bootstrap` may patch (see api/routes.ts settingsRoutes).
+ *  Anything else in the patch is rejected before it ever reaches
+ *  `writeBootstrap`, since that adapter has no key allowlist of its own. */
+export declare const BOOTSTRAP_KEYS: ReadonlySet<string>;
+/**
+ * Validates a FULL bootstrap (not a partial patch): the one check shared by
+ * the Settings "Advanced" panel, the onboarding wizard's admin-route step,
+ * `typren apply-settings` (packages/cli/src/cli.ts), and the settings API's
+ * bootstrap write (api/routes.ts), so a config that passes one passes all
+ * four. Returns an error string, or null when valid. Reuses `resolveI18n`'s
+ * own defaultLocale-in-locales check rather than re-deriving it.
+ */
+export declare function validateBootstrap(bs: SiteSettingsBootstrap): string | null;
 /** Default bootstrap adapter: one root JSON, atomic tmp+rename write so no
  *  reader ever observes a half-written config that gates server boot. */
 export declare function createFsSettingsAdapter(opts: {
     file: string;
 }): SettingsAdapter;
 export interface SettingsStore {
-    get(locale?: string): SiteSettingsRuntime;
+    get(locale?: string): Promise<SiteSettingsRuntime>;
     /** Version of the stored settings doc, for the same optimistic-lock flow pages
      *  use. Without this a client had nothing to seed `baseVersion` from, so its
      *  FIRST save passed `undefined`, which `store.saveDraft` treats as "no base
      *  version to check" and writes unconditionally, silently overwriting whatever
      *  another session had just saved. */
-    currentVersion(locale?: string): string | null;
+    currentVersion(locale?: string): Promise<string | null>;
     saveDraft(next: SiteSettingsRuntime, baseVersion?: string, locale?: string): Promise<SaveResult>;
     publish(baseVersion?: string, locale?: string): Promise<SaveResult>;
     bootstrap: SettingsAdapter;
 }
 export declare function createSettingsStore(config: CmsConfig): SettingsStore;
+
+// ---- dist/static-host.d.ts ----
+/** Migrators from `_redirects`/`vercel.json` expect per-entry 301/302/307/308,
+ *  not a hardcoded 301 (see parseRedirectValue). */
+export declare const REDIRECT_STATUSES: readonly [301, 302, 307, 308];
+export type RedirectStatus = (typeof REDIRECT_STATUSES)[number];
+export type StaticHostDecision = {
+    kind: "redirect";
+    status: RedirectStatus;
+    location: string;
+} | {
+    kind: "rewrite";
+    path: string;
+} | {
+    kind: "pass";
+};
+/** Looks up a redirect target for an exact, trailing-slash-normalized key.
+ *  A throw/rejection (store down) and a null/undefined/empty result both
+ *  mean "no redirect here" to the caller. */
+export type StaticHostOptions = {
+    /** The export's URL shape, i.e. Next's `trailingSlash`. Default `true`:
+     *  `/about/` serves `about/index.html`. `false` is Next's default export:
+     *  `/about` serves `about.html`. */
+    trailingSlash?: boolean;
+};
+export type RedirectLookup = (key: string) => Promise<string | null | undefined> | string | null | undefined;
+export declare const STATIC_HOST_PASSTHROUGH: ReadonlySet<string>;
+/** A redirect target arrives from a store an operator with write access can
+ *  edit directly. Refuse to serve a target that is protocol-relative
+ *  ("//host" resolves off-site), uses backslash (URL parsers read "\" as "/"),
+ *  or carries control characters (header injection). Falling through serves
+ *  the request instead. */
+export declare function isUnsafeRedirectTarget(target: string): boolean;
+/**
+ * `path` is the request path exactly as received (CloudFront `uri` / URL
+ * `pathname`, percent-encoded). `query` is the raw query string without a
+ * leading "?", `""` when there is none, passed through verbatim: unlike the
+ * CloudFront function, which rebuilds it from the runtime's parsed
+ * querystring object, there is nothing to reassemble here.
+ */
+export declare function resolveStaticHostRequest(path: string, query: string, lookup: RedirectLookup, opts?: StaticHostOptions): Promise<StaticHostDecision>;
 
 // ---- dist/store.d.ts ----
 import type { ContentAdapter, LocalizedPage, PageContent, PageInfo } from "./types.js";
@@ -1461,30 +1914,39 @@ export declare function slugify(text: string): string;
  *  single-locale callers are unchanged); the store composes the default-locale
  *  fallback that the dumb per-locale adapter doesn't know about. */
 export interface ContentStore {
-    listPages(locale?: string): PageInfo[];
+    listPages(locale?: string): Promise<PageInfo[]>;
+    /** Slugs of every page, cheap (adapter.listSlugs, no per-page read). Use
+     *  this instead of `listPages` for builders that only need the slug set
+     *  (sitemap, llms.txt, redirects), not each page's hasDraft/locales. */
+    listSlugs(locale?: string): Promise<string[]>;
+    /** Whether `slug` has published content for a locale. A cheap existence
+     *  check, unlike `listPages`, which fans out over every slug in the store;
+     *  callers that only need to know "does this one page exist" (e.g. the
+     *  markdown mirror route) should use this instead of scanning the list. */
+    exists(slug: string, locale?: string): Promise<boolean>;
     /** Published content for a locale, with default-locale fallback applied. */
-    getPublished(slug: string, locale?: string): LocalizedPage;
-    getDraft(slug: string, locale?: string): PageContent | null;
+    getPublished(slug: string, locale?: string): Promise<LocalizedPage>;
+    getDraft(slug: string, locale?: string): Promise<PageContent | null>;
     /** Version of the content the editor would load (draft if present, else
      *  published, else null when the slug has no content yet) for a locale. */
-    currentVersion(slug: string, locale?: string): string | null;
+    currentVersion(slug: string, locale?: string): Promise<string | null>;
     /** Write a draft. When `baseVersion` is given, throws `ConflictError` if the
      *  current version has moved since (optimistic lock). Returns the new version. */
-    saveDraft(slug: string, page: PageContent, baseVersion?: string, locale?: string): string;
-    discardDraft(slug: string, locale?: string): void;
+    saveDraft(slug: string, page: PageContent, baseVersion?: string, locale?: string): Promise<string>;
+    discardDraft(slug: string, locale?: string): Promise<void>;
     /** Promote the draft to published (via the adapter), clear it, run onPublish.
      *  With `baseVersion`, throws `ConflictError` if the draft moved since. */
     publish(slug: string, baseVersion?: string, locale?: string): Promise<void>;
     /** Create a new published page in a locale. Throws if it already exists. */
-    createPage(slug: string, page: PageContent, locale?: string): void;
+    createPage(slug: string, page: PageContent, locale?: string): Promise<void>;
     /** Seed a draft translation of an existing page from `fromLocale`'s content
      *  (copies structure + text as a starting point). No-op if `toLocale` already
      *  has content or a draft. */
-    createTranslation(slug: string, fromLocale: string, toLocale: string): void;
+    createTranslation(slug: string, fromLocale: string, toLocale: string): Promise<void>;
     /** Delete a page in ALL locales (+ their drafts). */
-    deletePage(slug: string): void;
+    deletePage(slug: string): Promise<void>;
     /** Delete a single translation (one locale) + its draft. */
-    deleteTranslation(slug: string, locale: string): void;
+    deleteTranslation(slug: string, locale: string): Promise<void>;
     /** Move a page from `slug` to `newSlug`: published AND any draft, in every
      *  locale the source occupies (see markdown-adapter's per-locale layout).
      *  All-locales, unlike most ops' single optional `locale` param: a page's
@@ -1494,13 +1956,13 @@ export interface ContentStore {
      *  `SlugExistsError` (not `ConflictError`, a destination collision, not a
      *  stale-version race) if `newSlug` already has content anywhere the move
      *  would touch. No-op if `newSlug === slug`. */
-    renamePage(slug: string, newSlug: string): void;
+    renamePage(slug: string, newSlug: string): Promise<void>;
     /** Copy `slug`'s content (published AND draft, whichever exist) to a new,
      *  auto-derived non-colliding slug (see `slugify`) and return it. Single-
      *  locale (defaults to the default locale), matching `createPage`'s own
      *  scope; other translations of the source are not duplicated. Throws if
      *  `slug` has neither published nor draft content to copy. */
-    duplicatePage(slug: string, locale?: string): string;
+    duplicatePage(slug: string, locale?: string): Promise<string>;
 }
 export declare function createStore(adapter: ContentAdapter, opts?: {
     onPublish?: (slug: string, locale: string) => void | Promise<void>;
@@ -1641,27 +2103,34 @@ export interface ContentAdapter {
      *  store/actions read these instead of duplicating the config. */
     readonly locales: string[];
     readonly defaultLocale: string;
-    /** Absolute path to this adapter's content root. Lets callers that need to
-     *  site something beside it (the `.typren/` settings dir, a collection's
-     *  dir-overlap guard) do so without re-deriving or guessing the path. */
-    readonly root: string;
     /** Slugs of every editable (sliced) page in a locale (defaults to default). */
-    listSlugs(locale?: string): string[];
+    listSlugs(locale?: string): Promise<string[]>;
     /** Locales in which `slug` has a published file (switcher / translation status). */
-    listLocales(slug: string): string[];
-    exists(slug: string, locale?: string): boolean;
-    /** Raw published source (throws if absent; callers gate with `exists`). */
-    readRaw(slug: string, locale?: string): string;
-    writeRaw(slug: string, raw: string, locale?: string): void;
+    listLocales(slug: string): Promise<string[]>;
+    exists(slug: string, locale?: string): Promise<boolean>;
+    /** Raw published source (rejects if absent; callers gate with `exists`). */
+    readRaw(slug: string, locale?: string): Promise<string>;
+    /** `opts.expectedVersion`, when given, asks the adapter to compare-and-swap:
+     *  the write only lands if the path's CURRENT version (see version.ts's
+     *  `versionOf`) still equals it, else reject with `ConflictError`, closing
+     *  the TOCTOU window a caller-side read-then-write check can't (see
+     *  store.ts's `saveDraft`). An adapter with no atomic primitive to hang
+     *  this on (markdown/Notion) may ignore `opts` and keep its existing
+     *  unconditional-overwrite behavior. */
+    writeRaw(slug: string, raw: string, locale?: string, opts?: {
+        expectedVersion?: string;
+    }): Promise<void>;
     /** Delete the published source (and let the store also drop any draft). */
-    deletePublished(slug: string, locale?: string): void;
+    deletePublished(slug: string, locale?: string): Promise<void>;
     /** Raw draft source, or null when no draft is checked out. */
-    readDraftRaw(slug: string, locale?: string): string | null;
-    writeDraftRaw(slug: string, raw: string, locale?: string): void;
-    deleteDraft(slug: string, locale?: string): void;
-    hasDraft(slug: string, locale?: string): boolean;
+    readDraftRaw(slug: string, locale?: string): Promise<string | null>;
+    writeDraftRaw(slug: string, raw: string, locale?: string, opts?: {
+        expectedVersion?: string;
+    }): Promise<void>;
+    deleteDraft(slug: string, locale?: string): Promise<void>;
+    hasDraft(slug: string, locale?: string): Promise<boolean>;
     /** Parse raw source into structured content, and back. Locale-agnostic: the
-     *  locale is a path segment, never inside the file. */
+     *  locale is a path segment, never inside the file. Pure/sync: no I/O. */
     parse(raw: string): PageContent;
     serialize(page: PageContent): string;
 }
@@ -1703,6 +2172,10 @@ export interface CmsConfig {
      *  fields (see FieldDef) still render, just as a plain text input with no
      *  "Browse library" button. */
     mediaAdapter?: MediaAdapter;
+    /** Accept SVG uploads (sanitized). Off by default: an SVG is a document, so
+     *  serve media from a separate origin or with `Content-Security-Policy:
+     *  sandbox` before turning this on. See docs/site/media-storage.md. */
+    allowSvg?: boolean;
     /** Left-nav section registry. Omit → resolveSections() returns the default
      *  trio (pages, media, settings); existing hosts get byte-identical
      *  behavior, mirroring resolveI18n's omitted-block collapse. */
@@ -1711,6 +2184,12 @@ export interface CmsConfig {
      *  tier in a private sibling dir, bootstrap tier in a root JSON file. No new
      *  adapter required to get Settings/onboarding working. */
     settingsAdapter?: SettingsAdapter;
+    /** Where the SiteSettings *content* doc itself is stored (distinct from
+     *  `settingsAdapter`'s bootstrap JSON above). Required when `adapter` has no
+     *  filesystem root to site a sibling `.typren/` dir next to (a GitHub or
+     *  Notion Pages adapter); omit for a markdown adapter, which keeps today's
+     *  derived location unchanged. */
+    settingsContentAdapter?: ContentAdapter;
     /** `false` disables first-run onboarding (embeds, tests, hosts that seed
      *  settings out-of-band). Omit = auto-detect via bootstrap `onboarded` flag. */
     onboarding?: false;

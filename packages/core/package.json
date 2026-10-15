@@ -1,6 +1,6 @@
 {
   "name": "@typren/core",
-  "version": "0.3.3",
+  "version": "0.5.1",
   "description": "Framework-agnostic core of Typren: content adapters, draft/publish store, auth-gated actions, i18n, media, SEO/AIO. No UI, see @typren/editor.",
   "keywords": [
     "cms",
@@ -26,6 +26,10 @@
       "types": "./dist/proxy.d.ts",
       "default": "./dist/proxy.js"
     },
+    "./static-host": {
+      "types": "./dist/static-host.d.ts",
+      "default": "./dist/static-host.js"
+    },
     "./api": {
       "types": "./dist/api/index.d.ts",
       "default": "./dist/api/index.js"
@@ -50,9 +54,25 @@
       "types": "./dist/auth/clerk.d.ts",
       "default": "./dist/auth/clerk.js"
     },
+    "./auth/better-auth": {
+      "types": "./dist/auth/better-auth.d.ts",
+      "default": "./dist/auth/better-auth.js"
+    },
+    "./auth/supabase": {
+      "types": "./dist/auth/supabase.d.ts",
+      "default": "./dist/auth/supabase.js"
+    },
+    "./auth/oidc": {
+      "types": "./dist/auth/oidc.d.ts",
+      "default": "./dist/auth/oidc.js"
+    },
     "./templates/init": {
       "types": "./dist/templates/init.d.ts",
       "default": "./dist/templates/init.js"
+    },
+    "./github-webhook": {
+      "types": "./dist/github-webhook.d.ts",
+      "default": "./dist/github-webhook.js"
     },
     "./theme.css": "./dist/theme.css",
     "./ui/*": {
@@ -66,6 +86,7 @@
   "files": [
     "dist",
     "src",
+    "migrations",
     "CHANGELOG.md"
   ],
   "scripts": {
@@ -74,26 +95,28 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "dompurify": "^3.4.16",
+    "dompurify": "^3.4.17",
     "gray-matter": "^4.0.3",
-    "js-yaml": "^5.4.2",
-    "jsdom": "^30.1.1",
+    "js-yaml": "^5.4.3",
+    "jsdom": "^30.1.2",
     "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",
     "@types/jsdom": "^30.0.0",
-    "@typren/contract-tests": "workspace:*",
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "next": "^16.3.8",
+    "@typren/contract-tests": "workspace:*",
+    "jose": "^6.2.12",
+    "next": "^16.4.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^6.0.3"
   },
   "peerDependencies": {
     "@clerk/nextjs": ">=5",
+    "jose": "^6.2.12",
     "next": ">=15",
     "next-auth": ">=5",
     "react": ">=19",
@@ -107,6 +130,9 @@
       "optional": true
     },
     "@clerk/nextjs": {
+      "optional": true
+    },
+    "jose": {
       "optional": true
     },
     "react": {

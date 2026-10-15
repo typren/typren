@@ -26,6 +26,25 @@ describe("buildCatalogs", () => {
     vi.restoreAllMocks();
   });
 
+  it("a custom provider's traversal locale key is refused before it writes outside outDir", async () => {
+    const provider = { type: "custom", loadSource: async () => ({ "../../../escaped": { Greeting: "Hi" } }) };
+    await expect(buildCatalogs(provider, { app: "demo", buildVersion: "v1", outDir })).rejects.toThrow(/outside the output directory/);
+    expect(existsSync(join(outDir, "..", "escaped"))).toBe(false);
+  });
+
+  it("a traversal app name is refused for the manifest and history writes too", async () => {
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Greeting: "Hi" }));
+    await expect(buildCatalogs(sourceDir, { app: "../../escaped", buildVersion: "v1", outDir })).rejects.toThrow(
+      /outside the output directory/,
+    );
+  });
+
+  it.each(["__proto__", "constructor", "prototype"])("refuses the unsafe app name %s before writing anything", async (app) => {
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Greeting: "Hi" }));
+    await expect(buildCatalogs(sourceDir, { app, buildVersion: "v1", outDir })).rejects.toThrow(/unsafe app name/);
+    expect(existsSync(join(outDir, "catalog"))).toBe(false);
+  });
+
   it("writes immutable catalog files + a manifest with matching hashes", async () => {
     const en: Catalog = { Greeting: { Hello: "Hi {name}" } };
     const fr: Catalog = { Greeting: { Hello: "Salut {name}" } };
@@ -104,6 +123,10 @@ describe("buildCatalogs", () => {
       merge({ A: "old" }, diff({ A: "old" }, { A: "new", B: "added" }), { allowRemove: false }),
     );
     expect(written.additiveHash).toBe(expectedAdditive);
+    // The client verifies against the manifest's copy, so it must be published there (and on disk).
+    expect(second.manifest.apps.demo!.en!.deltas).toEqual({ [fromHash]: expectedAdditive });
+    const onDisk = JSON.parse(readFileSync(second.manifestPath, "utf8"));
+    expect(onDisk.apps.demo.en.deltas).toEqual({ [fromHash]: expectedAdditive });
   });
 
   it("fails the publish when a delta'd string changes its {var} placeholder set", async () => {

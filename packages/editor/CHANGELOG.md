@@ -1,5 +1,51 @@
 # @typren/editor
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [e78fa80]
+- Updated dependencies [d8b5925]
+- Updated dependencies [dc12381]
+- Updated dependencies [38ee2d8]
+- Updated dependencies [8db92cc]
+- Updated dependencies [bd91499]
+- Updated dependencies [1d632a0]
+- Updated dependencies [7183ffa]
+  - @typren/core@0.5.1
+
+## 0.5.0
+
+### Patch Changes
+
+- c816b3f: The live-preview iframe is now sandboxed (`allow-scripts allow-forms`, no `allow-same-origin`), so script in
+  draft content runs in an opaque origin and cannot reach the editor's session. The editor accepts bridge messages
+  only from its own preview frame. A preview route whose code reads `localStorage`/`document.cookie` must tolerate
+  those throwing, and fonts served to it need CORS headers.
+- Updated dependencies [b0aa508]
+- Updated dependencies [d2c9f03]
+- Updated dependencies [11b4619]
+- Updated dependencies [3e432fe]
+- Updated dependencies [07a5280]
+- Updated dependencies [52e172a]
+- Updated dependencies [1130d81]
+- Updated dependencies [e20d2b8]
+- Updated dependencies [f5ec0c8]
+- Updated dependencies [f5580aa]
+- Updated dependencies [b95f3cd]
+- Updated dependencies [c6f38fa]
+- Updated dependencies [8be319f]
+- Updated dependencies [87ec75b]
+- Updated dependencies [d054689]
+  - @typren/core@0.5.0
+
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [7e13dc1]
+  - @typren/core@0.4.0
+
 ## 0.3.3
 
 ### Patch Changes

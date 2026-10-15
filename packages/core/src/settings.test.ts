@@ -3,9 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createMarkdownAdapter } from "./markdown-adapter";
-import { createFsSettingsAdapter, createSettingsStore } from "./settings";
+import { createFsSettingsAdapter, createSettingsStore, validateBootstrap } from "./settings";
 import type { CmsConfig } from "./types";
 import type { AuthAdapter, AuthAction } from "./auth-adapter";
+import type { SiteSettingsBootstrap } from "./settings";
 
 let dir: string;
 let contentDir: string;
@@ -63,9 +64,9 @@ describe("createSettingsStore", () => {
     expect(fs.existsSync(path.join(dir, ".typren"))).toBe(false); // not created until first write
   });
 
-  it("get() returns the empty default before any settings doc exists", () => {
+  it("get() returns the empty default before any settings doc exists", async () => {
     const store = createSettingsStore(makeConfig());
-    expect(store.get()).toEqual({ brand: { name: "" }, seo: {} });
+    expect(await store.get()).toEqual({ brand: { name: "" }, seo: {} });
   });
 
   it("saveDraft then publish round-trips runtime settings, never touching the Pages dir", async () => {
@@ -78,18 +79,18 @@ describe("createSettingsStore", () => {
     const published = await store.publish();
     expect(published.ok).toBe(true);
 
-    expect(store.get()).toMatchObject(draft);
+    expect(await store.get()).toMatchObject(draft);
     expect(fs.readdirSync(contentDir)).toEqual([]); // Pages dir untouched
     expect(fs.existsSync(path.join(dir, ".typren", "settings.md"))).toBe(true);
   });
 
   it("reports the draft's version before the first publish, so the next save can conflict-detect", async () => {
     const store = createSettingsStore(makeConfig());
-    expect(store.currentVersion()).toBeNull();
+    expect(await store.currentVersion()).toBeNull();
 
     const saved = await store.saveDraft({ brand: { name: "Acme" }, seo: {} });
     expect(saved.ok).toBe(true);
-    expect(store.currentVersion()).toBe((saved as { version: string }).version);
+    expect(await store.currentVersion()).toBe((saved as { version: string }).version);
   });
 
   it("falls back to the default locale's settings for a locale with no translation", async () => {
@@ -104,8 +105,113 @@ describe("createSettingsStore", () => {
     await store.saveDraft({ brand: { name: "Acme" }, seo: {} });
     await store.publish();
 
-    expect(store.get("fr")).toMatchObject({ brand: { name: "Acme" } });
-    expect(store.get("fr")).not.toEqual({ brand: { name: "" }, seo: {} });
+    expect(await store.get("fr")).toMatchObject({ brand: { name: "Acme" } });
+    expect(await store.get("fr")).not.toEqual({ brand: { name: "" }, seo: {} });
+  });
+
+  it("throws a clear error when the Pages adapter has no root and no settingsContentAdapter is given", () => {
+    const noRootAdapter = { ...createMarkdownAdapter({ contentDir }) };
+    delete (noRootAdapter as { root?: string }).root;
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: noRootAdapter,
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+    };
+    expect(() => createSettingsStore(config)).toThrow(/settingsContentAdapter/);
+  });
+
+  it("uses the explicit settingsContentAdapter when the Pages adapter has no root", async () => {
+    const noRootAdapter = { ...createMarkdownAdapter({ contentDir }) };
+    delete (noRootAdapter as { root?: string }).root;
+    const settingsDir = path.join(dir, "settings-content");
+    fs.mkdirSync(settingsDir, { recursive: true });
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: noRootAdapter,
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+      settingsContentAdapter: createMarkdownAdapter({ contentDir: settingsDir }),
+    };
+    const store = createSettingsStore(config);
+    expect(await store.get()).toEqual({ brand: { name: "" }, seo: {} });
+    const saved = await store.saveDraft({ brand: { name: "Acme" }, seo: {} });
+    expect(saved.ok).toBe(true);
+    expect(fs.existsSync(path.join(settingsDir, ".drafts", "settings.md"))).toBe(true);
+  });
+
+  it("throws when settingsContentAdapter is the SAME instance as config.adapter", () => {
+    const sharedAdapter = createMarkdownAdapter({ contentDir });
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: sharedAdapter,
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+      settingsContentAdapter: sharedAdapter,
+    };
+    expect(() => createSettingsStore(config)).toThrow(/same adapter instance/);
+  });
+
+  it("throws when settingsContentAdapter's root is the same directory as config.adapter's root", () => {
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: createMarkdownAdapter({ contentDir }),
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+      settingsContentAdapter: createMarkdownAdapter({ contentDir }), // a second instance, same dir
+    };
+    expect(() => createSettingsStore(config)).toThrow(/overlap|same as/);
+  });
+
+  it("throws when settingsContentAdapter's root is NESTED inside config.adapter's root", () => {
+    const nestedDir = path.join(contentDir, "settings");
+    fs.mkdirSync(nestedDir, { recursive: true });
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: createMarkdownAdapter({ contentDir }),
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+      settingsContentAdapter: createMarkdownAdapter({ contentDir: nestedDir }),
+    };
+    expect(() => createSettingsStore(config)).toThrow(/overlap|same as/);
+  });
+
+  it("does not throw for a distinct, non-overlapping settingsContentAdapter root", () => {
+    const settingsDir = path.join(dir, "settings-content");
+    fs.mkdirSync(settingsDir, { recursive: true });
+    const config: CmsConfig = {
+      registry: {},
+      defaults: {},
+      adapter: createMarkdownAdapter({ contentDir }),
+      previewPath: "/editor/preview",
+      auth: alwaysAllow,
+      settingsContentAdapter: createMarkdownAdapter({ contentDir: settingsDir }),
+    };
+    expect(() => createSettingsStore(config)).not.toThrow();
+  });
+
+  // Regression: a hosted/multi-tenant config (siteId set) with no explicit
+  // settingsAdapter used to silently fall through to the single-process
+  // default (one typren.config.json at process.cwd()), so every tenant's
+  // bootstrap read/write hit the SAME file -- a structural tenant-isolation
+  // break, not a mere misconfiguration.
+  it("throws when siteId is set but no settingsAdapter is given", () => {
+    const config: CmsConfig = { ...makeConfig(), siteId: "tenant-a" };
+    expect(() => createSettingsStore(config)).toThrow(/settingsAdapter/);
+  });
+
+  it("does not throw when siteId is set AND an explicit settingsAdapter is given", () => {
+    const config: CmsConfig = {
+      ...makeConfig(),
+      siteId: "tenant-a",
+      settingsAdapter: createFsSettingsAdapter({ file: path.join(dir, "tenant-a.json") }),
+    };
+    expect(() => createSettingsStore(config)).not.toThrow();
   });
 
   it("gates writes on the distinct 'admin' auth action, not the content-write action", async () => {
@@ -119,5 +225,43 @@ describe("createSettingsStore", () => {
     const store = createSettingsStore(makeConfig(denyAdmin));
     await expect(store.saveDraft({ brand: { name: "X" }, seo: {} })).rejects.toThrow(/unauthorized/);
     expect(actions).toContain("admin");
+  });
+});
+
+describe("validateBootstrap", () => {
+  const valid: SiteSettingsBootstrap = {
+    adminRoute: "editor",
+    locales: ["en"],
+    defaultLocale: "en",
+    routing: "prefix-except-default",
+    onboarded: false,
+  };
+
+  it("accepts a well-formed bootstrap", () => {
+    expect(validateBootstrap(valid)).toBeNull();
+  });
+
+  it("rejects an unsafe-shaped adminRoute", () => {
+    expect(validateBootstrap({ ...valid, adminRoute: "../etc" })).toMatch(/adminRoute/);
+  });
+
+  it("rejects a reserved adminRoute", () => {
+    expect(validateBootstrap({ ...valid, adminRoute: "api" })).toMatch(/reserved/);
+  });
+
+  it("rejects a non-BCP-47-ish locale", () => {
+    expect(validateBootstrap({ ...valid, locales: ["en", "../x"] })).toMatch(/locales/);
+  });
+
+  it("rejects an empty locales array", () => {
+    expect(validateBootstrap({ ...valid, locales: [] })).toMatch(/locales/);
+  });
+
+  it("rejects an unknown routing mode", () => {
+    expect(validateBootstrap({ ...valid, routing: "bogus" as never })).toMatch(/routing/);
+  });
+
+  it("rejects a defaultLocale not present in locales", () => {
+    expect(validateBootstrap({ ...valid, locales: ["en", "fr"], defaultLocale: "de" })).toMatch(/defaultLocale/);
   });
 });

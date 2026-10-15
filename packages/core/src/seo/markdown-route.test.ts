@@ -36,6 +36,12 @@ describe("createMarkdownRouteHandler", () => {
     const res = await GET(req, { params: Promise.resolve({ slug: "nope" }) });
     expect(res.status).toBe(404);
   });
+
+  it("checks existence without fanning out over listPages", async () => {
+    const req = new NextRequest("https://example.com/md/about");
+    await GET(req, { params: Promise.resolve({ slug: "about" }) });
+    expect(store.listPagesCalls).toBe(0);
+  });
 });
 
 describe("createMarkdownMirrorMiddleware", () => {

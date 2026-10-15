@@ -49,6 +49,30 @@ Credentials never live in config literals: token fields must be `${VAR}`
 environment references, resolved at deliver time (a literal is refused so a
 pasted secret fails fast instead of reaching version control).
 
+HubSpot's `hutk` must come from the `hubspotutk` cookie the browser already
+holds, read server-side when the request arrives — never from a form field.
+A hidden field only carries whatever the client puts there, so an attacker
+can submit any value through it; a server-read cookie is the one HubSpot
+actually issued to that visitor.
+
+## Limits
+
+- **Body size**: the handler reads the request body incrementally and rejects
+  (400) once the actual byte count exceeds `maxBodyBytes` (default 64 KB,
+  configurable), regardless of what `Content-Length` claims — a chunked
+  request carries none.
+- **Field length**: every field without its own `maxLength` is capped at
+  10,000 characters before `pattern` ever runs against it, so an author's
+  regex never sees an attacker-chosen length.
+- **Sink errors are not echoed**: a failed sink's `detail` (vendor response
+  bodies, stack messages) only ever reaches the configured `logger`
+  (`console.error` by default); the JSON response reports `{type, ok}` only.
+- **`webhook` sink**: follows no redirect (`redirect: "manual"`); a 3xx
+  response is treated as a failed delivery rather than resent to wherever it
+  points.
+- **`file` sink**: rejects (does not truncate) a line over 64 KB rather than
+  writing a partial JSON line into the JSONL file.
+
 ## The handler
 
 `createFormHandler(config)` returns one framework-agnostic
@@ -76,3 +100,27 @@ JSON to the handler. No framework wrappers yet.
   `AuthAdapter.authorize()`.
 - **PII**: submission field values are never logged. Log lines carry the form
   id and per-sink outcomes only, by construction of the logger call sites.
+
+## Static-site mode (no server)
+
+A fully static site (`output: "export"`, no server runtime at all) cannot
+mount `createFormHandler` anywhere. For that case `@typren/forms/client`'s
+`submitForm` also accepts `{ sink, schema }` in place of `{ endpoint }`:
+validate → honeypot → deliver, run entirely in the browser against the sink
+directly, no handler in between.
+
+This is **UX and spam hygiene only, not a security boundary** — there is no
+server left to re-validate, and nothing stops a visitor from reading the
+site's own JS and crafting a request by hand. A site that needs
+server-authoritative validation or a credentialed sink still deploys
+`createFormHandler` (Workers, a Lambda function URL, a Next route handler);
+the client's sink mode is for sites that have none of that.
+
+Only sinks with no credential at all are safe to run this way: the `hubspot`
+sink with no `accessToken`, or a `webhook` whose `headers` hold no `${VAR}`
+reference. `assertBrowserSafeSinkConfig` (and `submitForm` itself) enforces
+this in code, not just in docs — it throws for `google-sheets` and `file`
+outright (a bearer token, or node-only filesystem access, neither of which a
+browser can ever satisfy), and for any sink config containing a `"${...}"`
+reference, since a credential baked into a client bundle is as public as text
+on the page.

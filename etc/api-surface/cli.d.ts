@@ -6,6 +6,7 @@ export type ScaffoldResult = {
     baseDir: string;
     created: string[];
     skipped: string[];
+    devScript: DevScriptStatus;
 } | {
     ok: false;
     error: string;
@@ -19,6 +20,10 @@ export type ScaffoldResult = {
 export declare function scaffold(cwd: string, opts?: {
     force?: boolean;
 }): ScaffoldResult;
+/** What `scaffold` did to package.json's `dev` script. "custom" means a
+ *  script it couldn't safely rewrite (not plain `next dev`, or an explicit
+ *  non-loopback `-H`), so the user has to bind it themselves. */
+export type DevScriptStatus = "bound" | "already-bound" | "custom" | "no-package-json";
 /** "created" only when no next.config.* existed yet (nothing to corrupt, so
  *  it's safe to write ours). An existing file is only ever READ. */
 type NextConfigStatus = "created" | "already-wired" | "needs-manual-update";
@@ -172,9 +177,88 @@ export declare function nextSteps(baseDir: string): string;
  *  below) need no change, but takes an explicit array so tests can drive
  *  every dispatch branch without touching the real process.argv or
  *  capturing stdout beyond spying on console.*, matching how `nextSteps()`
- *  was already split out of `printNextSteps()` for the same reason. */
-export declare function main(argv?: string[]): void;
+ *  was already split out of `printNextSteps()` for the same reason.
+ *  Declared `async` only for `migrate`, the one command with real I/O
+ *  (`--remote` fetches); every other branch returns before its first await,
+ *  so it runs fully synchronously the way existing callers expect. */
+export declare function main(argv?: string[]): Promise<void>;
 export {};
+
+// ---- dist/migrate.d.ts ----
+export interface MigrationDetectPattern {
+    pattern: string;
+    glob: string;
+    hint: string;
+}
+export interface MigrationNote {
+    package: string;
+    version: string;
+    title: string;
+    detect: MigrationDetectPattern[];
+    body: string;
+    source: "bundled" | "remote";
+}
+export interface MigrationMatch {
+    file: string;
+    line: number;
+    hint: string;
+}
+export interface MigrationNoteResult {
+    package: string;
+    version: string;
+    title: string;
+    matches: MigrationMatch[];
+    body: string;
+    source: "bundled" | "remote";
+    /** Set when `--remote` returned a note for the same package+version as a
+     *  bundled one and the two bodies disagree: the remote copy is unpinned by
+     *  the lockfile and may not match what's actually installed. */
+    divergesFromBundled?: boolean;
+}
+export interface MigrateResult {
+    from: string;
+    to: string;
+    notes: MigrationNoteResult[];
+    /** Set when the installed @typren/core only packs notes from
+     *  `.min-version` onward (postbuild keeps the newest 5) and `from`
+     *  predates it: some notes this project might have needed were dropped
+     *  from the release, not just "none applied between from and to". */
+    droppedNotesWarning?: string;
+}
+export interface MigrateOptions {
+    cwd?: string;
+    from?: string;
+    to?: string;
+    remote?: boolean;
+    /** Test seam: a stand-in for the global `fetch`. */
+    fetchImpl?: typeof fetch;
+}
+/** process.env minus GIT_* variables. Git exports GIT_DIR and friends to its
+ *  hooks, and an inherited GIT_DIR makes a git child process ignore `cwd` and
+ *  act on the hook's repository instead (a pre-push test run once rewrote the
+ *  real .git/config this way). */
+export declare function envWithoutGit(): NodeJS.ProcessEnv;
+/** Resolves the `@typren/core` range at HEAD, the version the project was
+ *  last committed against, not whatever `node_modules` happens to hold right
+ *  now. Returns null when there's no git history, no package.json there, or
+ *  no `@typren/core` dependency, each a reason to require `--from` instead. */
+export declare function fromVersionFromGit(cwd: string): string | null;
+export declare function migrate(opts?: MigrateOptions): Promise<MigrateResult>;
+/** Same hand-rolled style as the rest of this CLI's argv handling. */
+export declare function parseMigrateArgs(args: string[]): {
+    from: string | undefined;
+    to: string | undefined;
+    cwd: string | undefined;
+    json: boolean;
+    remote: boolean;
+};
+export declare function printMigrateReport(result: MigrateResult, opts?: {
+    json?: boolean;
+}): void;
+
+// ---- dist/safe-matter.d.ts ----
+import matter from "gray-matter";
+export declare const parseMatter: (raw: string) => matter.GrayMatterFile<string>;
 
 // ---- dist/telemetry.d.ts ----
 /** Whether telemetry should fire at all right now, folding in every opt-out source. */

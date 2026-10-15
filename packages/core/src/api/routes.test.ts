@@ -147,6 +147,31 @@ describe("typren HTTP API", () => {
   it("404s media when no adapter is configured", async () => {
     expect((await api.handler(req("GET", "/media"))).status).toBe(500); // listMedia throws: not configured
   });
+
+  // Regression: a 500 used to echo e.message straight into the response body.
+  // An adapter/filesystem error can carry absolute paths, slugs, or other
+  // server internals that a public API response must never leak.
+  it("never echoes the thrown error's message in a 500 response", async () => {
+    const res = await api.handler(req("GET", "/media"));
+    expect(res.status).toBe(500);
+    const payload = await res.json();
+    expect(payload.error).toBe("Internal error");
+    expect(payload.error).not.toMatch(/mediaAdapter|not configured/i);
+  });
+
+  it("marks draft/published page reads private, no-store", async () => {
+    const res = await api.handler(req("GET", "/pages/home"));
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("marks the media listing private, no-store", async () => {
+    const mediaApi = createTyprenApi(
+      { ...makeConfig(), mediaAdapter: createFsMediaAdapter({ dir, publicPath: "/img" }) },
+      { basePath: BASE }
+    );
+    const res = await mediaApi.handler(req("GET", "/media"));
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
 });
 
 // The hosted model needs siteId/accountId on every AuthContext the package
@@ -228,6 +253,11 @@ describe("config factory (per-request resolution)", () => {
         adapter: createMarkdownAdapter({ contentDir: tenant === "a" ? dirA : dirB }),
         previewPath: "/editor/preview",
         siteId: tenant,
+        // Required alongside siteId: the default bootstrap adapter is one
+        // process-wide file, which would collide across tenants.
+        settingsAdapter: createFsSettingsAdapter({
+          file: path.join(tenant === "a" ? dirA : dirB, "typren.config.json"),
+        }),
         auth: openAuth(),
       });
 
@@ -403,6 +433,21 @@ describe("media resource", () => {
     expect(await res.json()).toMatchObject({ error: expect.stringMatching(/no file/i) });
   });
 
+  it("lets an allowedOrigins origin through to the upload's own origin check", async () => {
+    const studioApi = createTyprenApi(
+      { ...makeConfig(), mediaAdapter: createFsMediaAdapter({ dir: mediaDir, publicPath: "/img" }) },
+      { basePath: BASE, allowedOrigins: ["https://studio.test"] }
+    );
+    const post = () =>
+      new Request(`https://example.test${BASE}/media`, {
+        method: "POST",
+        headers: { origin: "https://studio.test", "sec-fetch-site": "cross-site" },
+        body: new FormData(),
+      });
+    expect((await studioApi.handler(post())).status).toBe(400);
+    expect((await mediaApi.handler(post())).status).toBe(403);
+  });
+
   it("lists and deletes a media asset (delete is idempotent)", async () => {
     fs.mkdirSync(mediaDir, { recursive: true });
     fs.writeFileSync(path.join(mediaDir, "photo.webp"), "fake-webp-bytes");
@@ -445,6 +490,11 @@ describe("settings resource", () => {
     expect(await res.json()).toMatchObject({ brand: { name: "" }, bootstrap: { adminRoute: "editor" } });
   });
 
+  it("marks the settings read private, no-store", async () => {
+    const res = await createTyprenApi(settingsConfig(), { basePath: BASE }).handler(req("GET", "/settings"));
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   it("saves a settings draft then publishes it", async () => {
     const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
     const saved = await settingsApi.handler(
@@ -466,6 +516,58 @@ describe("settings resource", () => {
       jsonReq("PUT", "/settings/bootstrap", { patch: { onboarded: true } })
     );
     expect(res.status).toBe(403);
+  });
+
+  it("writes a valid bootstrap patch", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(jsonReq("PUT", "/settings/bootstrap", { patch: { adminRoute: "backoffice" } }));
+    expect(res.status).toBe(200);
+    const after = await (await settingsApi.handler(req("GET", "/settings"))).json();
+    expect(after.bootstrap.adminRoute).toBe("backoffice");
+  });
+
+  // Regression: PUT /settings/bootstrap used to write whatever `patch` carried
+  // straight through to writeBootstrap with no validation, so any writer
+  // (anyone passing the "admin" authorize() check) could install a reserved or
+  // unsafe adminRoute, an inconsistent defaultLocale/locales pair, or an
+  // arbitrary unrecognized key -- all of which currentAdminRoute/resolveI18n
+  // assume are already well-formed by the time they're read back.
+  it("rejects a bootstrap patch with an unknown key", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(jsonReq("PUT", "/settings/bootstrap", { patch: { evil: "x" } }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/unknown bootstrap key/);
+  });
+
+  it("rejects a reserved adminRoute", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(jsonReq("PUT", "/settings/bootstrap", { patch: { adminRoute: "api" } }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/reserved/);
+  });
+
+  it("rejects an unsafe-shaped adminRoute", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(jsonReq("PUT", "/settings/bootstrap", { patch: { adminRoute: "../etc" } }));
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a locales patch that drops the current defaultLocale", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(
+      jsonReq("PUT", "/settings/bootstrap", { patch: { locales: ["fr", "de"] } }) // current defaultLocale is "en"
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/defaultLocale/);
+  });
+
+  it("rejects a non-BCP-47-ish locale", async () => {
+    const settingsApi = createTyprenApi(settingsConfig(), { basePath: BASE });
+    const res = await settingsApi.handler(
+      jsonReq("PUT", "/settings/bootstrap", { patch: { locales: ["en", "../x"] } })
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/locales/);
   });
 
   it("404s an unmatched settings sub-route", async () => {

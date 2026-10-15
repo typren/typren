@@ -1,4 +1,6 @@
-# One of only two GitHub workflows in this repo. The other is cla.yml.
+# This repo's publish workflow, alongside ci.yml (PR gate) and cla.yml
+# (contributor agreement); labeler.yml and version-pr.yml handle lighter
+# automation. See each file's own header for why it exists.
 #
 # Tests, lint, typecheck, coverage and secret scanning all run locally in the
 # pre-push hook, see CONTRIBUTING.md. This one exists because npm provenance
@@ -15,24 +17,96 @@ name: Release
 
 # Fires on every push to main, which under this repo's flow means a promotion
 # merge from develop. That is safe without any extra guard because
-# `changeset publish` is idempotent: it compares each package's version against
-# the registry and skips anything already there. A merge that carries no
-# version bump therefore publishes nothing and exits clean.
+# scripts/publish-unpublished.mjs is idempotent: it compares each package's
+# version against the registry and skips anything already there. A merge that
+# carries no version bump therefore publishes nothing and exits clean.
 #
-# There is no manual tag step. `changeset publish` creates per-package tags
-# itself (@typren/core@0.1.2 and so on), which is the accurate shape for a
-# monorepo where the two packages could drift; this workflow pushes those
-# rather than a hand-rolled repo-wide v* tag.
+# Tagging is a separate step (scripts/tag-published.mjs) run from npm truth
+# rather than `changeset tag`: see that step's own comment for why. Tags are
+# still per-package (@typren/core@0.1.2 and so on), the accurate shape for a
+# monorepo where the two packages could drift, not a hand-rolled repo-wide
+# v* tag.
 on:
   push:
     branches: [main]
 
+# Least-privilege baseline; the `release` job below is the only one that
+# needs more, and declares it there.
 permissions:
-  contents: write # create the GitHub Release
-  id-token: write # OIDC, required for npm provenance
+  contents: read
 
 jobs:
+  # No `id-token` here, on purpose: this job runs `bun install` against
+  # whatever the lockfile resolves, then builds/lints/tests it, which is
+  # exactly the code a malicious dependency would want to run. With
+  # `id-token: write` scoped to a job, GitHub exposes
+  # ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN to every step in that job, not just the
+  # one that happens to call it -- so a job that both installs untrusted code
+  # AND holds that permission lets any of that code mint an OIDC token and
+  # trusted-publish on its own. Keeping that permission out of this job
+  # entirely, rather than just not-calling-it, is the actual control.
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - run: bun install --frozen-lockfile
+
+      # Re-run the gate on a clean checkout. The local hook already ran it, but
+      # that was against a working tree, and this proves main builds green from
+      # nothing, which is the artifact people actually install. typecheck needs
+      # @typren/core's dist (see .husky/pre-push), so build once for it, then
+      # wipe every dist and build again as the LAST step before staging: lint
+      # and test run a much larger dependency tree than tsc and postbuild, and
+      # none of it may get the chance to rewrite what ships.
+      - run: bun run build
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run test
+      - run: rm -rf packages/*/dist packages/core/migrations && bun run build
+
+      # Everything else `npm publish` packs (each package's package.json, src,
+      # README, LICENSE, CHANGELOG.md) is already committed to main by the
+      # Version Packages PR that preceded this push, so the `release` job's
+      # own checkout already has it. `dist/` and core's `migrations/` are the
+      # only build outputs .gitignore keeps out of that checkout, so they're
+      # the only things that need to cross the job boundary. Staged into one
+      # directory first (rather than uploading `packages/*/dist` and
+      # `packages/core/migrations` as separate glob patterns) so the artifact's
+      # internal paths are unambiguous: upload-artifact computes a shared root
+      # across multiple patterns, and this skips having to reason about what
+      # that root ends up being.
+      # rm first: everything above ran repo and dependency code, which could
+      # have pre-seeded .release-artifact/ with files (scripts/, manifests)
+      # meant to land in the publish job. The publish job filters again on
+      # its side; this just keeps the artifact honest.
+      - name: Stage dist/ and core's migrations/ for the release job
+        run: |
+          set -eu
+          shopt -s nullglob
+          rm -rf .release-artifact
+          for dir in packages/*/dist; do
+            pkg=$(basename "$(dirname "$dir")")
+            mkdir -p ".release-artifact/packages/$pkg"
+            cp -r "$dir" ".release-artifact/packages/$pkg/dist"
+          done
+          mkdir -p .release-artifact/packages/core
+          cp -r packages/core/migrations .release-artifact/packages/core/migrations
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-dist
+          path: .release-artifact
+          retention-days: 1
+
   publish:
+    needs: build
     runs-on: ubuntu-latest
     # Required reviewer on this environment (repo Settings -> Environments):
     # a tag push queues the run, but the job itself waits for a manual
@@ -40,70 +114,134 @@ jobs:
     # tag push alone can't publish; a human still has to click approve. This
     # is also the environment name to enter on npm's Trusted Publisher form.
     environment: release
+    permissions:
+      contents: write # create the GitHub Release, push tags
+      id-token: write # OIDC, required for npm provenance
+    # No `bun install`, no `bun run build`, no dependency resolution of any
+    # kind (the one install is npm itself, pinned to an exact version, which
+    # ships its own dependencies bundled), anywhere in this job: it holds
+    # `id-token: write` for its whole
+    # duration (a job-scoped permission, not a per-step one), so any install
+    # or build step here could mint and exfiltrate the OIDC token itself,
+    # whether or not a trusted publish is ever requested. `dist/` comes from the `build`
+    # job's artifact as-is; `NPM_CONFIG_IGNORE_SCRIPTS` below stops
+    # `npm publish`'s own `prepublishOnly` hook from re-running `npm run
+    # build` here (confirmed empirically: a prepublishOnly script does not
+    # fire under this env var). That hook exists to guard against a stale
+    # local dist/ reaching `npm publish`; it's redundant here specifically,
+    # because the `build` job above produced this dist/ from a clean
+    # checkout moments ago, which is the guard's whole job.
+    env:
+      NPM_CONFIG_IGNORE_SCRIPTS: "true"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0 # changesets needs history
+          fetch-depth: 0 # tag-published.mjs checks existing tags
 
-      - uses: oven-sh/setup-bun@v2
+      # Into a temp dir, never onto the checkout: the artifact was written by
+      # a job that ran untrusted code, and extracting it over the repo would
+      # let it replace scripts/*.mjs that this job then runs with id-token
+      # and contents: write. Only packages/<pkg>/dist for packages the
+      # checkout already has, plus core's migrations/, are copied across;
+      # anything else in the artifact is ignored, and a symlink in either
+      # place is refused rather than followed.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          bun-version: latest
+          name: release-dist
+          path: ${{ runner.temp }}/release-dist
 
-      # npm (not bun) does the publishing: provenance attestation is an npm
-      # feature and needs a recent npm on a Node runtime.
-      - uses: actions/setup-node@v7
+      - name: Copy dist/ and core's migrations/ into the checkout
+        run: |
+          set -eu
+          src="$RUNNER_TEMP/release-dist/packages"
+          place() {
+            [ -e "$src/$1" ] || return 0
+            if [ -L "$src/$1" ] || [ ! -d "$src/$1" ] || [ -n "$(find "$src/$1" -type l)" ]; then
+              echo "::error::release artifact: $1 is not a plain directory" >&2
+              exit 1
+            fi
+            rm -rf "packages/$1"
+            cp -R "$src/$1" "packages/$1"
+          }
+          for manifest in packages/*/package.json; do
+            place "$(basename "$(dirname "$manifest")")/dist"
+          done
+          place core/migrations
+
+      # npm (not bun -- this job never installs bun) does the publishing:
+      # provenance attestation is an npm feature and needs a recent npm on a
+      # Node runtime.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-
-      - run: bun install --frozen-lockfile
+          # Never restore a cache into the OIDC job; setup-node turns caching on
+          # by itself as soon as package.json declares an npm packageManager.
+          package-manager-cache: false
 
       # Trusted publishing (OIDC) needs npm >= 11.5.1; the version bundled with
       # actions/setup-node's Node 22 isn't guaranteed to clear that, so pin it
-      # explicitly rather than finding out at publish time.
-      - run: npm install -g npm@latest
-
-      # Re-run the gate on a clean checkout. The local hook already ran it, but
-      # that was against a working tree, and this proves main builds green from
-      # nothing, which is the artifact people actually install. build runs first:
-      # @typren/core's exports point at dist, so a fresh checkout has no dist
-      # for sibling packages to resolve @typren/core against until it's built.
-      - run: bun run build
-      - run: bun run typecheck
-      - run: bun run lint
-      - run: bun run test
+      # explicitly (rather than floating on `latest`, which would otherwise
+      # let a fresh npm release land in this job unreviewed) instead of
+      # finding out at publish time.
+      - run: npm install -g npm@11.19.1
 
       # No NODE_AUTH_TOKEN: this repo is configured as a Trusted Publisher on
       # npm (github.com/typren/typren, this workflow file, the "release"
       # environment), so npm exchanges the id-token above for a short-lived
       # publish credential itself. Provenance attestation is automatic under
       # trusted publishing, no --provenance flag needed.
-      # `changeset publish` runs `npm publish` from each package dir, which
-      # fires the packages' prepublishOnly build guards. If this ever moves to
-      # tarball publishing (`changeset pack` + `npm publish <tarball>`), npm
-      # skips lifecycle scripts and those guards go silently inert in CI.
+      # Not `changeset publish`: @changesets/cli would have to be installed
+      # here, and `npm install -g` has no lockfile, so a fresh release of any
+      # of its ~20 transitive dependencies would run in this job with the OIDC
+      # token in reach (an install-time `--ignore-scripts` does nothing about
+      # a payload in a module body). publish-unpublished.mjs is Node stdlib
+      # only: it runs `npm publish` in each non-private package dir whose
+      # version npm doesn't have yet, attempts every one even after a failure,
+      # and exits non-zero if any failed. With NPM_CONFIG_IGNORE_SCRIPTS set
+      # job-wide, that publishes the dist/ the `build` job already produced
+      # and uploaded, rather than rebuilding here.
       - name: Publish to npm
-        run: bunx changeset publish
+        run: node scripts/publish-unpublished.mjs
 
-      # `changeset publish` does NOT create git tags under @changesets/cli v3 —
-      # every release through 0.2.1 shipped tagless and had to be hand-tagged
-      # after the fact (earlier runs' "partial failure loses tags" theory was
-      # masking this). `changeset tag` creates the per-package tags for the
-      # versions currently in the tree; privatePackages.tag=false in
-      # .changeset/config.json keeps unpublished packages (the editor) out.
+      # `changeset tag`, used here before, only tagged versions created by
+      # that run's `changeset publish`, and (separately) needed a committer
+      # identity the runner doesn't have -- @changesets/git returns false on
+      # that failure and the CLI ignores the result, so it still printed
+      # "Created git tags" while creating none. That is why every release
+      # through 0.3.3 shipped tagless with a green run.
+      # scripts/tag-published.mjs replaces it: it tags from npm truth (is this
+      # name@version actually published?) rather than from what this run's
+      # publish step did, so a retry after a partial publish failure still
+      # tags whatever an earlier attempt already got onto npm.
+      # `if: !cancelled()` runs this (and the two steps after it) even when
+      # the publish step above failed partway through -- some packages may
+      # still have reached npm before the failure, and those still need their
+      # tag. The job's overall conclusion stays "failure" from the publish
+      # step regardless; this doesn't paper over that.
       - name: Tag the published versions
-        run: bunx changeset tag
+        if: ${{ !cancelled() }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node scripts/tag-published.mjs
+          git tag --points-at HEAD
 
       # The tags above exist only on the runner; without this they die with it.
-      # Pushing them is what makes a published version findable in git.
+      # HUSKY=0 skips the pre-push hook: it reruns the full local gate (and
+      # needs bun, which this job never installs).
       - name: Push the release tags
+        if: ${{ !cancelled() }}
         run: git push origin --tags
+        env:
+          HUSKY: "0"
 
       # Best effort, and deliberately not gated on: the CHANGELOG.md files in
       # each package are the authoritative record. A missing GitHub Release is
       # cosmetic and must not fail a run whose packages are already public,
       # since npm publishes cannot be undone.
       - name: GitHub Releases
+        if: ${{ !cancelled() }}
         continue-on-error: true
         run: |
           for tag in $(git tag --points-at HEAD); do

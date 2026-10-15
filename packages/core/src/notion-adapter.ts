@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import type { ContentAdapter, PageContent, Slice } from "./types";
 import { blocksToMarkdown, blocksToSegments, pageRecordFrom, type NotionBlock } from "./notion-blocks";
 export type { NotionBlock } from "./notion-blocks";
@@ -36,32 +35,41 @@ export type NotionRawProperty = Record<string, unknown>;
 
 /** One Notion database row, trimmed to what this adapter needs. `properties`
  *  is keyed by Notion property name. */
-export type NotionPage = { id: string; archived: boolean; properties: Record<string, NotionRawProperty> };
+export type NotionPage = {
+  id: string;
+  archived: boolean;
+  properties: Record<string, NotionRawProperty>;
+  /** The database this row actually belongs to (Notion's `parent` field,
+   *  present on any page that is a database row). Checked against the
+   *  configured `databaseId` when a slug resolves straight to a page id (no
+   *  `slugProperty`): a page id is a bare opaque string a caller controls, so
+   *  nothing else stops it from naming a row in a DIFFERENT database this
+   *  adapter instance was never configured for. */
+  parent?: { database_id?: string };
+};
 
 /**
  * The seam between the adapter and Notion's HTTP API, mocked directly in
  * tests (see notion-adapter.test.ts), so no network/HTTP-mocking library is
  * needed to unit-test the adapter's read/write/mapping logic. Every method is
- * SYNCHRONOUS to satisfy `ContentAdapter` (see `createFetchNotionClient`'s
- * doc comment for how the real implementation bridges Notion's async HTTP
- * to that).
+ * async, matching `ContentAdapter` (issue #29) and Notion's own HTTP API.
  */
 export interface NotionClient {
   /** Every non-archived row in the database (pagination is the client's problem). */
-  queryDatabase(databaseId: string): NotionPage[];
+  queryDatabase(databaseId: string): Promise<NotionPage[]>;
   /** `null` when the page id doesn't exist OR is archived (this adapter
    *  treats "archived" as "deleted", see `deletePublished`). */
-  retrievePage(pageId: string): NotionPage | null;
-  createPage(databaseId: string, properties: Record<string, NotionRawProperty>): NotionPage;
-  updatePage(pageId: string, properties: Record<string, NotionRawProperty>): NotionPage;
+  retrievePage(pageId: string): Promise<NotionPage | null>;
+  createPage(databaseId: string, properties: Record<string, NotionRawProperty>): Promise<NotionPage>;
+  updatePage(pageId: string, properties: Record<string, NotionRawProperty>): Promise<NotionPage>;
   /** Notion has no hard delete via the API, only archive (= its trash). */
-  archivePage(pageId: string): void;
+  archivePage(pageId: string): Promise<void>;
   /** A page's block children, recursively resolved (each returned block's own
    *  `children` is already populated when `has_children` is true), see
    *  notion-blocks.ts for what they turn into. Only called when a
    *  `NotionAdapterOptions.content` of `"blocks"` is configured; omit it on a
    *  client that never backs such a collection. */
-  listBlockChildren?(pageId: string): NotionBlock[];
+  listBlockChildren?(pageId: string): Promise<NotionBlock[]>;
 }
 
 /** Narrow an unknown JSON value to a plain object, or `{}` when it isn't one
@@ -244,17 +252,35 @@ export function createNotionAdapter({
   const slugOf = (page: NotionPage): string =>
     slugDef ? String(readProp(page.properties[slugDef.name], slugDef.name, slugDef.type) ?? "") : page.id;
 
-  const findBySlug = (slug: string): NotionPage | null => {
+  // A UUID with or without dashes: Notion page ids are always one of these
+  // two forms. Without a slugProperty the slug IS the page id passed straight
+  // to the client, so this is the only thing standing between a caller and
+  // an arbitrary string reaching the Notion API as a page id.
+  const PAGE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^[0-9a-f]{32}$/i;
+  const normalizeId = (id: string | undefined): string => (id ?? "").replace(/-/g, "").toLowerCase();
+
+  const findBySlug = async (slug: string): Promise<NotionPage | null> => {
     if (!slugDef) {
-      const page = client.retrievePage(slug);
-      return page && !page.archived ? page : null;
+      if (!PAGE_ID_RE.test(slug)) return Promise.reject(new Error(`typren: "${slug}" is not a valid Notion page id`));
+      const page = await client.retrievePage(slug);
+      if (!page || page.archived) return null;
+      // A page id resolves to a row in SOME database, but not necessarily
+      // THIS adapter's -- treat a row from another database as not found
+      // rather than serving (or letting a write touch) a page this instance
+      // was never configured for.
+      if (normalizeId(page.parent?.database_id) !== normalizeId(databaseId)) return null;
+      return page;
     }
     // ponytail: no server-side filter (Notion's filter JSON shape is
     // property-type-specific, a lot of code for what's an internal lookup);
     // scan the full listing client-side instead. Fine for admin-table-sized
-    // databases; swap in a filtered query if a collection grows into the
-    // thousands of rows.
-    return client.queryDatabase(databaseId).find((p) => !p.archived && slugOf(p) === slug) ?? null;
+    // databases; Notion's API is rate-limited to ~3 requests/second, so a
+    // caller hammering this (e.g. one lookup per slug in a loop) will start
+    // throttling well before the O(n) scan itself is the bottleneck. Swap in
+    // a filtered query, or memoize queryDatabase within one store operation,
+    // if a collection grows into the thousands of rows.
+    const pages = await client.queryDatabase(databaseId);
+    return pages.find((p) => !p.archived && slugOf(p) === slug) ?? null;
   };
 
   const metaFromPage = (page: NotionPage): Record<string, unknown> => {
@@ -263,9 +289,9 @@ export function createNotionAdapter({
     return meta;
   };
 
-  const bodyFromPage = (page: NotionPage): string => {
+  const bodyFromPage = async (page: NotionPage): Promise<string> => {
     if (content === "slices") return "";
-    if (content === "blocks") return blocksToMarkdown(client.listBlockChildren!(page.id));
+    if (content === "blocks") return blocksToMarkdown(await client.listBlockChildren!(page.id));
     if (!bodyProperty) return "";
     const def = properties[bodyProperty] ?? { name: bodyProperty, type: "rich_text" as const };
     return String(readProp(page.properties[def.name], def.name, def.type) ?? "");
@@ -275,14 +301,14 @@ export function createNotionAdapter({
    *  typren slices (see the `content` doc on `NotionAdapterOptions`). Reuses
    *  the same generic segment mapping `content: "blocks"` uses for markdown,
    *  just keeping the component segments instead of flattening them away. */
-  const slicesFromPage = (page: NotionPage): Slice[] =>
-    pageRecordFrom(blocksToSegments(client.listBlockChildren!(page.id))).slices;
+  const slicesFromPage = async (page: NotionPage): Promise<Slice[]> =>
+    pageRecordFrom(blocksToSegments(await client.listBlockChildren!(page.id))).slices;
 
-  const toRaw = (page: NotionPage): string =>
+  const toRaw = async (page: NotionPage): Promise<string> =>
     JSON.stringify({
       meta: metaFromPage(page),
-      body: bodyFromPage(page),
-      ...(content === "slices" ? { slices: slicesFromPage(page) } : {}),
+      body: await bodyFromPage(page),
+      ...(content === "slices" ? { slices: await slicesFromPage(page) } : {}),
     });
 
   const propsFromMeta = (meta: Record<string, unknown>, body: string, slices: Slice[]): Record<string, NotionRawProperty> => {
@@ -315,13 +341,13 @@ export function createNotionAdapter({
     return out;
   };
 
-  const doWriteRaw = (slug: string, raw: string, locale?: string): void => {
+  const doWriteRaw = async (slug: string, raw: string, locale?: string): Promise<void> => {
     safeLocale(locale);
     const { meta, body, slices } = JSON.parse(raw) as { meta: Record<string, unknown>; body: string; slices?: Slice[] };
     const props = propsFromMeta(meta, body, slices ?? []);
-    const existing = findBySlug(slug);
+    const existing = await findBySlug(slug);
     if (existing) {
-      client.updatePage(existing.id, props);
+      await client.updatePage(existing.id, props);
       return;
     }
     if (!slugDef)
@@ -329,56 +355,55 @@ export function createNotionAdapter({
         `typren: cannot create notion record "${slug}" without a slugProperty configured (a page id can't be chosen ahead of creation)`
       );
     props[slugDef.name] = writeProp(slug, slugDef.type);
-    client.createPage(databaseId, props);
+    await client.createPage(databaseId, props);
   };
 
   return {
     locales,
     defaultLocale,
-    root: `notion:${databaseId}`,
 
-    listSlugs(locale) {
+    async listSlugs(locale) {
       safeLocale(locale);
-      return client
-        .queryDatabase(databaseId)
+      const pages = await client.queryDatabase(databaseId);
+      return pages
         .filter((p) => !p.archived)
         .map(slugOf)
         .sort((a, b) => a.localeCompare(b));
     },
 
-    listLocales(slug) {
-      return findBySlug(slug) ? locales : [];
+    async listLocales(slug) {
+      return (await findBySlug(slug)) ? locales : [];
     },
 
-    exists(slug, locale) {
+    async exists(slug, locale) {
       safeLocale(locale);
-      return findBySlug(slug) !== null;
+      return (await findBySlug(slug)) !== null;
     },
 
-    readRaw(slug, locale) {
+    async readRaw(slug, locale) {
       safeLocale(locale);
-      const page = findBySlug(slug);
+      const page = await findBySlug(slug);
       if (!page) throw new Error(`typren: notion record "${slug}" not found`);
       return toRaw(page);
     },
 
     writeRaw: doWriteRaw,
 
-    deletePublished(slug, locale) {
+    async deletePublished(slug, locale) {
       safeLocale(locale);
-      const page = findBySlug(slug);
-      if (page) client.archivePage(page.id);
+      const page = await findBySlug(slug);
+      if (page) await client.archivePage(page.id);
     },
 
     // See the write-through note in this function's doc comment above.
-    readDraftRaw() {
+    async readDraftRaw() {
       return null;
     },
     writeDraftRaw: doWriteRaw,
-    deleteDraft() {
+    async deleteDraft() {
       // no-op: there is no separate draft row to remove
     },
-    hasDraft() {
+    async hasDraft() {
       return false;
     },
 
@@ -395,28 +420,18 @@ export function createNotionAdapter({
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
-// ponytail: `ContentAdapter` (./types.ts) is sync-only, typren issue #29
-// tracks an async-ContentAdapter follow-up that hasn't landed. Notion is
-// HTTP-only (inherently async), so *something* has to bridge the two.
-// This shells a one-shot child Node process per call that does the real
-// fetch and prints the JSON result on stdout; `spawnSync` blocks this thread
-// until it exits, giving a genuinely synchronous call, not a stale cache,
-// not a silently fire-and-forget write, an actual round trip. Ceiling: one
-// process spawn per Notion call (spawn overhead on top of network latency).
-// Fine for a local, never-deployed admin tool at admin-table row counts; not
-// for a high-QPS server. Upgrade: delete this function and call `fetch`
-// directly the day `ContentAdapter`'s methods return promises.
-function notionRequestSync(token: string, method: string, path: string, body?: unknown): Record<string, unknown> {
-  // The fetch init (with the Authorization header) travels on stdin, never on
-  // argv: a process's argv is readable by every other local user via the
-  // process table, so a secret must not appear there.
-  const script =
-    "const url = process.argv[1];" +
-    "const init = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));" +
-    "fetch(url, init).then(async (r) => { const text = await r.text();" +
-    "process.stdout.write(JSON.stringify({ status: r.status, text })); })" +
-    ".catch((e) => { process.stdout.write(JSON.stringify({ status: 0, text: String(e && e.message || e) })); });";
-  const init = {
+/** Plain `fetch` against Notion's HTTP API. Issue #29 removed the need for
+ *  the previous spawnSync-child-process bridge this function replaces (see
+ *  git history): `ContentAdapter` (and so `NotionClient`) is genuinely async
+ *  now, so there is no sync contract left to bridge to. */
+async function notionRequest(
+  fetchImpl: typeof fetch,
+  token: string,
+  method: string,
+  path: string,
+  body?: unknown
+): Promise<Record<string, unknown>> {
+  const res = await fetchImpl(`${NOTION_API}${path}`, {
     method,
     headers: {
       authorization: `Bearer ${token}`,
@@ -424,18 +439,10 @@ function notionRequestSync(token: string, method: string, path: string, body?: u
       "content-type": "application/json",
     },
     body: body === undefined ? undefined : JSON.stringify(body),
-  };
-  const result = spawnSync(process.execPath, ["-e", script, `${NOTION_API}${path}`], {
-    input: JSON.stringify(init),
-    encoding: "utf8",
-    maxBuffer: 10 * 1024 * 1024,
   });
-  if (result.error) throw new Error(`typren: notion request failed: ${result.error.message}`);
-  if (!result.stdout) throw new Error(`typren: notion request produced no output: ${result.stderr}`);
-  const { status, text } = JSON.parse(result.stdout) as { status: number; text: string };
-  if (status === 0) throw new Error(`typren: notion request errored: ${text}`);
+  const text = await res.text();
   const json = text ? (JSON.parse(text) as Record<string, unknown>) : {};
-  if (status >= 400) throw new Error(`typren: notion API ${method} ${path} -> ${status} ${JSON.stringify(json)}`);
+  if (!res.ok) throw new Error(`typren: notion API ${method} ${path} -> ${res.status} ${JSON.stringify(json)}`);
   return json;
 }
 
@@ -444,6 +451,7 @@ function toNotionPage(json: Record<string, unknown>): NotionPage {
     id: json.id as string,
     archived: !!json.archived,
     properties: (json.properties as Record<string, NotionRawProperty>) ?? {},
+    parent: json.parent as { database_id?: string } | undefined,
   };
 }
 
@@ -451,11 +459,12 @@ function toNotionPage(json: Record<string, unknown>): NotionPage {
 // Fine for the paragraph/list/toggle nesting a real page actually has; a
 // pathological wall of nested toggles would be slow, not wrong. Add a depth
 // limit if that ever shows up in practice.
-function fetchBlockChildren(token: string, blockId: string): NotionBlock[] {
+async function fetchBlockChildren(fetchImpl: typeof fetch, token: string, blockId: string): Promise<NotionBlock[]> {
   const raw: Record<string, unknown>[] = [];
   let cursor: string | undefined;
   do {
-    const json = notionRequestSync(
+    const json = await notionRequest(
+      fetchImpl,
       token,
       "GET",
       `/blocks/${blockId}/children${cursor ? `?start_cursor=${encodeURIComponent(cursor)}` : ""}`
@@ -463,23 +472,28 @@ function fetchBlockChildren(token: string, blockId: string): NotionBlock[] {
     raw.push(...((json.results as Record<string, unknown>[] | undefined) ?? []));
     cursor = json.has_more ? (json.next_cursor as string) : undefined;
   } while (cursor);
-  return raw.map((r) => {
-    const block = r as unknown as NotionBlock;
-    if (block.has_children) block.children = fetchBlockChildren(token, block.id);
-    return block;
-  });
+  return Promise.all(
+    raw.map(async (r) => {
+      const block = r as unknown as NotionBlock;
+      if (block.has_children) block.children = await fetchBlockChildren(fetchImpl, token, block.id);
+      return block;
+    })
+  );
 }
 
 /** Real `NotionClient` against `https://api.notion.com`. `token` is an
  *  internal-integration secret, pass it from `process.env` only (never
- *  commit one); the caller owns getting it there. */
-export function createFetchNotionClient(token: string): NotionClient {
+ *  commit one); the caller owns getting it there. `fetchImpl` is injectable
+ *  for tests, same convention as github-adapter.ts, defaults to the global
+ *  `fetch`. */
+export function createFetchNotionClient(token: string, fetchImpl: typeof fetch = fetch): NotionClient {
   return {
-    queryDatabase(databaseId) {
+    async queryDatabase(databaseId) {
       const pages: NotionPage[] = [];
       let cursor: string | undefined;
       do {
-        const json = notionRequestSync(
+        const json = await notionRequest(
+          fetchImpl,
           token,
           "POST",
           `/databases/${databaseId}/query`,
@@ -491,27 +505,29 @@ export function createFetchNotionClient(token: string): NotionClient {
       } while (cursor);
       return pages;
     },
-    retrievePage(pageId) {
-      try {
-        return toNotionPage(notionRequestSync(token, "GET", `/pages/${pageId}`));
-      } catch (e) {
-        if (e instanceof Error && /-> 404\b/.test(e.message)) return null;
-        throw e;
-      }
+    async retrievePage(pageId) {
+      const res = await fetchImpl(`${NOTION_API}/pages/${encodeURIComponent(pageId)}`, {
+        headers: { authorization: `Bearer ${token}`, "notion-version": NOTION_VERSION },
+      });
+      if (res.status === 404) return null;
+      const text = await res.text();
+      const json = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+      if (!res.ok) throw new Error(`typren: notion API GET /pages/${pageId} -> ${res.status} ${JSON.stringify(json)}`);
+      return toNotionPage(json);
     },
-    createPage(databaseId, properties) {
+    async createPage(databaseId, properties) {
       return toNotionPage(
-        notionRequestSync(token, "POST", "/pages", { parent: { database_id: databaseId }, properties })
+        await notionRequest(fetchImpl, token, "POST", "/pages", { parent: { database_id: databaseId }, properties })
       );
     },
-    updatePage(pageId, properties) {
-      return toNotionPage(notionRequestSync(token, "PATCH", `/pages/${pageId}`, { properties }));
+    async updatePage(pageId, properties) {
+      return toNotionPage(await notionRequest(fetchImpl, token, "PATCH", `/pages/${pageId}`, { properties }));
     },
-    archivePage(pageId) {
-      notionRequestSync(token, "PATCH", `/pages/${pageId}`, { archived: true });
+    async archivePage(pageId) {
+      await notionRequest(fetchImpl, token, "PATCH", `/pages/${pageId}`, { archived: true });
     },
     listBlockChildren(pageId) {
-      return fetchBlockChildren(token, pageId);
+      return fetchBlockChildren(fetchImpl, token, pageId);
     },
   };
 }

@@ -16,6 +16,7 @@ export type {
 } from "./types";
 export type { EnvRecord } from "./env";
 export { resolveEnvRef, requireEnvRef } from "./env";
+export { assertBrowserSafeSinkConfig } from "./browser-safety";
 export { createWebhookSink } from "./webhook";
 export { createHubspotSink } from "./hubspot";
 export { createGoogleSheetsSink } from "./google-sheets";

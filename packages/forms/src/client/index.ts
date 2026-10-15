@@ -1,5 +1,7 @@
 import type { FormResponseBody, SinkOutcome } from "../server/index";
-import { META_LOCALE_KEY, META_PAGE_KEY, readFields } from "../submission";
+import { assertBrowserSafeSinkConfig, resolveSink } from "../sinks/index";
+import type { SinkConfig } from "../sinks/types";
+import { buildSubmission, honeypotTripped, META_LOCALE_KEY, META_PAGE_KEY, readFields } from "../submission";
 import type { FormSchema, ValidationError } from "../types";
 import { validate } from "../validate";
 
@@ -7,6 +9,20 @@ export interface SubmitOptions {
   endpoint: string;
   /** When given, the submission is validated locally first, purely for UX; the server re-validates regardless. */
   schema?: FormSchema;
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Delivers straight from the browser to a vendor, with no handler in
+ * between: validate -> honeypot -> deliver, the same semantics as the server
+ * handler minus the trust boundary (there is no server left to re-validate).
+ * Only sinks `assertBrowserSafeSinkConfig` accepts may be used this way; a
+ * server-only sink (a "${VAR}" credential, `google-sheets`, `file`) throws
+ * rather than silently bundling a secret into client code.
+ */
+export interface SinkSubmitOptions {
+  sink: SinkConfig;
+  schema: FormSchema;
   fetchImpl?: typeof fetch;
 }
 
@@ -28,15 +44,40 @@ function serializeForm(form: HTMLFormElement): Record<string, unknown> {
   return body;
 }
 
+async function deliverToSink(
+  body: Record<string, unknown>,
+  options: SinkSubmitOptions,
+): Promise<SubmitResult> {
+  // Fail closed and loud: a server-only sink slipped into static-site config
+  // must break the build/page immediately, not silently ship a secret.
+  assertBrowserSafeSinkConfig(options.sink);
+
+  const validation = validate(options.schema, readFields(options.schema, body));
+  if (!validation.ok) return { ok: false, status: 0, errors: validation.errors };
+
+  // Mirrors the handler: a tripped honeypot is accepted silently (no
+  // delivery, no error), so a bot gets no signal it was detected.
+  if (honeypotTripped(options.schema, body)) return { ok: true, status: 204 };
+
+  const sink = resolveSink(options.sink, { fetchImpl: options.fetchImpl });
+  const submission = buildSubmission(options.schema, body);
+  const result = await sink.deliver(submission, options.schema);
+  return { ok: result.ok, status: result.ok ? 200 : 502, sinks: [{ type: sink.type, ok: result.ok, detail: result.detail }] };
+}
+
 /**
  * Progressive-enhancement submit: serializes a form element (or a plain data
  * record), fills the reserved _page/_locale meta keys from the document when
- * available, and POSTs JSON to the handler. Local validation with a schema is
- * a convenience for inline error UX only; the server never trusts it ran.
+ * available, then either POSTs JSON to a server handler (`endpoint`) or
+ * delivers directly to one browser-safe sink (`sink`) for a fully static
+ * site with no server runtime. Local validation with a schema is a
+ * convenience for inline error UX only; a server handler never trusts it ran
+ * (sink mode has no server left to re-validate, so the local run is
+ * authoritative there by necessity, not by trust).
  */
 export async function submitForm(
   source: HTMLFormElement | Record<string, unknown>,
-  options: SubmitOptions,
+  options: SubmitOptions | SinkSubmitOptions,
 ): Promise<SubmitResult> {
   const isFormElement = typeof HTMLFormElement !== "undefined" && source instanceof HTMLFormElement;
   const body = isFormElement
@@ -49,6 +90,8 @@ export async function submitForm(
   if (typeof document !== "undefined" && body[META_LOCALE_KEY] === undefined && document.documentElement.lang) {
     body[META_LOCALE_KEY] = document.documentElement.lang;
   }
+
+  if ("sink" in options) return deliverToSink(body, options);
 
   if (options.schema) {
     const local = validate(options.schema, readFields(options.schema, body));

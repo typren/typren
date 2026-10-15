@@ -3,50 +3,50 @@ import { buildRedirects } from "./redirects";
 import { fakeStore } from "./seo/test-fixtures";
 
 describe("buildRedirects", () => {
-  it("returns no entries for pages with no aliases", () => {
+  it("returns no entries for pages with no aliases", async () => {
     const store = fakeStore([{ slug: "about" }]);
-    expect(buildRedirects(store)).toEqual([]);
+    expect(await buildRedirects(store)).toEqual([]);
   });
 
-  it("maps a single alias to the page's canonical path", () => {
+  it("maps a single alias to the page's canonical path", async () => {
     const store = fakeStore([{ slug: "brand-center", meta: { aliases: ["/old-path"] } }]);
-    expect(buildRedirects(store)).toEqual([{ from: "/old-path", to: "/brand-center", slug: "brand-center" }]);
+    expect(await buildRedirects(store)).toEqual([{ from: "/old-path", to: "/brand-center", slug: "brand-center" }]);
   });
 
-  it("supports multiple aliases on one page", () => {
+  it("supports multiple aliases on one page", async () => {
     const store = fakeStore([{ slug: "pricing", meta: { aliases: ["/plans", "/old-pricing"] } }]);
-    const entries = buildRedirects(store);
+    const entries = await buildRedirects(store);
     expect(entries).toHaveLength(2);
     expect(entries).toContainEqual({ from: "/plans", to: "/pricing", slug: "pricing" });
     expect(entries).toContainEqual({ from: "/old-pricing", to: "/pricing", slug: "pricing" });
   });
 
-  it("normalizes a trailing slash on the alias", () => {
+  it("normalizes a trailing slash on the alias", async () => {
     const store = fakeStore([{ slug: "about", meta: { aliases: ["/old-about/"] } }]);
-    expect(buildRedirects(store)).toEqual([{ from: "/old-about", to: "/about", slug: "about" }]);
+    expect(await buildRedirects(store)).toEqual([{ from: "/old-about", to: "/about", slug: "about" }]);
   });
 
-  it("maps homeSlug's alias target to the bare site root", () => {
+  it("maps homeSlug's alias target to the bare site root", async () => {
     const store = fakeStore([{ slug: "home", meta: { aliases: ["/welcome"] } }]);
-    expect(buildRedirects(store, { homeSlug: "home" })).toEqual([{ from: "/welcome", to: "/", slug: "home" }]);
+    expect(await buildRedirects(store, { homeSlug: "home" })).toEqual([{ from: "/welcome", to: "/", slug: "home" }]);
   });
 
-  it("throws on a duplicate alias claimed by two different pages", () => {
+  it("throws on a duplicate alias claimed by two different pages", async () => {
     const store = fakeStore([
       { slug: "about", meta: { aliases: ["/old-path"] } },
       { slug: "team", meta: { aliases: ["/old-path"] } },
     ]);
-    expect(() => buildRedirects(store)).toThrow(/duplicate alias "\/old-path" claimed by both "about" and "team"/);
+    await expect(buildRedirects(store)).rejects.toThrow(/duplicate alias "\/old-path" claimed by both "about" and "team"/);
   });
 
-  it("throws when an alias shadows another page's own canonical path", () => {
+  it("throws when an alias shadows another page's own canonical path", async () => {
     const store = fakeStore([{ slug: "about" }, { slug: "team", meta: { aliases: ["/about"] } }]);
-    expect(() => buildRedirects(store)).toThrow(/alias "\/about" shadows page "about"'s own canonical path/);
+    await expect(buildRedirects(store)).rejects.toThrow(/alias "\/about" shadows page "about"'s own canonical path/);
   });
 
-  it("throws when a page aliases its own canonical path (redirect loop)", () => {
+  it("throws when a page aliases its own canonical path (redirect loop)", async () => {
     const store = fakeStore([{ slug: "about", meta: { aliases: ["/about"] } }]);
-    expect(() => buildRedirects(store)).toThrow(/"about" aliases its own canonical path "\/about" \(redirect loop\)/);
+    await expect(buildRedirects(store)).rejects.toThrow(/"about" aliases its own canonical path "\/about" \(redirect loop\)/);
   });
 
   it.each([
@@ -54,23 +54,40 @@ describe("buildRedirects", () => {
     ["missing leading slash", "old-path"],
     ["blank", "   "],
     ["contains whitespace", "/old path"],
-  ])("throws on a malformed alias: %s", (_label, bad) => {
+  ])("throws on a malformed alias: %s", async (_label, bad) => {
     const store = fakeStore([{ slug: "about", meta: { aliases: [bad] } }]);
-    expect(() => buildRedirects(store)).toThrow(/invalid alias/);
+    await expect(buildRedirects(store)).rejects.toThrow(/invalid alias/);
   });
 
-  it("throws when frontmatter aliases isn't an array", () => {
+  it("throws when frontmatter aliases isn't an array", async () => {
     const store = fakeStore([{ slug: "about", meta: { aliases: "/old-path" } }]);
-    expect(() => buildRedirects(store)).toThrow(/"aliases" must be an array of paths/);
+    await expect(buildRedirects(store)).rejects.toThrow(/"aliases" must be an array of paths/);
   });
 
-  it("throws once total entries exceed maxEntries", () => {
+  it("throws once total entries exceed maxEntries", async () => {
     const store = fakeStore([{ slug: "about", meta: { aliases: ["/a", "/b", "/c"] } }]);
-    expect(() => buildRedirects(store, { maxEntries: 2 })).toThrow(/exceeds maxEntries \(2\)/);
+    await expect(buildRedirects(store, { maxEntries: 2 })).rejects.toThrow(/exceeds maxEntries \(2\)/);
   });
 
-  it("throws on an alias longer than the generic path-length sanity limit", () => {
+  it("throws on an alias longer than the generic path-length sanity limit", async () => {
     const store = fakeStore([{ slug: "about", meta: { aliases: [`/${"a".repeat(2049)}`] } }]);
-    expect(() => buildRedirects(store)).toThrow(/exceeds 2048 characters/);
+    await expect(buildRedirects(store)).rejects.toThrow(/exceeds 2048 characters/);
+  });
+
+  it("uses listSlugs, not listPages (no hasDraft/listLocales fan-out)", async () => {
+    const store = fakeStore([{ slug: "about" }]);
+    await buildRedirects(store);
+    expect(store.listPagesCalls).toBe(0);
+  });
+
+  it("still reports the duplicate owner by page order, not read-completion order", async () => {
+    // Bounded-concurrency reads (mapLimit) must not reorder the validation
+    // pass: "about" is declared first in `slugs`, so it stays the reported
+    // owner even though nothing here guarantees its read settles first.
+    const store = fakeStore([
+      { slug: "about", meta: { aliases: ["/old-path"] } },
+      { slug: "team", meta: { aliases: ["/old-path"] } },
+    ]);
+    await expect(buildRedirects(store)).rejects.toThrow(/claimed by both "about" and "team"/);
   });
 });

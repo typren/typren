@@ -2,7 +2,10 @@ import type { MetadataRoute } from "next";
 import type { ContentStore } from "../store";
 import type { I18nConfig } from "../i18n";
 import { localizedPath } from "../i18n";
+import { mapLimit } from "../concurrency";
 import type { PageSeoMeta, SeoConfig } from "./types";
+
+const FANOUT_LIMIT = 8;
 
 export type BuildSitemapOptions = {
   /** Slug that maps to the site root ("/") instead of "/<slug>", e.g. "home". */
@@ -18,39 +21,41 @@ export type BuildSitemapOptions = {
 /** One entry per page in the store, honoring per-page `noindex`/`sitemap`
  *  frontmatter overrides. Does NOT know about non-CMS collections (e.g. a
  *  separate hosted-resources collection). The host concats those itself. */
-export function buildSitemap(
+export async function buildSitemap(
   store: ContentStore,
   config: SeoConfig,
   opts: BuildSitemapOptions = {}
-): MetadataRoute.Sitemap {
+): Promise<MetadataRoute.Sitemap> {
   const { homeSlug, defaultChangeFrequency = "monthly", defaultPriority = 0.7, i18n } = opts;
   const multiLocale = !!i18n && i18n.locales.length > 1;
 
-  return store.listPages().flatMap(({ slug }) => {
-    const meta = store.getPublished(slug).meta as PageSeoMeta;
-    if (meta.noindex) return [];
-    const rest = {
-      // `lastmod` only when the page declares one: stamping build time on every
-      // page tells crawlers the whole site changed on every deploy, and they
-      // learn to discount the signal. Omitting it is valid per the sitemap
-      // protocol and honest: a date we don't know is not "now".
-      ...(meta.sitemap?.lastModified ? { lastModified: meta.sitemap.lastModified } : {}),
-      changeFrequency: meta.sitemap?.changeFrequency ?? (slug === homeSlug ? "weekly" : defaultChangeFrequency),
-      priority: meta.sitemap?.priority ?? (slug === homeSlug ? 1 : defaultPriority),
-    } satisfies Partial<MetadataRoute.Sitemap[number]>;
+  const slugs = await store.listSlugs();
+  const entries = await mapLimit(slugs, FANOUT_LIMIT, async (slug) => {
+      const meta = (await store.getPublished(slug)).meta as PageSeoMeta;
+      if (meta.noindex) return [];
+      const rest = {
+        // `lastmod` only when the page declares one: stamping build time on every
+        // page tells crawlers the whole site changed on every deploy, and they
+        // learn to discount the signal. Omitting it is valid per the sitemap
+        // protocol and honest: a date we don't know is not "now".
+        ...(meta.sitemap?.lastModified ? { lastModified: meta.sitemap.lastModified } : {}),
+        changeFrequency: meta.sitemap?.changeFrequency ?? (slug === homeSlug ? "weekly" : defaultChangeFrequency),
+        priority: meta.sitemap?.priority ?? (slug === homeSlug ? 1 : defaultPriority),
+      } satisfies Partial<MetadataRoute.Sitemap[number]>;
 
-    if (!multiLocale) {
-      const url = slug === homeSlug ? config.siteUrl : `${config.siteUrl}/${slug}`;
-      return [{ url, ...rest }];
-    }
-    const path = slug === homeSlug ? "/" : `/${slug}`;
-    const languages = Object.fromEntries(
-      i18n.locales.map((l) => [l, config.siteUrl + localizedPath(i18n, path, l)])
-    );
-    return i18n.locales.map((l) => ({
-      url: config.siteUrl + localizedPath(i18n, path, l),
-      alternates: { languages },
-      ...rest,
-    }));
+      if (!multiLocale) {
+        const url = slug === homeSlug ? config.siteUrl : `${config.siteUrl}/${slug}`;
+        return [{ url, ...rest }];
+      }
+      const path = slug === homeSlug ? "/" : `/${slug}`;
+      const languages = Object.fromEntries(
+        i18n.locales.map((l) => [l, config.siteUrl + localizedPath(i18n, path, l)])
+      );
+      return i18n.locales.map((l) => ({
+        url: config.siteUrl + localizedPath(i18n, path, l),
+        alternates: { languages },
+        ...rest,
+      }));
   });
+  return entries.flat();
 }

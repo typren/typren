@@ -90,6 +90,8 @@ export {
 export {
   createSettingsStore,
   createFsSettingsAdapter,
+  validateBootstrap,
+  BOOTSTRAP_KEYS,
   type SiteSettings,
   type SiteSettingsRuntime,
   type SiteSettingsBootstrap,
@@ -98,3 +100,20 @@ export {
 } from "./settings";
 export { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection";
 export { buildRedirects, type RedirectEntry, type BuildRedirectsOptions, type PageRedirectMeta } from "./redirects";
+export {
+  scanContentStore,
+  loadRedirectMap,
+  mergeRedirectEntries,
+  toRedirectPairs,
+  type RedirectMapEntry,
+  type ToRedirectPairsOptions,
+} from "./redirect-sources";
+export {
+  resolveStaticHostRequest,
+  isUnsafeRedirectTarget,
+  STATIC_HOST_PASSTHROUGH,
+  REDIRECT_STATUSES,
+  type StaticHostDecision,
+  type RedirectLookup,
+  type RedirectStatus,
+} from "./static-host";

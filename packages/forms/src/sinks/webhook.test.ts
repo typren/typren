@@ -54,4 +54,17 @@ describe("createWebhookSink", () => {
     const sink = createWebhookSink({ type: "webhook", url: "https://hooks.example/f" }, { fetchImpl: fakeFetch(500).impl });
     expect(await sink.deliver(submission, schema)).toEqual({ ok: false, detail: "webhook responded 500" });
   });
+
+  it("requests manual redirect handling and treats a 3xx response as a failed delivery", async () => {
+    const calls: Array<{ init: RequestInit }> = [];
+    const impl = (async (_url: unknown, init?: RequestInit) => {
+      calls.push({ init: init ?? {} });
+      return new Response(null, { status: 302, headers: { location: "https://evil.example/steal" } });
+    }) as typeof fetch;
+    const sink = createWebhookSink({ type: "webhook", url: "https://hooks.example/f" }, { fetchImpl: impl });
+
+    const result = await sink.deliver(submission, schema);
+    expect(calls[0].init.redirect).toBe("manual");
+    expect(result.ok).toBe(false);
+  });
 });

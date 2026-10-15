@@ -2,8 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 /**
  * Preview-bridge protocol (packages/core/src/ui/preview-bridge.vanilla.ts).
- * Every message carries `__typren: true`; both sides check `event.origin`
- * against their own origin before touching `d`. Mirrors the four message
+ * Every message carries `__typren: true`. The iframe side checks
+ * `event.origin` against its allowed origin before touching `d`; the editor
+ * side sandboxes the frame without allow-same-origin, so it sees origin
+ * "null" and checks `event.source` against the frame's window instead, and
+ * posts to the frame with target origin "*" (index and theme only, nothing
+ * sensitive). The message shapes are unchanged. Mirrors the four message
  * shapes the bridge and packages/editor/src/{editor-shell,device-preview}.tsx
  * actually send today.
  */

@@ -9,6 +9,7 @@ export type { ExportApiProviderOptions, ExportApiSourceConfig } from "./export-a
 export { createExportApiSourceProvider } from "./export-api";
 export type { ExportApiPreset } from "./presets";
 export { exportApiPresets } from "./presets";
+export { createNodePurifier } from "./node-purifier";
 export { resolveProvider } from "./resolve-provider";
 export type { FilenameStyle, WriteLocaleFilesOptions } from "./write-locale-files";
 export { writeLocaleFiles } from "./write-locale-files";

@@ -36,11 +36,12 @@ for (const file of walk(DIST).filter((f) => f.endsWith(".js") || f.endsWith(".d.
   if (after !== before) writeFileSync(file, after);
 }
 
-// The canonical viewer-request function is a raw CloudFront-runtime asset,
-// not compiled TS; copy it beside dist/function-source.js so
-// readFunctionSource()'s `new URL("./redirects.function.js", import.meta.url)`
+// The canonical viewer-request functions are raw CloudFront-runtime assets,
+// not compiled TS; copy them beside dist/function-source.js so
+// readFunctionSource()'s file resolution (relative to import.meta.url)
 // resolves the same way in dist as it does against src.
 copyFileSync("src/redirects.function.js", path.join(DIST, "redirects.function.js"));
+copyFileSync("src/redirects-bare-url.function.js", path.join(DIST, "redirects-bare-url.function.js"));
 
 chmodSync(path.join(DIST, "cli.js"), 0o755);
 

@@ -42,6 +42,8 @@ export const exportApiPresets: Record<string, ExportApiPreset> = {
       urlPath: "process.details.download_url",
     },
     bundle: "zip",
+    // Path-style S3: the host is shared by every bucket, so only Lokalise's own bucket is admitted.
+    bundleOrigins: ["https://s3-eu-west-1.amazonaws.com/lokalise-assets/"],
   },
   crowdin: {
     baseUrl: "https://api.crowdin.com/api/v2",
@@ -67,5 +69,7 @@ export const exportApiPresets: Record<string, ExportApiPreset> = {
     },
     bundle: "zip",
     zipLocaleFrom: "dir",
+    // Build downloads come from per-environment subdomains (e.g. production-enterprise-importer).
+    bundleOrigins: ["https://*.downloads.crowdin.com"],
   },
 };

@@ -1,5 +1,81 @@
 # @typren/adapter-cloudfront
 
+## 0.4.0
+
+### Minor Changes
+
+- 54f43b1: `readFunctionSource({ trailingSlash: false })` now reads a second,
+  hand-written viewer-request function (`redirects-bare-url.function.js`)
+  roughly symmetric to the default one: slash form 301s to the bare form,
+  bare extensionless pages rewrite to their `.html` object. `bootstrap` gains
+  `--trailing-slash` (keep in sync with `sync-redirects`' own flag) to select
+  it, and `--extra-passthrough <seg,seg>` to template in a site's own
+  extensionless file-convention routes alongside the built-in Next metadata
+  names. Segments are validated (bare path-segment characters only) and
+  `JSON.stringify`'d into the published function's JS source, never
+  string-concatenated.
+- e0a5af1: `bootstrap` previously attached the viewer-request function to the default
+  cache behavior only, and its already-attached guard read only that
+  behavior, so a distribution with extra `CacheBehaviors` (`/assets/*`,
+  `/api/*`) could silently skip redirects and the index rewrite on those
+  paths, and a different function parked there went undetected. Add
+  `--behavior <path-pattern>` (repeatable) and `--all-behaviors` to attach
+  to extra behaviors (or every behavior) beyond the always-attached default,
+  and extend the guard to read every behavior on the distribution regardless
+  of which ones a run targets.
+  
+  BREAKING (internal, pre-1.0): `CloudFrontClient.setViewerRequestFunction`
+  now takes a third `behaviors: CacheBehaviorTarget[] | "*"` argument, and
+  `getAttachedFunctionNames` returns names found on any behavior, not just
+  the default. Only affects a caller supplying its own `CloudFrontClient`
+  (e.g. in tests); the AWS-CLI-backed default client and the CLI are
+  unaffected.
+- 07a5280: Redirects can now carry a per-entry HTTP status (301, the default, or
+  302/307/308), closing the gap for migrators from `_redirects`/`vercel.json`
+  who expect a temporary (302) or method-preserving permanent (308) redirect
+  instead of a hardcoded 301. A `--map` entry sets it with a `status` field
+  (`{ "from": "/old", "to": "/new", "status": 302 }`); `@typren/core`'s
+  `toRedirectPairs` encodes it as a `"<status> <target>"` prefix on the stored
+  value, and `resolveStaticHostRequest`, the CloudFront function, and the
+  Cloudflare Worker all decode it the same way (an unrecognized status prefix
+  is an invalid entry and fails open, same as any other invalid target).
+
+### Patch Changes
+
+- b0aa508: Updated for `@typren/core`'s async `ContentAdapter`/`ContentStore`
+  (`buildRedirects`, `ContentStore.listPages`); this package's own public
+  behavior is unchanged.
+- 3e432fe: Dependency updates: next 16.4.0, dompurify 3.4.17, js-yaml 5.4.3, jsdom 30.1.2 and dev tooling (vitest, eslint,
+  typescript-eslint, @types/node, @vitejs/plugin-react, lucide-react).
+- Updated dependencies [b0aa508]
+- Updated dependencies [d2c9f03]
+- Updated dependencies [11b4619]
+- Updated dependencies [3e432fe]
+- Updated dependencies [07a5280]
+- Updated dependencies [52e172a]
+- Updated dependencies [1130d81]
+- Updated dependencies [e20d2b8]
+- Updated dependencies [f5ec0c8]
+- Updated dependencies [f5580aa]
+- Updated dependencies [b95f3cd]
+- Updated dependencies [c6f38fa]
+- Updated dependencies [8be319f]
+- Updated dependencies [87ec75b]
+- Updated dependencies [d054689]
+  - @typren/core@0.5.0
+
+## 0.3.1
+
+### Patch Changes
+
+- 7e13dc1: Redirect sourcing (`scanContentStore`, `loadRedirectMap`,
+  `mergeRedirectEntries`) now comes from `@typren/core`; this package's public
+  API is unchanged.
+- 5041c29: Relicensed to Apache-2.0 and the LICENSE file is now included in the package
+  (it previously pointed at a LICENSE it did not ship).
+- Updated dependencies [7e13dc1]
+  - @typren/core@0.4.0
+
 ## 0.3.0
 
 ### Minor Changes

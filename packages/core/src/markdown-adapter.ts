@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import matter from "gray-matter";
+import { parseMatter, stringifyMatter } from "./safe-matter";
 import type { ContentAdapter, PageContent, Slice } from "./types";
 import { localeSubdir } from "./localize";
 
@@ -44,6 +44,22 @@ export type MarkdownAdapterOptions = {
  * non-default locales live under `contentDir/<locale>/`. `parse`/`serialize`
  * are locale-agnostic. The locale never enters the file.
  */
+/** `createMarkdownAdapter`'s return type: `ContentAdapter` plus the one extra
+ *  the fs-backed adapter can offer that a network-backed one can't -- an
+ *  absolute on-disk root, for callers that need to site something beside it
+ *  (the `.typren/` settings dir, a collection's dir-overlap guard). Kept off
+ *  `ContentAdapter` itself (see that interface's doc comment) since neither
+ *  the GitHub nor Notion adapter has a real filesystem path to report. */
+export type MarkdownAdapter = ContentAdapter & { readonly root: string };
+
+// BCP-47-ish: a primary subtag of 2-3 letters, then any number of 2-8
+// alphanumeric extension subtags. The `locales` allowlist itself becomes a
+// path segment (localeSubdir/localeDir below), so membership in `locales` is
+// NOT by itself a traversal guard if the configured array can hold an
+// unsafe entry (e.g. a `typren.config.json` or host config built from
+// untrusted input) -- "../../x" would pass `locales.includes(loc)` just fine.
+const SAFE_LOCALE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+
 export function createMarkdownAdapter({
   contentDir,
   draftDir,
@@ -52,7 +68,10 @@ export function createMarkdownAdapter({
   locales = [defaultLocale],
   draftSubdir = ".drafts",
   requireSliceArray = true,
-}: MarkdownAdapterOptions): ContentAdapter {
+}: MarkdownAdapterOptions): MarkdownAdapter {
+  for (const loc of [defaultLocale, ...locales]) {
+    if (!SAFE_LOCALE.test(loc)) throw new Error(`typren: unsafe locale "${loc}" (expected a BCP-47-ish code)`);
+  }
   // Slugs flow in from client actions and become filesystem paths. Reject
   // anything that isn't a plain slug so "../" can't escape the content dir.
   const SAFE_SLUG = /^[a-z0-9][a-z0-9-]*$/i;
@@ -61,7 +80,8 @@ export function createMarkdownAdapter({
     return slug;
   };
   // The locale is also a path segment (a trust boundary), so the allowlist check
-  // is the primary traversal guard for it, not the slug regex.
+  // is the primary traversal guard for it, not the slug regex (the SAFE_LOCALE
+  // check above guards the allowlist's own entries).
   const safeLocale = (loc: string) => {
     if (!locales.includes(loc)) throw new Error(`typren: unknown locale "${loc}"`);
     return loc;
@@ -76,7 +96,7 @@ export function createMarkdownAdapter({
   const draftFile = (slug: string, loc = defaultLocale) => path.join(localeDraftDir(loc), `${safe(slug)}.md`);
 
   const parse = (raw: string): PageContent => {
-    const { data, content } = matter(raw);
+    const { data, content } = parseMatter(raw);
     const { [frontmatterKey]: slices, ...meta } = data;
     // gray-matter caches parsed results by input string and returns shared
     // references. Deep-clone the result so editing the returned content can never mutate
@@ -90,7 +110,7 @@ export function createMarkdownAdapter({
 
   const serialize = (page: PageContent): string =>
     // gray-matter puts the YAML delimiters back and dumps frontmatter via js-yaml.
-    matter.stringify(page.body ?? "", { ...page.meta, [frontmatterKey]: page.slices });
+    stringifyMatter(page.body ?? "", { ...page.meta, [frontmatterKey]: page.slices });
 
   return {
     locales,
@@ -99,7 +119,7 @@ export function createMarkdownAdapter({
     parse,
     serialize,
 
-    listSlugs(locale = defaultLocale) {
+    async listSlugs(locale = defaultLocale) {
       const dir = localeDir(locale);
       if (!fs.existsSync(dir)) return []; // a locale with no content yet
       return fs
@@ -117,32 +137,41 @@ export function createMarkdownAdapter({
         .filter(
           (slug) =>
             !requireSliceArray ||
-            Array.isArray(matter(fs.readFileSync(pageFile(slug, locale), "utf8")).data[frontmatterKey])
+            Array.isArray(parseMatter(fs.readFileSync(pageFile(slug, locale), "utf8")).data[frontmatterKey])
         )
         .sort((a, b) => a.localeCompare(b));
     },
 
-    listLocales: (slug) => locales.filter((l) => fs.existsSync(pageFile(slug, l))),
+    async listLocales(slug) {
+      return locales.filter((l) => fs.existsSync(pageFile(slug, l)));
+    },
 
-    exists: (slug, locale) => fs.existsSync(pageFile(slug, locale)),
-    readRaw: (slug, locale) => fs.readFileSync(pageFile(slug, locale), "utf8"),
-    writeRaw: (slug, raw, locale) => {
+    async exists(slug, locale) {
+      return fs.existsSync(pageFile(slug, locale));
+    },
+    async readRaw(slug, locale) {
+      return fs.readFileSync(pageFile(slug, locale), "utf8");
+    },
+    async writeRaw(slug, raw, locale) {
       fs.mkdirSync(localeDir(locale ?? defaultLocale), { recursive: true });
       fs.writeFileSync(pageFile(slug, locale), raw);
     },
-    deletePublished: (slug, locale) => {
+    async deletePublished(slug, locale) {
       if (fs.existsSync(pageFile(slug, locale))) fs.rmSync(pageFile(slug, locale));
     },
 
-    readDraftRaw: (slug, locale) =>
-      fs.existsSync(draftFile(slug, locale)) ? fs.readFileSync(draftFile(slug, locale), "utf8") : null,
-    writeDraftRaw: (slug, raw, locale) => {
+    async readDraftRaw(slug, locale) {
+      return fs.existsSync(draftFile(slug, locale)) ? fs.readFileSync(draftFile(slug, locale), "utf8") : null;
+    },
+    async writeDraftRaw(slug, raw, locale) {
       fs.mkdirSync(localeDraftDir(locale ?? defaultLocale), { recursive: true });
       fs.writeFileSync(draftFile(slug, locale), raw);
     },
-    deleteDraft: (slug, locale) => {
+    async deleteDraft(slug, locale) {
       if (fs.existsSync(draftFile(slug, locale))) fs.rmSync(draftFile(slug, locale));
     },
-    hasDraft: (slug, locale) => fs.existsSync(draftFile(slug, locale)),
+    async hasDraft(slug, locale) {
+      return fs.existsSync(draftFile(slug, locale));
+    },
   };
 }

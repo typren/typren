@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applySettings, main, nextSteps, resolveReviewPaths, review, scaffold } from "./cli";
+import { applySettings, main, nextSteps, openOrUpdateContentPr, resolveReviewPaths, review, scaffold } from "./cli";
+import { envWithoutGit } from "./migrate";
 import * as telemetry from "./telemetry";
 
 /** When this suite runs inside a git hook (the repo's own pre-push runs it),
@@ -20,15 +21,15 @@ for (const key of Object.keys(process.env)) {
  *  (gitChangedContentFiles, gitShow, gitDiffRaw). Lives under the tmp `dir`
  *  each test already gets, so it's cleaned up the same way. */
 function initGitRepo(repoDir: string): void {
-  const git = (args: string[]) => execFileSync("git", args, { cwd: repoDir, stdio: "ignore" });
+  const git = (args: string[]) => execFileSync("git", args, { cwd: repoDir, stdio: "ignore", env: envWithoutGit() });
   git(["init", "-q"]);
   git(["config", "user.email", "test@example.com"]);
   git(["config", "user.name", "Test"]);
 }
 
 function commitAll(repoDir: string, message: string): void {
-  execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "ignore" });
-  execFileSync("git", ["commit", "-q", "-m", message], { cwd: repoDir, stdio: "ignore" });
+  execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "ignore", env: envWithoutGit() });
+  execFileSync("git", ["commit", "-q", "-m", message], { cwd: repoDir, stdio: "ignore", env: envWithoutGit() });
 }
 
 /**
@@ -164,6 +165,53 @@ describe("scaffold", () => {
     expect(result.baseDir).toBe("src");
   });
 
+  // Regression: the docs promised a loopback-bound dev script, but init never
+  // wrote one, and `next dev` listens on all interfaces by default. localAuth
+  // denies every request unless the server is bound to loopback.
+  describe("dev script", () => {
+    function scaffoldWith(pkg: object | null) {
+      fs.mkdirSync(path.join(dir, "app"), { recursive: true });
+      if (pkg) fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(pkg));
+      const result = scaffold(dir);
+      if (!result.ok) throw new Error(result.error);
+      const written = pkg ? JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) : null;
+      return { status: result.devScript, dev: written?.scripts?.dev, written };
+    }
+
+    it("binds a plain `next dev` to 127.0.0.1, keeping its other flags and fields", () => {
+      const { status, dev, written } = scaffoldWith({ name: "site", scripts: { dev: "next dev --turbopack", build: "next build" } });
+      expect(status).toBe("bound");
+      expect(dev).toBe("next dev -H 127.0.0.1 --turbopack");
+      expect(written.name).toBe("site");
+      expect(written.scripts.build).toBe("next build");
+    });
+
+    it("adds a bound dev script when there is none", () => {
+      expect(scaffoldWith({ name: "site" })).toMatchObject({ status: "bound", dev: "next dev -H 127.0.0.1" });
+    });
+
+    it("is idempotent on an already-bound script", () => {
+      for (const dev of ["next dev -H 127.0.0.1", "next dev --hostname=127.0.0.1 -p 4000"]) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.mkdirSync(dir);
+        expect(scaffoldWith({ scripts: { dev } })).toEqual(expect.objectContaining({ status: "already-bound", dev }));
+      }
+    });
+
+    it("leaves scripts it can't safely rewrite alone and reports them", () => {
+      for (const dev of ["next dev -H 0.0.0.0", "next dev -H localhost", "next dev -H ::1", "concurrently 'next dev' 'tsc -w'"]) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.mkdirSync(dir);
+        expect(scaffoldWith({ scripts: { dev } })).toEqual(expect.objectContaining({ status: "custom", dev }));
+      }
+    });
+
+    it("reports a missing package.json without creating one", () => {
+      expect(scaffoldWith(null).status).toBe("no-package-json");
+      expect(fs.existsSync(path.join(dir, "package.json"))).toBe(false);
+    });
+  });
+
   it("is idempotent: a second run skips every file and writes nothing new", () => {
     fs.mkdirSync(path.join(dir, "src", "app"), { recursive: true });
     const first = scaffold(dir);
@@ -192,6 +240,26 @@ describe("scaffold", () => {
     if (!result.ok) return;
     expect(result.skipped).toHaveLength(0);
     expect(fs.readFileSync(path.join(dir, "src/cms.config.ts"), "utf8")).not.toContain("// stale");
+  });
+
+  it("does not write through a dangling symlink at a scaffold target (skips it like an existing file)", () => {
+    fs.mkdirSync(path.join(dir, "src", "app"), { recursive: true });
+    const outside = path.join(dir, "..", `typren-outside-${path.basename(dir)}.json`);
+    fs.symlinkSync(outside, path.join(dir, "typren.config.json"));
+    try {
+      const result = scaffold(dir);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      // fs.existsSync on a dangling symlink reports false, which used to make
+      // scaffold treat the target as "doesn't exist" and write through the
+      // link; lstatSync sees the symlink itself and skips it instead.
+      expect(result.skipped).toContain("typren.config.json");
+      expect(result.created).not.toContain("typren.config.json");
+      expect(fs.existsSync(outside)).toBe(false);
+    } finally {
+      fs.rmSync(path.join(dir, "typren.config.json"), { force: true });
+      fs.rmSync(outside, { force: true });
+    }
   });
 
   it("places next.config.ts and typren.config.json at the project root even with a src/ layout", () => {
@@ -311,6 +379,16 @@ describe("nextSteps", () => {
     expect(nextSteps("src")).toContain('"@/*": ["./src/*"]');
     expect(nextSteps(".")).toContain('"@/*": ["./*"]');
   });
+
+  it("points at `typren migrate` for future @typren upgrades", () => {
+    expect(nextSteps("src")).toContain("npx typren migrate");
+  });
+
+  // The scaffolded localAuth() requires a loopback-bound server (see
+  // auth/local.ts), so the printed steps must say how to start one.
+  it("tells the scaffold to bind its dev server to loopback", () => {
+    expect(nextSteps("src")).toContain("next dev -H 127.0.0.1");
+  });
 });
 
 describe("resolveReviewPaths", () => {
@@ -401,6 +479,14 @@ describe("review", () => {
     expect(result.briefs[0].checks).toContainEqual({ id: "aio.entity.description-present", status: "pass" });
   });
 
+  it("rejects a --base ref starting with \"-\" instead of handing it to git as an option", () => {
+    fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+    const result = review(dir, { base: "--upload-pack=touch /tmp/pwned" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("not a valid --base ref");
+  });
+
   describe("with no slug", () => {
     it("reports a clean error when the base ref can't be diffed against (not a git repo)", () => {
       fs.mkdirSync(path.join(dir, "content"), { recursive: true });
@@ -423,6 +509,24 @@ describe("review", () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.briefs.map((b) => b.file)).toEqual(["content/home.md"]);
+    });
+
+    it("ignores an inherited GIT_DIR and diffs the repo at `dir`, not whatever GIT_DIR points at", () => {
+      initGitRepo(dir);
+      fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\n");
+      commitAll(dir, "base");
+      fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home Updated\n---\n");
+
+      vi.stubEnv("GIT_DIR", path.join(os.tmpdir(), "typren-nonexistent-git-dir"));
+      try {
+        const result = review(dir, { base: "HEAD" });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.briefs.map((b) => b.file)).toEqual(["content/home.md"]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
   });
 });
@@ -477,6 +581,20 @@ describe("main", () => {
 
       expect(telemetry.record).toHaveBeenCalledWith("init");
       expect(log.mock.calls[0][0]).toBe("TELEMETRY NOTICE");
+    });
+
+    it("reports the dev-script rewrite, and warns when it can't bind the script itself", () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      fs.mkdirSync(path.join(dir, "app"), { recursive: true });
+      process.chdir(dir);
+
+      main(["init"]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("-H 127.0.0.1"));
+
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ scripts: { dev: "next dev" } }));
+      main(["init"]);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('"dev" now runs `next dev -H 127.0.0.1`'));
     });
 
     it("does not record init when scaffold fails", () => {
@@ -601,6 +719,149 @@ describe("main", () => {
       });
     });
 
+    describe("openOrUpdateContentPr (direct)", () => {
+      /** Custom fake `gh` (withFakeGh only distinguishes on argv[0], but this
+       *  path calls "pr list" then "pr create", two different "pr"
+       *  subcommands that need different canned output). */
+      function withFakeGhForPr(fn: () => void): void {
+        const binDir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-fakegh-pr-"));
+        fs.writeFileSync(
+          path.join(binDir, "gh"),
+          [
+            "#!/bin/sh",
+            'case "$1 $2" in',
+            '  "--version ") exit 0 ;;',
+            '  "pr list") echo "[]"; exit 0 ;;',
+            '  "pr create") echo "https://github.com/example/repo/pull/1"; exit 0 ;;',
+            '  "label list") echo "[]"; exit 0 ;;',
+            '  "label create") exit 0 ;;',
+            "  *) exit 1 ;;",
+            "esac",
+          ].join("\n"),
+          { mode: 0o755 }
+        );
+        const originalPath = process.env.PATH;
+        process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+        try {
+          fn();
+        } finally {
+          process.env.PATH = originalPath;
+          fs.rmSync(binDir, { recursive: true, force: true });
+        }
+      }
+
+      it("opens the PR via plain git (checkout/add/commit/push) even with a poisoned GIT_DIR", () => {
+        initGitRepo(dir);
+        fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\n");
+        commitAll(dir, "base");
+        const origin = fs.mkdtempSync(path.join(os.tmpdir(), "typren-origin-"));
+        execFileSync("git", ["init", "-q", "--bare", origin], { env: envWithoutGit() });
+        execFileSync("git", ["remote", "add", "origin", origin], { cwd: dir, env: envWithoutGit() });
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home Updated\n---\n");
+
+        const result = review(dir, { slug: "home", base: "HEAD" });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        vi.stubEnv("GIT_DIR", path.join(os.tmpdir(), "typren-nonexistent-git-dir"));
+        try {
+          withFakeGhForPr(() => {
+            const prResult = openOrUpdateContentPr(dir, result.briefs[0]);
+            expect(prResult).toMatchObject({ ok: true, action: "created", url: "https://github.com/example/repo/pull/1" });
+          });
+        } finally {
+          vi.unstubAllEnvs();
+          fs.rmSync(origin, { recursive: true, force: true });
+        }
+      });
+
+      it("widens the PR-body JSON fence past a backtick run already present in the diff", () => {
+        initGitRepo(dir);
+        fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\nplain body\n");
+        commitAll(dir, "base");
+        const origin = fs.mkdtempSync(path.join(os.tmpdir(), "typren-origin-"));
+        execFileSync("git", ["init", "-q", "--bare", origin], { env: envWithoutGit() });
+        execFileSync("git", ["remote", "add", "origin", origin], { cwd: dir, env: envWithoutGit() });
+        // A writer's markdown containing its own fenced code block: the diff
+        // of this change embeds a ``` run inside the JSON the PR body wraps.
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\n```js\nconsole.log(1)\n```\n");
+
+        const result = review(dir, { slug: "home", base: "HEAD" });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        const binDir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-fakegh-fence-"));
+        const capture = path.join(binDir, "captured-body.md");
+        fs.writeFileSync(
+          path.join(binDir, "gh"),
+          [
+            "#!/bin/sh",
+            'case "$1 $2" in',
+            '  "--version ") exit 0 ;;',
+            '  "pr list") echo "[]"; exit 0 ;;',
+            // Fixed argv shape from openOrUpdateContentPr: $6 is the --body-file path.
+            `  "pr create") cp "$6" "${capture}"; echo "https://github.com/example/repo/pull/1"; exit 0 ;;`,
+            '  "label list") echo "[]"; exit 0 ;;',
+            '  "label create") exit 0 ;;',
+            "  *) exit 1 ;;",
+            "esac",
+          ].join("\n"),
+          { mode: 0o755 }
+        );
+        const originalPath = process.env.PATH;
+        process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+        try {
+          const prResult = openOrUpdateContentPr(dir, result.briefs[0]);
+          expect(prResult).toMatchObject({ ok: true, action: "created" });
+          const body = fs.readFileSync(capture, "utf8");
+          // The JSON itself still carries the diff's literal ``` run (escaped
+          // newlines keep it on one line); the opening fence around that JSON
+          // must be longer than any backtick run found anywhere in it, or a
+          // fixed "```json" fence would be no longer than content it wraps.
+          const openingFence = body.match(/^(`{3,})json$/m)?.[1];
+          expect(openingFence).toBeDefined();
+          expect(openingFence!.length).toBeGreaterThan(3);
+        } finally {
+          process.env.PATH = originalPath;
+          fs.rmSync(binDir, { recursive: true, force: true });
+          fs.rmSync(origin, { recursive: true, force: true });
+        }
+      });
+
+      it("writes the PR body file under a private mkdtemp directory, not a predictable shared-tmp path", () => {
+        initGitRepo(dir);
+        fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\n");
+        commitAll(dir, "base");
+        const origin = fs.mkdtempSync(path.join(os.tmpdir(), "typren-origin-"));
+        execFileSync("git", ["init", "-q", "--bare", origin], { env: envWithoutGit() });
+        execFileSync("git", ["remote", "add", "origin", origin], { cwd: dir, env: envWithoutGit() });
+        fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home Updated\n---\n");
+
+        const result = review(dir, { slug: "home", base: "HEAD" });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        // A fixed `typren-review-<slug>-<timestamp>.md` name directly under
+        // os.tmpdir() is guessable, so another local process could pre-place
+        // a symlink at that exact path before writeFileSync runs. Asserting
+        // mkdtempSync is used proves the body file instead lands in a
+        // freshly-random, unpredictable directory.
+        const mkdtempSpy = vi.spyOn(fs, "mkdtempSync");
+        try {
+          withFakeGhForPr(() => {
+            const prResult = openOrUpdateContentPr(dir, result.briefs[0]);
+            expect(prResult).toMatchObject({ ok: true, action: "created" });
+          });
+          expect(mkdtempSpy).toHaveBeenCalledWith(expect.stringContaining("typren-review-"));
+        } finally {
+          fs.rmSync(origin, { recursive: true, force: true });
+        }
+      });
+    });
+
     describe("--pr", () => {
       it("marks the run failed and records nothing when a PR step errors, without stopping the rest of the loop", () => {
         fs.mkdirSync(path.join(dir, "content"), { recursive: true });
@@ -666,6 +927,72 @@ describe("main", () => {
       vi.spyOn(console, "log").mockImplementation(() => {});
       main(["telemetry", "on"]);
       expect(telemetry.record).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("migrate", () => {
+    function installFakeCore(projectDir: string): void {
+      const coreDir = path.join(projectDir, "node_modules", "@typren", "core");
+      fs.mkdirSync(path.join(coreDir, "migrations"), { recursive: true });
+      fs.writeFileSync(path.join(coreDir, "package.json"), JSON.stringify({ name: "@typren/core", version: "0.5.0" }));
+      fs.copyFileSync(
+        path.join(import.meta.dirname, "..", "test-fixtures", "migrations", "core-0.5.0.md"),
+        path.join(coreDir, "migrations", "core-0.5.0.md")
+      );
+    }
+
+    it("exits non-zero and prints matches when the project still needs the fix", async () => {
+      installFakeCore(dir);
+      fs.writeFileSync(path.join(dir, "page.ts"), 'cmsStore.getPublished("home");');
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await main(["migrate", "--cwd", dir, "--from", "0.4.0"]);
+
+      expect(process.exitCode).toBe(1);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("page.ts:1"));
+      expect(telemetry.record).toHaveBeenCalledWith("migrate");
+    });
+
+    it("exits zero when no note applies or nothing matches", async () => {
+      installFakeCore(dir);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await main(["migrate", "--cwd", dir, "--from", "0.5.0"]);
+
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it("prints the error and exits non-zero without a --from and no git history", async () => {
+      installFakeCore(dir);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await main(["migrate", "--cwd", dir]);
+
+      expect(process.exitCode).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("--from"));
+      expect(telemetry.record).not.toHaveBeenCalled();
+    });
+
+    it("prints JSON with --json", async () => {
+      installFakeCore(dir);
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await main(["migrate", "--cwd", dir, "--from", "0.4.0", "--json"]);
+
+      const printed = log.mock.calls.map((c) => c[0]).find((line) => typeof line === "string" && line.startsWith("{"));
+      expect(JSON.parse(printed as string)).toMatchObject({ from: "0.4.0", to: "0.5.0" });
+    });
+
+    it("exits non-zero when notes were dropped below the installed core's .min-version, even with no matches", async () => {
+      installFakeCore(dir);
+      fs.writeFileSync(path.join(dir, "node_modules", "@typren", "core", "migrations", ".min-version"), "0.4.0");
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await main(["migrate", "--cwd", dir, "--from", "0.1.0"]);
+
+      expect(process.exitCode).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("0.4.0"));
     });
   });
 });

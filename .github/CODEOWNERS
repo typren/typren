@@ -25,3 +25,19 @@ packages/core/src/theme.css                     @mataleogml
 # CI itself, and who may change whose approval CI requires.
 .github/workflows/  @mataleogml
 .github/CODEOWNERS  @mataleogml
+
+# The security-review gate: the records that attest to a review, the gate that reads them, the review
+# workflow, and the CI check. A record is an attestation, so it gets owner review like code.
+security-reviews/                         @mataleogml
+scripts/check-security-review.mjs         @mataleogml
+.claude/workflows/security-review.mjs     @mataleogml
+.github/workflows/security-review-gate.yml @mataleogml
+docs/security-review.md                   @mataleogml
+
+# The publish job runs these with id-token: write, and the root manifest, lockfile and npm config decide
+# what the build job installs and runs.
+scripts/publish-unpublished.mjs  @mataleogml
+scripts/tag-published.mjs        @mataleogml
+package.json                     @mataleogml
+bun.lock                         @mataleogml
+.npmrc                           @mataleogml

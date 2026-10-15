@@ -1,79 +1,67 @@
+import DOMPurify, { type Config, type DOMPurify as Purifier } from "dompurify";
 import type { Catalog } from "./types";
 
-// Blocks dangerous tags (open or close), inline event handlers, and
-// `javascript:` URIs, case-insensitive. Everything else (plain text, `{var}`
-// placeholders, and benign formatting like `<a href>`/`<b>`/`<h3>`/`<ul><li>`)
-// passes: catalog values reach the client as OTA strings and a
-// `v-html`/`dangerouslySetInnerHTML` sink would turn any of the blocked
-// constructs into stored XSS, but real legal/terms copy legitimately
-// contains `<a href>`. Denylist, not a tag allowlist, so ordinary
-// formatting never needs a codebase change to keep shipping.
-// A single bounded character class (not adjacent unbounded quantifiers) keeps
-// the scan linear on hostile input; anything mixing whitespace and slashes
-// before the tag name is dangerous regardless of the exact arrangement.
-const DANGEROUS_TAG_PATTERN = /<[\s/]{0,32}(script|iframe|object|embed|svg|style|link|meta)\b/i;
-// Fixed allowlist of known DOM event-handler attribute names, not a bare
-// `on\w+=`. Real translated copy can contain URL query params like
-// `?convenioId=133` that a bare `on\w+=` would false-flag if it ever
-// appeared word-initial.
-const EVENT_HANDLER_PATTERN =
-  /\bon(abort|animation(?:start|end|iteration|cancel)|auxclick|blur|change|click|contextmenu|copy|cut|dblclick|drag(?:start|enter|over|leave|end)?|drop|error|focus(?:in|out)?|gotpointercapture|input|invalid|key(?:down|press|up)|load|lostpointercapture|mouse(?:down|up|move|over|out|enter|leave|wheel)|paste|pointer(?:down|up|move|over|out|enter|leave|cancel)|reset|resize|scroll|select|submit|toggle|touch(?:start|end|move|cancel)|transition(?:start|end|run|cancel)|wheel)\s*=/i;
-const JAVASCRIPT_URI_PATTERN = /javascript:/i;
+export type { Purifier };
 
-// Decimal (`&#106;`) and hex (`&#x6a;`) character references, with optional
-// leading zeros and an optional (missing) trailing semicolon. HTML parsers
-// accept all of those, so an attacker can spell `javascript:` or `<script`
-// entirely out of them and slip past a raw-text scan.
-const NUMERIC_ENTITY_PATTERN = /&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?/g;
+// Allowlist, not a denylist: catalog values reach the client as OTA strings and may land in a
+// `v-html`/`dangerouslySetInnerHTML` sink, and every denylist this gate ever had was bypassed by a
+// handler or URI spelling nobody listed. Legal/terms copy legitimately needs links and light
+// formatting, so exactly that survives; anything else fails the publish.
+const GATE_CONFIG: Config = {
+  ALLOWED_TAGS: ["a", "b", "i", "strong", "em", "ul", "ol", "li", "p", "br", "h3", "span", "code"],
+  ALLOWED_ATTR: ["href", "title"],
+  ALLOW_ARIA_ATTR: false,
+  ALLOW_DATA_ATTR: false,
+  // Without it the parser hoists a leading `<script>`/`<base>` into <head>, where DOMPurify never
+  // sees it, so it would vanish from the output without ever being reported as removed.
+  FORCE_BODY: true,
+  // http(s), mailto, or relative: no scheme-like `name:` before the first `/`, `?` or `#`.
+  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^:/?#]*(?:[/?#]|$))/i,
+};
 
-function decodeNumericEntities(value: string): string {
-  return value.replace(NUMERIC_ENTITY_PATTERN, (match, hex: string | undefined, dec: string | undefined) => {
-    const code = hex !== undefined ? parseInt(hex, 16) : parseInt(dec!, 10);
-    if (!Number.isFinite(code) || code > 0x10ffff) return match;
-    try {
-      return String.fromCodePoint(code);
-    } catch {
-      return match;
-    }
+let windowPurifier: Purifier | undefined;
+
+function resolvePurifier(purifier: Purifier | undefined): Purifier {
+  if (purifier) return purifier;
+  if (typeof window !== "undefined") windowPurifier ??= DOMPurify(window);
+  // Without a DOM, DOMPurify returns input unchanged, which would turn this gate into a silent pass.
+  if (!windowPurifier?.isSupported) {
+    throw new Error("assertNoHtml: no DOM available; pass opts.purifier (createNodePurifier from @typren/locale/build)");
+  }
+  return windowPurifier;
+}
+
+/**
+ * True when the allowlist sanitizer would remove anything from `value`. This is a publish gate, not a
+ * sanitizer: a string it would change fails instead of shipping a silently different translation.
+ * `removed` (not a string comparison) is the signal so that harmless parser re-serialization, such as
+ * `&` becoming `&amp;`, never counts as a change. `{var}` placeholders are plain text and pass.
+ */
+export function isUnsafeHtml(value: string, purifier?: Purifier): boolean {
+  const p = resolvePurifier(purifier);
+  p.sanitize(value, GATE_CONFIG);
+  // DOMPurify reports its own parse scaffolding as removed: the BODY it built the fragment in, and the
+  // one `<remove>` marker FORCE_BODY prepends. Neither says anything about the input; anything else does.
+  const own = new Set(["BODY", "REMOVE"]);
+  return p.removed.some((entry) => {
+    const name = "element" in entry ? entry.element.nodeName : "";
+    return !own.delete(name);
   });
 }
 
 /**
- * Runs all three scans on the raw string AND on a numeric-entity-decoded
- * copy, so `&#106;avascript:` is treated exactly like `javascript:`. The URI
- * scan additionally runs with tab/newline/CR stripped. URL parsers discard
- * those inside a scheme, so `jav<TAB>ascript:` (or its `&#x09;` spelling) is
- * live in a browser even though the raw text never contains `javascript:`.
- * Stripping stays scoped to the URI scan: tag and attribute names cannot
- * legally contain that whitespace, and stripping before those scans would
- * re-open the false-positive window the fixed handler list exists to close.
+ * Throws if any leaf string in `catalog` holds markup outside the allowlist (tags a, b, i, strong, em,
+ * ul, ol, li, p, br, h3, span, code; attributes href and title; http(s), mailto or relative URLs).
+ * Lists every offending leaf as a dot-path (e.g. "Greeting.Hello") so the failure points straight at
+ * the bad translation. Uses the page's `window` when there is one; Node callers pass a purifier.
  */
-function isDangerous(value: string): boolean {
-  const decoded = decodeNumericEntities(value);
-  for (const candidate of decoded === value ? [value] : [value, decoded]) {
-    if (
-      DANGEROUS_TAG_PATTERN.test(candidate) ||
-      EVENT_HANDLER_PATTERN.test(candidate) ||
-      JAVASCRIPT_URI_PATTERN.test(candidate)
-    ) {
-      return true;
-    }
-  }
-  return JAVASCRIPT_URI_PATTERN.test(decoded.replace(/[\t\n\r]/g, ""));
-}
-
-/**
- * Throws if any leaf string in `catalog` contains a dangerous tag, an inline
- * event handler, or a `javascript:` URI. Lists every offending leaf as a
- * dot-path (e.g. "Greeting.Hello") so the failure points straight at the bad
- * translation.
- */
-export function assertNoHtml(catalog: Catalog, opts?: { label?: string }): void {
+export function assertNoHtml(catalog: Catalog, opts?: { label?: string; purifier?: Purifier }): void {
+  const purifier = resolvePurifier(opts?.purifier);
   const offenders: string[] = [];
 
   const walk = (node: Catalog | string, path: string) => {
     if (typeof node === "string") {
-      if (isDangerous(node)) offenders.push(path);
+      if (isUnsafeHtml(node, purifier)) offenders.push(path);
       return;
     }
     for (const [key, value] of Object.entries(node)) {
@@ -84,6 +72,6 @@ export function assertNoHtml(catalog: Catalog, opts?: { label?: string }): void 
 
   if (offenders.length > 0) {
     const label = opts?.label ? ` in ${opts.label}` : "";
-    throw new Error(`assertNoHtml: dangerous content found${label} at: ${offenders.join(", ")}`);
+    throw new Error(`assertNoHtml: markup outside the allowlist found${label} at: ${offenders.join(", ")}`);
   }
 }

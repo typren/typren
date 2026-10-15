@@ -46,14 +46,84 @@ export type NotionSegment = ProseSegment | ComponentSegment;
 const asObj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
 const asArr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.map(asObj) : []);
 
+// Notion text is third-party input, and the markdown this file emits is
+// rendered as HTML by the host. Raw `<`/`>`/`&` would pass through markdown
+// as live markup, so prose text is entity-escaped; code is fenced instead
+// (markdown never decodes entities inside code, so escaping would show them).
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// Markdown metacharacters plain Notion text could otherwise use to open a
+// link, image or emphasis span it never asked for. Backslash-escaping is
+// CommonMark's own rule for literal ASCII punctuation; `<`/`>`/`&` are
+// handled separately by `escapeHtml` above, as entities rather than
+// backslashes, since that's what keeps them inert in a raw-HTML-enabled
+// renderer too.
+const MD_METACHARS = /[\\[\]()!*_~`]/g;
+// A marker at the START of a line turns plain text into a heading or list the
+// author never wrote; mid-line the same characters are inert. Each
+// alternative escapes the one character CommonMark actually keys off: the
+// first `#`, the bullet, or (for an ordered marker) the `.`. A line-leading
+// `>` needs no entry here: `escapeHtml` (run first, see `escapeMarkdown`)
+// already turns it into the `&gt;` entity, three characters with no literal
+// `>` left for CommonMark's blockquote rule to see.
+const MD_LEADING_MARKER = /^([ \t]*)(?:(#{1,6})(?=[ \t]|$)|([-+])(?=[ \t]|$)|(\d+)(\.)(?=[ \t]|$))/gm;
+
+/** Prose text, safe to drop into markdown: HTML-entity-escaped (see
+ *  `escapeHtml`) and then markdown-metacharacter-escaped, so plain Notion
+ *  text can never become a link, image, emphasis span or block syntax once
+ *  it's wrapped in `[...]`/`![...]`/annotation markup. */
+function escapeMarkdown(s: string): string {
+  return escapeHtml(s)
+    .replace(MD_METACHARS, "\\$&")
+    .replace(MD_LEADING_MARKER, (_m, lead: string, heading?: string, bullet?: string, digits?: string, dot?: string) => {
+      if (heading) return `${lead}\\${heading}`;
+      if (bullet) return `${lead}\\${bullet}`;
+      return `${lead}${digits}\\${dot}`;
+    });
+}
+
+/** A backtick fence longer than any backtick run inside `s`, so `s` cannot close it early. */
+const fenceFor = (s: string, min: number) =>
+  "`".repeat(Math.max(min, ...(s.match(/`+/g) ?? []).map((run) => run.length + 1)));
+
+/** `url` as a markdown link target when it is http(s) or mailto, else null. Whitespace, `<`, `>`,
+ *  quotes and parentheses are percent-encoded so the target cannot close the link early and
+ *  append raw markup. */
+function safeUrl(url: unknown): string | null {
+  if (typeof url !== "string") return null;
+  try {
+    if (!["http:", "https:", "mailto:"].includes(new URL(url).protocol)) return null;
+  } catch {
+    return null;
+  }
+  // encodeURIComponent leaves `(`, `)` and `'` alone, hence the second pass.
+  return url.replace(/[\s<>"'()`]/g, (c) =>
+    encodeURIComponent(c).replace(/[()']/g, (p) => `%${p.charCodeAt(0).toString(16).toUpperCase()}`)
+  );
+}
+
+// Directive and block-type names land inside `<!-- ... -->`; anything outside this set could close the comment.
+const SAFE_NAME = /^[A-Za-z0-9_-]+$/;
+
 function runToMarkdown(run: Record<string, unknown>): string {
   let text = (run.plain_text as string | undefined) ?? (asObj(run.text).content as string | undefined) ?? "";
   const a = asObj(run.annotations);
-  if (a.code) text = `\`${text}\``;
+  if (a.code) {
+    // A line ending inside a code span ends the paragraph (a blank line, or a line that opens an
+    // HTML block), leaving the rest live markup. CommonMark renders code-span line endings as
+    // spaces anyway, so collapse them first.
+    text = text.replace(/\r\n?|\n/g, " ");
+    const fence = fenceFor(text, 1);
+    const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+    text = `${fence}${pad}${text}${pad}${fence}`;
+  } else {
+    text = escapeMarkdown(text);
+  }
   if (a.bold) text = `**${text}**`;
   if (a.italic) text = `_${text}_`;
   if (a.strikethrough) text = `~~${text}~~`;
-  const href = (run.href as string | null | undefined) ?? (asObj(asObj(run.text).link).url as string | undefined);
+  // A link with a disallowed scheme (javascript:, data:, ...) keeps its text and loses the link.
+  const href = safeUrl(run.href ?? asObj(asObj(run.text).link).url);
   if (href) text = `[${text}](${href})`;
   return text;
 }
@@ -84,7 +154,7 @@ function componentDirective(block: NotionBlock): { name: string; props: Record<s
   const head = lines[0]?.trim() ?? "";
   if (!head.startsWith("::")) return null;
   const name = head.slice(2).trim();
-  if (!name) return null;
+  if (!SAFE_NAME.test(name)) return null;
   const propsText = lines.slice(1).join("\n").trim();
   if (!propsText) return { name, props: {} };
   try {
@@ -121,10 +191,9 @@ export function blocksToSegments(blocks: NotionBlock[]): NotionSegment[] {
 }
 
 function imageMarkdown(payload: Record<string, unknown>): string {
-  const source = asObj(payload.file ?? payload.external);
-  const url = (source.url as string | undefined) ?? "";
-  const caption = richTextToMarkdown(payload.caption) || "image";
-  return `![${caption}](${url})`;
+  const url = safeUrl(asObj(payload.file ?? payload.external).url);
+  const caption = richTextToMarkdown(payload.caption);
+  return url ? `![${caption || "image"}](${url})` : caption;
 }
 
 function tableMarkdown(block: NotionBlock, indent: string): string {
@@ -171,8 +240,23 @@ function renderBlock(block: NotionBlock, depth: number, numberedIndex: number): 
       return withNested(indent + `- [${payload.checked ? "x" : " "}] ` + text());
     case "quote":
       return withNested(indent + "> " + text());
-    case "code":
-      return indent + "```" + ((payload.language as string) ?? "") + "\n" + text() + "\n" + indent + "```";
+    case "code": {
+      // Plain text, fenced past its own longest backtick run: markdown shows code verbatim, so
+      // annotations or entity escapes would be visible noise, and a short fence could be closed early.
+      const raw = richTextToPlain(payload.rich_text);
+      const fence = fenceFor(raw, 3);
+      const lang = typeof payload.language === "string" && /^[\w+#. -]*$/.test(payload.language) ? payload.language : "";
+      // Every content line carries the container's indent, not just the
+      // fence: CommonMark closes a list item/quote/to_do at the first line
+      // that drops below the marker's indent, so an unindented code line
+      // would end the container (and the fence with it) early, spilling the
+      // rest of the code out as a top-level block.
+      const code = raw
+        .split("\n")
+        .map((line) => indent + line)
+        .join("\n");
+      return indent + fence + lang + "\n" + code + "\n" + indent + fence;
+    }
     case "divider":
       return indent + "---";
     case "image":
@@ -180,8 +264,9 @@ function renderBlock(block: NotionBlock, depth: number, numberedIndex: number): 
     case "bookmark":
     case "link_preview":
     case "embed": {
-      const url = (payload.url as string) ?? "";
-      return indent + `[${richTextToMarkdown(payload.caption) || url}](${url})`;
+      const url = safeUrl(payload.url);
+      const caption = richTextToMarkdown(payload.caption);
+      return indent + (url ? `[${caption || escapeMarkdown(url)}](${url})` : caption);
     }
     case "table":
       return tableMarkdown(block, indent);
@@ -191,7 +276,7 @@ function renderBlock(block: NotionBlock, depth: number, numberedIndex: number): 
       // Never throw on a block type this converter doesn't know: a page with
       // one exotic block (a synced block, a column layout, ...) should still
       // render everything else, not blow up the whole read.
-      return `${indent}<!-- typren: unsupported notion block type "${block.type}" -->`;
+      return `${indent}<!-- typren: unsupported notion block type "${SAFE_NAME.test(block.type) ? block.type : "?"}" -->`;
   }
 }
 

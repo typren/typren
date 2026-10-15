@@ -1,3 +1,5 @@
+<!-- Promoting develop to main? Use the promotion template instead: add ?template=promotion.md to the PR URL. -->
+
 ## Description
 <!-- What does this change do? -->
 

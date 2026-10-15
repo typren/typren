@@ -1,6 +1,6 @@
-# One of only two GitHub workflows in this repo. Tests, lint, typecheck,
-# coverage and secret scanning all run locally in the pre-push hook, see
-# CONTRIBUTING.md.
+# This repo's contributor-agreement gate, alongside ci.yml (PR gate) and
+# release.yml (publish). Tests, lint, typecheck, coverage and secret scanning
+# all run locally in the pre-push hook, see CONTRIBUTING.md.
 #
 # This one has to run server-side because of what it does rather than what it
 # checks. A contributor's CLA status has to be established on their pull request,
@@ -65,8 +65,11 @@ jobs:
           # The repository owner holds the rights already, so there is nothing
           # to grant. Bots cannot agree to anything. `*[bot]` is the pattern
           # that actually matches GitHub App bots (github-actions[bot],
-          # dependabot[bot]); a bare `bot*` prefix never did.
-          allowlist: mataleogml,bot*,*[bot]
+          # dependabot[bot]). A bare `bot*` prefix never matched any of those
+          # (it was dead weight), but it DOES match any human account whose
+          # username happens to start with "bot", letting them skip the CLA
+          # entirely, so it's dropped rather than kept as harmless.
+          allowlist: mataleogml,*[bot]
           custom-notsigned-prcomment: >-
             Thanks for the pull request. Typren needs a signed Contributor
             License Agreement before it can be merged, because the project is

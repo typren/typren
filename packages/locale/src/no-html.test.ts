@@ -1,73 +1,58 @@
-import { describe, expect, it } from "vitest";
-import { assertNoHtml } from "./no-html";
+import { describe, expect, it, vi } from "vitest";
+import { createNodePurifier } from "./build/node-purifier";
+import { assertNoHtml, isUnsafeHtml } from "./no-html";
 import type { Catalog } from "./types";
 
+// Every payload here slipped past (or would slip past) a tag/handler denylist: handler names nobody
+// listed, entity- or control-character-spelled schemes, and harmless-looking tags that retarget URLs.
+const BYPASSES = [
+  "<script>alert(1)</script>",
+  '<a onclick="evil()">here</a>',
+  '<a href="javascript:evil()">terms</a>',
+  "<details open ontoggle=alert(1)>",
+  '<div oncontentvisibilityautostatechange="alert(1)" style="content-visibility:auto">x</div>',
+  "<p onpointerrawupdate=alert(1)>x</p>",
+  "<span onwebkitanimationend=alert(1)>x</span>",
+  "<span onwebkitanimationstart=alert(1)>x</span>",
+  "<button popovertarget=x>x</button><div popover id=x onbeforetoggle=alert(1)>x</div>",
+  "<p onbeforetoggle=alert(1)>x</p>",
+  "<div onscrollend=alert(1) style=overflow:auto>x</div>",
+  '<a href="javascript&colon;alert(1)">x</a>',
+  '<a href="java&Tab;script:alert(1)">x</a>',
+  '<a href="java\0script:alert(1)">x</a>',
+  '<a href="jav&#x09;ascript:alert(1)">x</a>',
+  '<a href="&#106;avascript:alert(1)">x</a>',
+  '<a href="&#0000106avascript:alert(1)">x</a>',
+  '<base href="https://evil.example/">',
+  '<form action="https://evil.example/"><input name=q></form>',
+  '<button formaction="javascript:alert(1)">go</button>',
+  '<a href="data:text/html,<script>alert(1)</script>">x</a>',
+  '<a href="/terms" target="_blank">x</a>',
+  '<img src=x onerror="alert(1)">',
+  "<svg><animate onbegin=alert(1)></svg>",
+  "<body onload=alert(1)>x",
+  "<remove>x</remove><remove></remove>",
+];
+
+const ALLOWED = [
+  "Hi {name}, you have {count} messages",
+  '<a href="/terms">terms</a>',
+  '<a href="https://x.example/path?q=1#top" title="Terms">x</a>',
+  '<a href="mailto:help@example.com">mail us</a>',
+  '<a href="/go?convenioId=133">continue</a>',
+  '<a href="terms.html">terms</a>',
+  "<b>bold</b> and <p><ul><li>a list</li></ul></p>",
+  "<strong>x</strong> <em>y</em> <i>z</i> <code>a</code> <span>b</span><br><h3>c</h3><ol><li>d</li></ol>",
+  "Tom & Jerry, 1 < 2",
+];
+
 describe("assertNoHtml", () => {
-  it("throws and names the key for a dangerous tag", () => {
-    const catalog: Catalog = { Greeting: { Hello: "<script>alert(1)</script>" } };
-    expect(() => assertNoHtml(catalog)).toThrow(/Greeting\.Hello/);
+  it.each(BYPASSES)("rejects %j", (payload) => {
+    expect(() => assertNoHtml({ Copy: { Body: payload } })).toThrow(/Copy\.Body/);
   });
 
-  it("throws and names the key for an inline event handler", () => {
-    const catalog: Catalog = { Button: { Label: 'click <a onclick="evil()">here</a>' } };
-    expect(() => assertNoHtml(catalog)).toThrow(/Button\.Label/);
-  });
-
-  it("throws and names the key for a javascript: URI, even inside an <a> href", () => {
-    const catalog: Catalog = { Terms: { Link: '<a href="javascript:evil()">terms</a>' } };
-    expect(() => assertNoHtml(catalog)).toThrow(/Terms\.Link/);
-  });
-
-  it("rejects ontoggle (script-less <details> vector)", () => {
-    const catalog: Catalog = { A: "<details open ontoggle=alert(1)>" };
-    expect(() => assertNoHtml(catalog)).toThrow(/at: A/);
-  });
-
-  it("rejects pointer-event handlers", () => {
-    const catalog: Catalog = { A: "<img src=x onpointerover=alert(1)>" };
-    expect(() => assertNoHtml(catalog)).toThrow(/at: A/);
-  });
-
-  it("rejects a javascript: URI hidden behind an entity-encoded tab", () => {
-    const catalog: Catalog = { A: '<a href="jav&#x09;ascript:alert(1)">x</a>' };
-    expect(() => assertNoHtml(catalog)).toThrow(/at: A/);
-  });
-
-  it("rejects a javascript: URI whose first letter is entity-encoded", () => {
-    const catalog: Catalog = { A: '<a href="&#106;avascript:alert(1)">x</a>' };
-    expect(() => assertNoHtml(catalog)).toThrow(/at: A/);
-  });
-
-  it("rejects decimal entities with leading zeros and no semicolon", () => {
-    const catalog: Catalog = { A: '<a href="&#0000106avascript:alert(1)">x</a>' };
-    expect(() => assertNoHtml(catalog)).toThrow(/at: A/);
-  });
-
-  it("does not false-flag a benign query param that looks like a bare on\\w+=", () => {
-    // Regression guard for the denylist design: a naive `on\w+=` pattern
-    // would misfire on ordinary query-string copy like this.
-    const catalog: Catalog = { Promo: { Link: '<a href="/go?convenioId=133">continue</a>' } };
-    expect(() => assertNoHtml(catalog)).not.toThrow();
-  });
-
-  it("passes a plain catalog with {var} placeholders", () => {
-    const catalog: Catalog = { Greeting: { Hello: "Hi {name}, you have {count} messages" } };
-    expect(() => assertNoHtml(catalog)).not.toThrow();
-  });
-
-  it("passes a benign <a href> link", () => {
-    const catalog: Catalog = { Terms: { Link: '<a href="/terms">terms</a>' } };
-    expect(() => assertNoHtml(catalog)).not.toThrow();
-  });
-
-  it("passes a benign https link", () => {
-    const catalog: Catalog = { Terms: { Link: '<a href="https://x">x</a>' } };
-    expect(() => assertNoHtml(catalog)).not.toThrow();
-  });
-
-  it("passes safe formatting tags", () => {
-    const catalog: Catalog = { Notice: { Body: "<b>bold</b> and <p><ul><li>a list</li></ul></p>" } };
-    expect(() => assertNoHtml(catalog)).not.toThrow();
+  it.each(ALLOWED)("passes allowed copy %j", (value) => {
+    expect(() => assertNoHtml({ Copy: { Body: value } })).not.toThrow();
   });
 
   it("lists every offending dot-path when there are multiple", () => {
@@ -76,6 +61,24 @@ describe("assertNoHtml", () => {
       B: { Bad: '<img onerror="x()">' },
       C: { Ok: "fine" },
     };
-    expect(() => assertNoHtml(catalog)).toThrow(/A\.Bad.*B\.Bad|B\.Bad.*A\.Bad/s);
+    expect(() => assertNoHtml(catalog, { label: "app/en" })).toThrow(/in app\/en at: A\.Bad, B\.Bad$/);
+  });
+
+  it("fails closed without a DOM instead of passing everything through", async () => {
+    vi.resetModules();
+    vi.stubGlobal("window", undefined);
+    try {
+      const fresh = await import("./no-html");
+      expect(() => fresh.assertNoHtml({ A: "plain" })).toThrow(/no DOM available/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("the jsdom purifier for Node applies the same gate", () => {
+    const purifier = createNodePurifier();
+    expect(createNodePurifier()).toBe(purifier);
+    expect(isUnsafeHtml("<p onscrollend=alert(1)>x</p>", purifier)).toBe(true);
+    expect(isUnsafeHtml('<a href="/terms">terms</a>', purifier)).toBe(false);
   });
 });
