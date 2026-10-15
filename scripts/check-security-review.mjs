@@ -116,7 +116,7 @@ export function run(argv = process.argv.slice(2), cwd = process.cwd()) {
     isAncestor: (a, b) => {
       try { git(["merge-base", "--is-ancestor", "--end-of-options", a, b], cwd); return true; } catch { return false; }
     },
-    changedFiles: (a, b) => git(["diff", "--name-only", `${a}..${b}`], cwd).split("\n").filter(Boolean),
+    changedFiles: (a, b) => git(["diff", "--name-only", "--no-renames", `${a}..${b}`], cwd).split("\n").filter(Boolean),
   });
   return { head, ...result };
 }
