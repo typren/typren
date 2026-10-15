@@ -14,7 +14,10 @@ export interface SinkResult {
  */
 export interface FormSink {
   type: string;
-  deliver(submission: Submission, schema: FormSchema): Promise<SinkResult>;
+  /** `request` is the original incoming request, passed through so a sink can
+   *  read a server-trusted source (e.g. a cookie) the Submission body never
+   *  carries. Optional: most sinks only need `submission` and `schema`. */
+  deliver(submission: Submission, schema: FormSchema, request?: Request): Promise<SinkResult>;
 }
 
 interface SinkConfigBase {
