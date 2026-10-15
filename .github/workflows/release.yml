@@ -29,12 +29,73 @@ on:
   push:
     branches: [main]
 
+# Least-privilege baseline; the `release` job below is the only one that
+# needs more, and declares it there.
 permissions:
-  contents: write # create the GitHub Release
-  id-token: write # OIDC, required for npm provenance
+  contents: read
 
 jobs:
+  # No `id-token` here, on purpose: this job runs `bun install` against
+  # whatever the lockfile resolves, then builds/lints/tests it, which is
+  # exactly the code a malicious dependency would want to run. With
+  # `id-token: write` scoped to a job, GitHub exposes
+  # ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN to every step in that job, not just the
+  # one that happens to call it -- so a job that both installs untrusted code
+  # AND holds that permission lets any of that code mint an OIDC token and
+  # trusted-publish on its own. Keeping that permission out of this job
+  # entirely, rather than just not-calling-it, is the actual control.
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - run: bun install --frozen-lockfile
+
+      # Re-run the gate on a clean checkout. The local hook already ran it, but
+      # that was against a working tree, and this proves main builds green from
+      # nothing, which is the artifact people actually install.
+      - run: bun run build
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run test
+
+      # Everything else `npm publish` packs (each package's package.json, src,
+      # README, LICENSE, CHANGELOG.md) is already committed to main by the
+      # Version Packages PR that preceded this push, so the `release` job's
+      # own checkout already has it. `dist/` and core's `migrations/` are the
+      # only build outputs .gitignore keeps out of that checkout, so they're
+      # the only things that need to cross the job boundary. Staged into one
+      # directory first (rather than uploading `packages/*/dist` and
+      # `packages/core/migrations` as separate glob patterns) so the artifact's
+      # internal paths are unambiguous: upload-artifact computes a shared root
+      # across multiple patterns, and this skips having to reason about what
+      # that root ends up being.
+      - name: Stage dist/ and core's migrations/ for the release job
+        run: |
+          set -eu
+          shopt -s nullglob
+          for dir in packages/*/dist; do
+            pkg=$(basename "$(dirname "$dir")")
+            mkdir -p ".release-artifact/packages/$pkg"
+            cp -r "$dir" ".release-artifact/packages/$pkg/dist"
+          done
+          mkdir -p .release-artifact/packages/core
+          cp -r packages/core/migrations .release-artifact/packages/core/migrations
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-dist
+          path: .release-artifact
+          retention-days: 1
+
   publish:
+    needs: build
     runs-on: ubuntu-latest
     # Required reviewer on this environment (repo Settings -> Environments):
     # a tag push queues the run, but the job itself waits for a manual
@@ -42,38 +103,40 @@ jobs:
     # tag push alone can't publish; a human still has to click approve. This
     # is also the environment name to enter on npm's Trusted Publisher form.
     environment: release
-    # This job holds `id-token: write` (OIDC) for its entire duration, which
-    # is the actual credential a compromised dependency would want. Splitting
-    # build/test into a separate job without that permission would shrink the
-    # blast radius further, but every step below that could run attacker
-    # code (install, build, test) runs BEFORE the npm-publish step that's the
-    # only thing which actually exercises the OIDC token; nothing after
-    # publish installs or builds anything (tag/push/release steps only shell
-    # out to already-installed git/gh). A two-job split would also mean
-    # shipping node_modules plus every package's dist as a cross-job
-    # artifact in a bun-lockfile monorepo, for a security property this
-    # single-job step ordering already gives: not worth it here.
+    permissions:
+      contents: write # create the GitHub Release, push tags
+      id-token: write # OIDC, required for npm provenance
+    # No `bun install`, no `bun run build`, nothing that fetches or compiles
+    # code, anywhere in this job: it holds `id-token: write` for its whole
+    # duration (a job-scoped permission, not a per-step one), so any install
+    # or build step here could mint and exfiltrate the OIDC token itself,
+    # trusted-publish gets requested at all. `dist/` comes from the `build`
+    # job's artifact as-is; `NPM_CONFIG_IGNORE_SCRIPTS` below stops
+    # `npm publish`'s own `prepublishOnly` hook from re-running `npm run
+    # build` here (confirmed empirically: a prepublishOnly script does not
+    # fire under this env var). That hook exists to guard against a stale
+    # local dist/ reaching `npm publish`; it's redundant here specifically,
+    # because the `build` job above produced this dist/ from a clean
+    # checkout moments ago, which is the guard's whole job.
+    env:
+      NPM_CONFIG_IGNORE_SCRIPTS: "true"
     steps:
-      # Pinned by commit SHA (tag in the comment) rather than a mutable tag:
-      # this job eventually holds a short-lived npm OIDC credential, so the
-      # exact code running here is worth nailing down. Bump the comment and
-      # the SHA together when upgrading.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0 # changesets needs history
 
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          bun-version: "1.4.2"
+          name: release-dist
+          path: . # extracts straight onto packages/*/dist, packages/core/migrations
 
-      # npm (not bun) does the publishing: provenance attestation is an npm
-      # feature and needs a recent npm on a Node runtime.
+      # npm (not bun -- this job never installs bun) does the publishing:
+      # provenance attestation is an npm feature and needs a recent npm on a
+      # Node runtime.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-
-      - run: bun install --frozen-lockfile
 
       # Trusted publishing (OIDC) needs npm >= 11.5.1; the version bundled with
       # actions/setup-node's Node 22 isn't guaranteed to clear that, so pin it
@@ -82,27 +145,23 @@ jobs:
       # finding out at publish time.
       - run: npm install -g npm@11.19.1
 
-      # Re-run the gate on a clean checkout. The local hook already ran it, but
-      # that was against a working tree, and this proves main builds green from
-      # nothing, which is the artifact people actually install. build runs first:
-      # @typren/core's exports point at dist, so a fresh checkout has no dist
-      # for sibling packages to resolve @typren/core against until it's built.
-      - run: bun run build
-      - run: bun run typecheck
-      - run: bun run lint
-      - run: bun run test
+      # @changesets/cli itself, pinned to the exact version this repo's
+      # package.json devDependency resolves to today, installed with
+      # --ignore-scripts for the same reason NPM_CONFIG_IGNORE_SCRIPTS is set
+      # job-wide above. No `bun install`/workspace install: this is the one
+      # package this job needs that isn't already on the runner image.
+      - run: npm install -g @changesets/cli@3.0.3 --ignore-scripts
 
       # No NODE_AUTH_TOKEN: this repo is configured as a Trusted Publisher on
       # npm (github.com/typren/typren, this workflow file, the "release"
       # environment), so npm exchanges the id-token above for a short-lived
       # publish credential itself. Provenance attestation is automatic under
       # trusted publishing, no --provenance flag needed.
-      # `changeset publish` runs `npm publish` from each package dir, which
-      # fires the packages' prepublishOnly build guards. If this ever moves to
-      # tarball publishing (`changeset pack` + `npm publish <tarball>`), npm
-      # skips lifecycle scripts and those guards go silently inert in CI.
+      # `changeset publish` runs `npm publish` from each package dir; with
+      # NPM_CONFIG_IGNORE_SCRIPTS set job-wide, that publishes the dist/ the
+      # `build` job already produced and uploaded, rather than rebuilding here.
       - name: Publish to npm
-        run: bunx changeset publish
+        run: changeset publish
 
       # changesets tags with `git tag <name> -m <name>`, an annotated tag, which
       # needs a committer identity the runner doesn't have. @changesets/git
@@ -116,12 +175,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          bunx changeset tag
+          changeset tag
           git tag --points-at HEAD
 
       # The tags above exist only on the runner; without this they die with it.
-      # HUSKY=0 skips the pre-push hook: it reruns the full local gate, which
-      # the steps above already ran on this exact checkout.
+      # HUSKY=0 skips the pre-push hook: it reruns the full local gate (and
+      # needs bun, which this job never installs).
       - name: Push the release tags
         run: git push origin --tags
         env:
