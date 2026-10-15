@@ -33,6 +33,12 @@ export type BuildRedirectsOptions = {
    *  safety valve against a runaway or malicious frontmatter edit, not a
    *  realistic target. */
   maxEntries?: number;
+  /** Path prefixes an alias must never claim beyond this store's own pages:
+   *  another locale's URL prefix (e.g. "/es"), a collection's public base
+   *  (e.g. "/blog"), or any other route the host owns outside this
+   *  ContentStore. This module reads one store and has no i18n/collection
+   *  config of its own, so the host passes whatever it knows is reserved. */
+  reservedPrefixes?: string[];
 };
 
 const DEFAULT_MAX_ENTRIES = 1000;
@@ -43,6 +49,30 @@ const DEFAULT_MAX_ENTRIES = 1000;
 const MAX_PATH_LENGTH = 2048;
 
 const normalize = (p: string): string => (p.length > 1 && p.endsWith("/") ? p.slice(0, -1) : p);
+
+const WELL_KNOWN_PREFIX = "/.well-known";
+const hasFileExtension = (p: string): boolean => /\.[a-zA-Z0-9]+$/.test(p.slice(p.lastIndexOf("/") + 1));
+
+/** Reason an alias target must never become a redirect, or null when it's
+ *  fine. These are never "claimed" by a page the way a shadowed canonical
+ *  path is (no page owns "/" without `homeSlug`, a static asset isn't in the
+ *  ContentStore at all, /.well-known belongs to other protocols, and a
+ *  locale prefix or collection base lives outside this single store), so
+ *  they need their own check rather than falling out of the shadow check
+ *  above. Warned and skipped, not thrown: unlike a malformed alias (always
+ *  invalid, any build), these categories are newly restricted and an
+ *  existing site's content may already declare one, so a patch that
+ *  tightens them must not turn into a hard build break. */
+function restrictedAliasReason(from: string, reservedPrefixes: string[]): string | null {
+  if (from === "/") return `"/" is reserved for the site root`;
+  if (from === WELL_KNOWN_PREFIX || from.startsWith(`${WELL_KNOWN_PREFIX}/`)) return "/.well-known paths are reserved";
+  if (hasFileExtension(from)) return "paths with a file extension are reserved for static assets";
+  for (const raw of reservedPrefixes) {
+    const prefix = normalize(raw);
+    if (from === prefix || from.startsWith(`${prefix}/`)) return `"${prefix}" is a reserved prefix (another locale or collection)`;
+  }
+  return null;
+}
 
 /** Canonical public path for a slug, the same slug->URL mapping buildSitemap
  *  uses, kept in sync so an alias can never quietly diverge from where the
@@ -67,9 +97,17 @@ const canonicalPath = (slug: string, homeSlug?: string): string => (slug === hom
  * page's own canonical path (including a page aliasing itself, which would
  * be a redirect loop), a duplicate alias claimed by two pages, or more total
  * aliases than `maxEntries`.
+ *
+ * Warns and SKIPS (does not throw) an alias that claims a path this store
+ * can't see as already owned but that must never become a permanent edge
+ * redirect regardless: "/" (when no page's canonical path is already "/"),
+ * anything under `/.well-known/`, a path with a file extension (a static
+ * asset route), or a `reservedPrefixes` entry (another locale/collection).
+ * These are newly restricted, so an existing site's frontmatter may already
+ * declare one; skipping keeps this fix from turning into a build break.
  */
 export async function buildRedirects(store: ContentStore, opts: BuildRedirectsOptions = {}): Promise<RedirectEntry[]> {
-  const { homeSlug, maxEntries = DEFAULT_MAX_ENTRIES } = opts;
+  const { homeSlug, maxEntries = DEFAULT_MAX_ENTRIES, reservedPrefixes = [] } = opts;
   const slugs = await store.listSlugs();
 
   // Every real route on the site, so an alias can never shadow one of them.
@@ -109,6 +147,12 @@ export async function buildRedirects(store: ContentStore, opts: BuildRedirectsOp
             : `typren: "${slug}" alias "${from}" shadows page "${shadowed}"'s own canonical path`
         );
       }
+      const restricted = restrictedAliasReason(from, reservedPrefixes);
+      if (restricted !== null) {
+        console.warn(`typren: skipping "${slug}" alias "${from}": ${restricted}`);
+        continue;
+      }
+
       const owner = claimedBy.get(from);
       if (owner !== undefined) {
         throw new Error(`typren: duplicate alias "${from}" claimed by both "${owner}" and "${slug}"`);
