@@ -1,5 +1,39 @@
 # @typren/core
 
+## 0.5.1
+
+### Patch Changes
+
+- e78fa80: `clerkAuthAdapter` now binds org roles to an `organizationId` option, required whenever
+  `allowedRoles` or `adminRoles` is set, and only counts a role while that org is the session's
+  active org (session token v1 `org_id`/`org_role` and v2 `o.id`/`o.rol` are both read). Before,
+  any user who created their own organization was its `org:admin` and passed the role checks. The
+  `"admin"` action also has to pass `allowedUserIds`/`allowedEmails`/`allowedRoles` first now.
+  This changes the adapter's API; see `docs/migrations/core-0.5.0.md`.
+- d8b5925: Bound front-matter writes by node count before dumping. Writes inline every shared object reference, so a ~1 KB editor payload built as a DAG of shared references expanded exponentially and exhausted the server's memory before the 256 KB size cap was checked. Such payloads, and circular ones, now fail fast with a "front matter too large" error; ordinary shared references (a duplicated slice) still save.
+- dc12381: `localAuth()` now requires the Next server to be bound to loopback (`next dev -H 127.0.0.1`) and denies every request otherwise. The loopback `Host` check it relied on before is client-controlled, so a LAN client could spoof `Host: localhost` against a dev server listening on all interfaces (Next's default) and write content and media. Update your `dev` script if editor writes start failing in development; see the core 0.5.0 migration note.
+- 38ee2d8: `handleMediaUpload` now refuses a cross-origin request with 403 (a cross-site `Sec-Fetch-Site`, or an `Origin` whose host isn't the request's). A multipart POST needs no CORS preflight, so any web page could previously upload to a developer's loopback dev server through a standalone media route. A host serving the editor from another origin passes it as the new optional `allowedOrigins` argument; `createTyprenApi` forwards its own `allowedOrigins`.
+- 8db92cc: `nextAuthAdapter` now requires an `isEmailVerified(session)` callback whenever `allowedEmails` is
+  set, and only lets the session email satisfy the allowlist when it returns `true`. NextAuth's
+  session carries no verified-email signal, so an address from a provider that never verified it
+  used to pass. This changes the adapter's API; see `docs/migrations/core-0.5.0.md`.
+- bd91499: Fix a stored-XSS path in the Notion block converter: an inline-code run containing a line break ended its paragraph inside the would-be code span, so the rest of the run (for example `<div><img onerror=...></div>`) rendered as live HTML. Line endings inside inline code now collapse to spaces, which is how CommonMark renders them anyway.
+- 1d632a0: Fix two stored-XSS paths in the Notion block converter: a nested code block's content lines weren't indented to match their list/quote/to-do container, letting the fence (and a payload like `<img onerror=...>`) break out as a top-level HTML block; and plain Notion text and bookmark/image captions weren't escaped for markdown metacharacters, letting a caption like `a](javascript:...) [b` or literal text `[x](javascript:...)` close its wrapper early and become a live, script-executing link.
+- 7183ffa: Security review (group "yaml"): `createMarkdownAdapter` and `createGithubAdapter`
+  now serialize front matter through the same safe path their `parse()` already
+  used, instead of gray-matter's raw `stringify`.
+  
+  - Front matter is dumped with YAML anchors/aliases disabled (`noRefs: true`).
+    Without it, a page whose slices share a nested object reference (as the
+    editor's Duplicate control produces via a shallow copy) serialized to an
+    anchor/alias pair that `parseMatter` refuses to read back: a saveDraft or
+    Duplicate could make a page permanently unreadable, failing every build and
+    listing that parses it.
+  - Serializing now enforces the same front-matter size cap `parseMatter`
+    enforces on read, by reading the result back with `parseMatter` before
+    returning it. Oversized front matter now throws before anything is written,
+    instead of writing a file no parser can ever read again.
+
 ## 0.5.0
 
 ### Minor Changes
