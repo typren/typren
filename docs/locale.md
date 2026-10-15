@@ -13,7 +13,7 @@ Two artifacts, not one. A **catalog** is a full, content-addressed, immutable
 snapshot of one `{app, lang}`'s strings — the filename *is* its sha256 hash of
 the canonical serialized form, so a fetched catalog can be verified against
 the hash that named it. A **manifest** is the one small mutable document:
-`{ v, buildVersion, apps: { [app]: { [lang]: { hash } } } }`, published
+`{ v, buildVersion, apps: { [app]: { [lang]: { hash, deltas? } } } }`, published
 alongside each release, pointing at whichever catalog hash is current. Every
 producer and consumer of a hash — the build pipeline, the OTA client, any
 future verify step — goes through the same canonicalizer, so hashes never
@@ -27,14 +27,18 @@ are the same code path no matter which provider produced the input.
 **Publish-time gates**, both enforced in the build pipeline before anything is
 written to disk:
 
-- **No-HTML denylist** (`assertNoHtml`) — rejects a catalog if any string
-  contains a dangerous tag (`script`, `iframe`, `svg`, `style`, …), an inline
-  event-handler attribute, or a `javascript:` URI, including numeric-entity
-  and whitespace obfuscations of those. It's a denylist rather than a tag
-  allowlist deliberately: catalog strings can reach a `v-html` /
-  `dangerouslySetInnerHTML` sink downstream, so the blocked constructs would
-  be stored XSS, but ordinary formatting like `<a href>` or `<b>` in real
-  legal copy has to keep working without a codebase change every time.
+- **HTML allowlist** (`assertNoHtml`) — catalog strings can reach a `v-html` /
+  `dangerouslySetInnerHTML` sink downstream, so the gate runs every string
+  through DOMPurify with a fixed allowlist: the tags `a b i strong em ul ol li
+  p br h3 span code`, the attributes `href` and `title`, and only `http(s):`,
+  `mailto:` or relative URLs. It is a gate, not a sanitizer: if sanitizing
+  would remove anything (a tag, an attribute, a URL), the build fails and names
+  the offending dot-paths, rather than shipping a silently altered string.
+  `{var}` placeholders are plain text and pass. An earlier tag/handler
+  denylist was replaced because every such list was bypassed by a handler or
+  URI spelling it didn't name. In Node the gate needs a DOM: the build and the
+  CLI pass `createNodePurifier()` (jsdom, from `@typren/locale/build`);
+  without any DOM `assertNoHtml` throws instead of passing everything.
 - **Placeholder compatibility** (`isPlaceholderCompatible`) — a changed string
   may only ship as a delta to older builds if it uses exactly the same set of
   `{var}` placeholders as the string it replaces. A change that adds, drops,
@@ -60,14 +64,31 @@ breaking the page. A bad or unreachable OTA payload degrades to "no update
 this load," not an outage.
 
 The flow per `{app, lang}`: fetch the manifest for the current remote hash;
-check a `localStorage`-shaped cache keyed by `app:lang:buildVersion` for an
-already-merged result at that hash; if the remote hash equals what's already
-baked, return baked as-is with no catalog fetch at all; otherwise fetch the
-full catalog at that hash, re-hash it and verify it matches (a content-address
-check against the manifest's claimed hash — catches corruption and a
-mismatched publish, not a cryptographic signature; manifest signing is a
-possible follow-up, not something this package does today), merge it
-additively onto baked, cache the result, and return it.
+if it equals what's already baked, return baked as-is with no catalog fetch at
+all. Otherwise, every hash the client trusts comes from that freshly fetched
+manifest, never from the payload or storage being checked:
+
+- A `localStorage`-shaped cache keyed by `app:lang:buildVersion` holds the
+  last *verified* content. A cached entry is used only if its hash is one the
+  manifest names and the stored catalog re-hashes to it; a tampered or stale
+  entry is a cache miss.
+- With `deltaUrl` set, the precomputed delta is tried only when the
+  manifest's `deltas` map lists the expected additive-merge hash for this
+  baked build (`deltas[bakedHash]`); the merge must hash to exactly that. The
+  delta file's own `additiveHash` is informational and never trusted.
+- Otherwise the full catalog at the remote hash is fetched and must re-hash
+  to it.
+
+These are content-address checks against the manifest: they catch corruption,
+a swapped delta or catalog file, and a tampered cache, but not a compromised
+manifest, since there is no cryptographic signature (manifest signing is a
+possible follow-up, not something this package does today). As a second
+line, the HTML allowlist gate re-runs at load on every string the update
+changes: a string that fails keeps its baked value and is reported through
+`onError`, while the rest of the update still applies. In the browser the
+gate uses the page's `window`; SSR in Node passes `purifier:
+createNodePurifier()`, or the client cannot run the gate and resolves to baked.
+The verified content is merged additively onto baked, cached, and returned.
 Keying the cache by `buildVersion` means a new deploy can never read a stale
 entry left by a previous one — the key itself changes, so there's nothing to
 invalidate by hand.
@@ -132,7 +153,11 @@ on every poll.
 Ingest is a port, not a hardcoded reader: `LocaleSourceProvider` is one
 method. `loadSource()` returns parsed catalogs keyed by the *canonical*
 locale (BCP-47, `-`-separated; the default normalization is `en_US` →
-`en-US`, overridable per key via `langMap`). The package owns its output
+`en-US`, overridable per key via `langMap`). A key, `langMap` result
+included, must look like a BCP-47 tag (`^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$`)
+or the load fails naming it, because the key becomes a path segment on disk;
+every catalog, manifest, delta and locale-file write additionally refuses a
+path that resolves outside its output directory. The package owns its output
 shape the same way it owns hashing: nothing mirrors a vendor's export
 byte-for-byte, and on-disk locale files are always *derived from* catalogs
 (`writeLocaleFiles`, with a `filenameStyle` knob for consumers whose builds
@@ -150,7 +175,14 @@ Two providers ship today:
   fit the shape — `lokalise` and `crowdin` today — so wiring one up is
   `{ type: "export-api", preset: "lokalise", projectId, token: "${ENV_VAR}" }`.
   Tokens are always environment references; a literal-looking token is
-  rejected at load time.
+  rejected at load time. The bundle URL comes from the TMS response, so it
+  must share the create endpoint's origin or match a `bundleOrigins` entry
+  (https only): an exact origin, an origin plus a path prefix ending in `/`
+  (for shared storage hosts), or a `https://*.suffix` host suffix. The presets
+  ship theirs: `lokalise` admits only its own bucket on path-style S3
+  (`https://s3-eu-west-1.amazonaws.com/lokalise-assets/`, not every bucket on
+  that host), and `crowdin` admits `https://*.downloads.crowdin.com`. Zip
+  bundles are capped at 50 MB inflated and 1000 entries.
 
 A platform whose protocol genuinely diverges from create/poll/fetch gets its
 own provider only when demand shows up; each new source is a config shape

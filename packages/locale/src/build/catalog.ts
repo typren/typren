@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { assertNoHtml } from "../no-html";
 import { canonicalize, hashCatalog } from "../canonicalize";
 import { diff, isPlaceholderCompatible, merge } from "../delta";
@@ -7,6 +7,8 @@ import { resolve } from "../locale";
 import type { Catalog, Delta, Manifest } from "../types";
 import { resolveProvider } from "./resolve-provider";
 import type { LocaleSourceProvider, SourceConfig } from "./provider";
+import { createNodePurifier } from "./node-purifier";
+import { joinInside } from "./write-locale-files";
 
 export interface BuildOptions {
   app: string;
@@ -30,9 +32,10 @@ export interface BuildResult {
 export interface PublishedDelta extends Delta {
   /**
    * Hash of `merge(fromCatalog, delta, {allowRemove:false})`: the catalog an
-   * OLD client's additive merge must produce. Pre-wires delta-first OTA. A
-   * client applying this delta verifies against `additiveHash`, not the
-   * release hash, which a removal release makes unreachable additively.
+   * OLD client's additive merge must produce (a removal release makes the
+   * release hash unreachable additively). Informational here: the same value
+   * is published in the manifest's `deltas` map, and the OTA client verifies
+   * against that copy, since a tampered delta could restate its own hash.
    */
   additiveHash: string;
 }
@@ -44,7 +47,7 @@ interface ReleaseHistoryEntry {
 }
 
 function historyPath(outDir: string, app: string): string {
-  return join(outDir, "manifest", `${app}.history.json`);
+  return joinInside(outDir, "manifest", `${app}.history.json`);
 }
 
 function readHistory(outDir: string, app: string): ReleaseHistoryEntry[] {
@@ -144,12 +147,12 @@ export async function buildCatalogs(
         `buildCatalogs: keys containing "." are not representable (flatten uses "." as the path separator) in ${options.app}/${lang}: ${dottedKeys.join(", ")}`,
       );
     }
-    assertNoHtml(catalog, { label: `${options.app}/${lang}` });
+    assertNoHtml(catalog, { label: `${options.app}/${lang}`, purifier: createNodePurifier() });
     const hash = await hashCatalog(catalog);
 
-    const catalogDir = join(outDir, "catalog", options.app, lang);
+    const catalogDir = joinInside(outDir, "catalog", options.app, lang);
     mkdirSync(catalogDir, { recursive: true });
-    const catalogPath = join(catalogDir, `${hash}.json`);
+    const catalogPath = joinInside(catalogDir, `${hash}.json`);
     // Published bytes ARE the canonical form the hash covers. A raw-input
     // stringify could differ (key order, unicode form) from what was hashed.
     writeFileSync(catalogPath, canonicalize(catalog));
@@ -163,34 +166,36 @@ export async function buildCatalogs(
     catalogPaths[lang] = catalogPath;
   }
 
-  const manifestDir = join(outDir, "manifest");
-  mkdirSync(manifestDir, { recursive: true });
-  const manifestPath = join(manifestDir, `${options.app}.json`);
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-
   const history = readHistory(outDir, options.app);
   const deltaPaths: string[] = [];
   let deltaCandidates = 0;
   let missingFromPaths = 0;
   for (const [lang, catalog] of Object.entries(catalogsByLang)) {
-    const toHash = manifest.apps[options.app]![lang]!.hash;
+    const entry = manifest.apps[options.app]![lang]!;
+    const toHash = entry.hash;
     for (const release of history) {
       const fromHash = release.hashes[lang];
       if (!fromHash || fromHash === toHash) continue; // no prior release for this lang, or unchanged since it
 
       deltaCandidates++;
-      const fromPath = join(outDir, "catalog", options.app, lang, `${fromHash}.json`);
+      const fromPath = joinInside(outDir, "catalog", options.app, lang, `${fromHash}.json`);
       if (!existsSync(fromPath)) {
         missingFromPaths++;
         continue; // pruned off disk; that release falls back to a full-catalog fetch
       }
 
       const fromCatalog: Catalog = JSON.parse(readFileSync(fromPath, "utf8"));
-      const destPath = join(outDir, "delta", options.app, lang, `${fromHash}-${toHash}.json`);
-      await writeDelta(fromCatalog, catalog, destPath);
+      const destPath = joinInside(outDir, "delta", options.app, lang, `${fromHash}-${toHash}.json`);
+      const { additiveHash } = await writeDelta(fromCatalog, catalog, destPath);
+      // The client trusts this manifest-bound hash, never the delta body's own claim.
+      (entry.deltas ??= {})[fromHash] = additiveHash;
       deltaPaths.push(destPath);
     }
   }
+
+  const manifestPath = joinInside(outDir, "manifest", `${options.app}.json`);
+  mkdirSync(dirname(manifestPath), { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   if (deltaCandidates > 0 && missingFromPaths === deltaCandidates) {
     console.warn(
       `buildCatalogs: history for ${options.app} lists ${deltaCandidates} prior release catalog(s) but none exist under ${outDir} — zero deltas emitted (fresh checkout? publish the previous build output alongside).`,

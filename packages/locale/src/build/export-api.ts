@@ -53,6 +53,14 @@ export interface ExportApiSourceConfig {
    */
   zipLocaleFrom?: "filename" | "dir";
   langMap?: Record<string, string>;
+  /**
+   * Where the bundle URL may point, besides the create endpoint's own origin (always allowed). The
+   * URL comes from the TMS response, so without this list a hostile or spoofed response could aim the
+   * fetch anywhere. https only. Each entry is an exact origin (`"https://exports.tms.example"`), an
+   * origin plus a path prefix ending in "/" (`"https://s3.example/bucket/"`, for shared storage hosts),
+   * or a host suffix (`"https://*.downloads.tms.example"`, any subdomain).
+   */
+  bundleOrigins?: string[];
 }
 
 export interface ExportApiProviderOptions {
@@ -72,6 +80,7 @@ interface ResolvedConfig {
   bundle: "zip" | "json";
   zipLocaleFrom: "filename" | "dir";
   langMap?: Record<string, string>;
+  bundleOrigins: string[];
 }
 
 function mergeShallow<T extends object>(base: T | undefined, override: T | undefined): T | undefined {
@@ -97,7 +106,60 @@ function resolveConfig(config: ExportApiSourceConfig): ResolvedConfig {
     bundle: config.bundle ?? preset?.bundle ?? "json",
     zipLocaleFrom: config.zipLocaleFrom ?? preset?.zipLocaleFrom ?? "filename",
     langMap: config.langMap,
+    bundleOrigins: config.bundleOrigins ?? preset?.bundleOrigins ?? [],
   };
+}
+
+const WILDCARD_HOST = "https://*.";
+
+/** Whether `url` matches one `bundleOrigins` entry; a malformed entry throws, since it is config, not input. */
+function matchesBundleOrigin(url: URL, entry: string): boolean {
+  if (entry.startsWith(WILDCARD_HOST)) {
+    // Dot-anchored: ".downloads.crowdin.com" never matches "evildownloads.crowdin.com".
+    const suffix = `.${entry.slice(WILDCARD_HOST.length).toLowerCase()}`;
+    if (!/^(\.[a-z0-9-]+){2,}$/.test(suffix)) throw new Error(`export-api: bundleOrigins entry "${entry}" is not a valid host suffix`);
+    return url.protocol === "https:" && url.port === "" && url.hostname.endsWith(suffix);
+  }
+  const allowed = new URL(entry);
+  if (allowed.protocol !== "https:") throw new Error(`export-api: bundleOrigins entry "${entry}" must be https`);
+  // A shared host (path-style S3) is only safe narrowed to one bucket, so a path must end in "/" to
+  // stop "/lokalise-assets" from also admitting "/lokalise-assets-evil".
+  if (!allowed.pathname.endsWith("/")) throw new Error(`export-api: bundleOrigins path prefix in "${entry}" must end in "/"`);
+  return url.origin === allowed.origin && url.pathname.startsWith(allowed.pathname);
+}
+
+function assertBundleOrigin(bundleUrl: string, createUrl: string, bundleOrigins: string[]): void {
+  let url: URL;
+  try {
+    url = new URL(bundleUrl, createUrl);
+  } catch {
+    throw new Error(`export-api: bundle URL "${bundleUrl}" is not a valid URL`);
+  }
+  if (url.origin === new URL(createUrl).origin || bundleOrigins.some((entry) => matchesBundleOrigin(url, entry))) return;
+  throw new Error(
+    `export-api: bundle URL "${url.origin}${url.pathname}" is not allowed (create origin or bundleOrigins: ${bundleOrigins.join(", ") || "none"}); add its origin to "bundleOrigins" if this TMS serves exports from it`,
+  );
+}
+
+// A zip bomb inflates a few KB into gigabytes in memory, and a real TMS export is nowhere near either cap.
+const MAX_ZIP_BYTES = 50 * 1024 * 1024;
+const MAX_ZIP_ENTRIES = 1000;
+
+function unzipCapped(bytes: Uint8Array): Record<string, Uint8Array> {
+  let total = 0;
+  let count = 0;
+  const entries = unzipSync(bytes, {
+    filter: (file) => {
+      total += file.originalSize;
+      if (++count > MAX_ZIP_ENTRIES) throw new Error(`export-api: zip bundle has more than ${MAX_ZIP_ENTRIES} entries`);
+      if (total > MAX_ZIP_BYTES) throw new Error(`export-api: zip bundle inflates past ${MAX_ZIP_BYTES} bytes`);
+      return true;
+    },
+  });
+  // The declared sizes come from the archive itself; recheck what was actually inflated.
+  const actual = Object.values(entries).reduce((sum, data) => sum + data.length, 0);
+  if (actual > MAX_ZIP_BYTES) throw new Error(`export-api: zip bundle inflates past ${MAX_ZIP_BYTES} bytes`);
+  return entries;
 }
 
 const ENV_REF_PATTERN = /\$\{[A-Za-z_][A-Za-z0-9_]*\}/;
@@ -209,16 +271,12 @@ async function pollUntilDone(
   }
 }
 
-function rejectUnsafeKey(key: string, source: string): void {
-  if (UNSAFE_KEYS.has(key)) throw new Error(`export-api: rejected unsafe locale key "${key}" from ${source}`);
-}
-
 function parseZipBundle(
   bytes: Uint8Array,
   localeFrom: "filename" | "dir",
   langMap: Record<string, string> | undefined,
 ): Record<string, Catalog> {
-  const entries = unzipSync(bytes);
+  const entries = unzipCapped(bytes);
   const catalogs: Record<string, Catalog> = {};
   for (const [filename, contents] of Object.entries(entries).sort(([a], [b]) => a.localeCompare(b))) {
     if (filename.endsWith("/")) continue; // directory marker
@@ -231,7 +289,6 @@ function parseZipBundle(
     }
     const catalog = JSON.parse(strFromU8(contents)) as Catalog;
     const key = normalizeLocaleKey(rawName, langMap);
-    rejectUnsafeKey(key, "zip bundle");
     catalogs[key] = catalogs[key] ? { ...catalogs[key], ...catalog } : catalog;
   }
   return catalogs;
@@ -241,7 +298,6 @@ function parseJsonBundle(doc: unknown, langMap: Record<string, string> | undefin
   const catalogs: Record<string, Catalog> = {};
   for (const [name, catalog] of Object.entries(doc as Record<string, unknown>)) {
     const key = normalizeLocaleKey(name, langMap);
-    rejectUnsafeKey(key, "json bundle");
     catalogs[key] = catalog as Catalog;
   }
   return catalogs;
@@ -287,6 +343,7 @@ export function createExportApiSourceProvider(
         if (typeof bundleUrl !== "string" || !bundleUrl) {
           throw new Error(`export-api: could not read bundle URL at "${urlPath}"`);
         }
+        assertBundleOrigin(bundleUrl, createUrl, resolved.bundleOrigins);
         const bundleResponse = await fetchImpl(bundleUrl);
         if (!bundleResponse.ok) {
           throw new Error(`export-api: bundle request failed (${bundleResponse.status} ${bundleResponse.statusText}): ${bundleUrl}`);

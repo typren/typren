@@ -399,7 +399,7 @@ describe("createVueComposableOtaClient", () => {
         },
         fetchImpl: async (url) => {
           if (url.includes("manifest")) {
-            return { v: 1, buildVersion: "b1", apps: { site: { es: { hash: remoteHash } } } } satisfies Manifest;
+            return { v: 1, buildVersion: "b1", apps: { site: { es: { hash: remoteHash, deltas: { [bakedHash]: remoteHash } } } } } satisfies Manifest;
           }
           if (url.includes("delta")) {
             return { changed: { Greeting: "Hola v2" }, additiveHash: remoteHash };

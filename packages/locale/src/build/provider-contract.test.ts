@@ -7,6 +7,7 @@ import { hashCatalog } from "../canonicalize";
 import type { Catalog } from "../types";
 import { createFsSourceProvider } from "./fs-provider";
 import { createExportApiSourceProvider } from "./export-api";
+import { exportApiPresets } from "./presets";
 import type { LocaleSourceProvider } from "./provider";
 
 const BASE_URL = "https://tms.example";
@@ -120,9 +121,15 @@ function describeProviderContract(name: string, factory: ProviderFactory): void 
 
     it("an unsafe '__proto__' key from the wire never lands", async () => {
       const provider = await factory({ ["__proto__"]: { Greeting: "Hi" }, en: { Greeting: "Yo" } });
-      const catalogs = await provider.loadSource();
-      expect(Object.getPrototypeOf(catalogs)).toBe(Object.prototype);
-      expect(Object.keys(catalogs)).not.toContain("__proto__");
+      // A JSON body can't carry a own `__proto__` key past JSON.stringify, so that provider sees none;
+      // the others see it and must refuse the whole load rather than emit it.
+      const result = await provider.loadSource().catch((e: unknown) => e);
+      if (result instanceof Error) {
+        expect(result.message).toMatch(/unsafe locale key/);
+      } else {
+        expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+        expect(Object.keys(result as Record<string, Catalog>)).not.toContain("__proto__");
+      }
     });
   });
 }
@@ -384,6 +391,101 @@ describe("createExportApiSourceProvider", () => {
       { fetchImpl: fetchImpl as unknown as typeof fetch },
     );
     await expect(provider.loadSource()).rejects.toThrow(/README\.txt.*not a \.json file/);
+  });
+
+  it.each(["../package", "..\\x", "/etc/passwd", "en/../../package"])(
+    "a traversal-shaped bundle key %j is refused (zip entry and json key)",
+    async (name) => {
+      const catalogs = { [name]: { Greeting: "Hi" }, en: { Greeting: "Yo" } };
+      await expect(exportApiZipFactory(catalogs).loadSource()).rejects.toThrow(/unsafe locale key/);
+      await expect(exportApiJsonFactory(catalogs).loadSource()).rejects.toThrow(/unsafe locale key/);
+    },
+  );
+
+  it('a langMap override cannot map a key onto a traversal either', async () => {
+    await expect(exportApiJsonFactory({ en: { Greeting: "Hi" } }, { en: "../package" }).loadSource()).rejects.toThrow(
+      /unsafe locale key "\.\.\/package"/,
+    );
+  });
+
+  function zipProvider(zipped: Uint8Array, bundleUrl = `${BASE_URL}/bundle.zip`, bundleOrigins?: string[]) {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === `${BASE_URL}/export`) return new Response(JSON.stringify({ url: bundleUrl }), { status: 200 });
+      if (url === bundleUrl) return new Response(zipped as Uint8Array<ArrayBuffer>, { status: 200 });
+      throw new Error(`unexpected url in test fetch: ${url}`);
+    });
+    const provider = createExportApiSourceProvider(
+      {
+        type: "export-api",
+        baseUrl: BASE_URL,
+        projectId: "proj-1",
+        token: `\${${TOKEN_ENV_VAR}}`,
+        create: { path: "/export" },
+        response: { urlPath: "url" },
+        bundle: "zip",
+        bundleOrigins,
+      },
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    return { provider, fetchImpl };
+  }
+
+  const smallZip = () => zipSync({ "en.json": strToU8(JSON.stringify({ Greeting: "Hi" })) });
+
+  it("a bundle URL on a foreign origin is refused before it is fetched", async () => {
+    const { provider, fetchImpl } = zipProvider(smallZip(), "https://attacker.example/bundle.zip");
+    await expect(provider.loadSource()).rejects.toThrow(/"https:\/\/attacker\.example\/bundle\.zip" is not allowed/);
+    expect(fetchImpl).not.toHaveBeenCalledWith("https://attacker.example/bundle.zip");
+  });
+
+  it("bundleOrigins admits a TMS's separate export host", async () => {
+    const { provider } = zipProvider(smallZip(), "https://exports.tms.example/b.zip", ["https://exports.tms.example/"]);
+    await expect(provider.loadSource()).resolves.toEqual({ en: { Greeting: "Hi" } });
+  });
+
+  const lokalise = exportApiPresets.lokalise!.bundleOrigins;
+  const crowdin = exportApiPresets.crowdin!.bundleOrigins;
+
+  it.each([
+    ["lokalise's own bucket", "https://s3-eu-west-1.amazonaws.com/lokalise-assets/files/export/p/b.zip", lokalise],
+    ["a crowdin download subdomain", "https://production-enterprise-importer.downloads.crowdin.com/x/b.zip", crowdin],
+  ])("preset bundleOrigins admit %s", async (_label, url, origins) => {
+    await expect(zipProvider(smallZip(), url, origins).provider.loadSource()).resolves.toEqual({ en: { Greeting: "Hi" } });
+  });
+
+  it.each([
+    ["another bucket on the same S3 host", "https://s3-eu-west-1.amazonaws.com/evil-bucket/b.zip", lokalise],
+    ["a bucket sharing the prefix text", "https://s3-eu-west-1.amazonaws.com/lokalise-assets-evil/b.zip", lokalise],
+    ["a dot-segment escape from the bucket", "https://s3-eu-west-1.amazonaws.com/lokalise-assets/../evil/b.zip", lokalise],
+    ["plain http to the bucket", "http://s3-eu-west-1.amazonaws.com/lokalise-assets/b.zip", lokalise],
+    ["a look-alike prefix host", "https://evildownloads.crowdin.com/b.zip", crowdin],
+    ["a look-alike suffix host", "https://x.downloads.crowdin.com.evil.example/b.zip", crowdin],
+    ["the bare suffix domain", "https://downloads.crowdin.com/b.zip", crowdin],
+    ["plain http to a subdomain", "http://a.downloads.crowdin.com/b.zip", crowdin],
+  ])("preset bundleOrigins reject %s", async (_label, url, origins) => {
+    await expect(zipProvider(smallZip(), url, origins).provider.loadSource()).rejects.toThrow(/is not allowed/);
+  });
+
+  it.each([
+    ["an http entry", "http://exports.tms.example/", /must be https/],
+    ["a path prefix without a trailing slash", "https://s3.example/bucket", /must end in "\/"/],
+    ["a malformed host suffix", "https://*.", /not a valid host suffix/],
+  ])("a bundleOrigins entry that is %s is a config error", async (_label, entry, error) => {
+    const { provider } = zipProvider(smallZip(), "https://elsewhere.example/b.zip", [entry]);
+    await expect(provider.loadSource()).rejects.toThrow(error);
+  });
+
+  it("a zip bomb past the 50 MB inflate cap is refused", async () => {
+    // Stored (level 0): the cap reads declared sizes, and deflating 51 MB is too slow under coverage.
+    const bomb = zipSync({ "en.json": new Uint8Array(51 * 1024 * 1024) }, { level: 0 });
+    await expect(zipProvider(bomb).provider.loadSource()).rejects.toThrow(/inflates past/);
+  });
+
+  it("a zip with more than 1000 entries is refused", async () => {
+    const files: Record<string, Uint8Array> = {};
+    for (let i = 0; i < 1001; i++) files[`en/${i}.json`] = strToU8("{}");
+    await expect(zipProvider(zipSync(files)).provider.loadSource()).rejects.toThrow(/more than 1000 entries/);
   });
 
   it('a literal-looking token (no "${}") is rejected with a clear error', async () => {
