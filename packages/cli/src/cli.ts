@@ -24,6 +24,33 @@ function pathExists(p: string): boolean {
   }
 }
 
+/** True when the write target itself, or any directory between `cwd` and
+ *  it, is a symlink. `init` only ever writes inside the project: a symlinked
+ *  parent directory could redirect a write outside it, and `--force`
+ *  overwriting a symlinked target file would overwrite whatever that link
+ *  points at rather than create a fresh file in the project. Refusing is
+ *  simpler than replacing the link (no unlink-then-write race to get right)
+ *  and the project author can always remove the symlink themselves. */
+function hasSymlinkOnPath(cwd: string, abs: string): boolean {
+  try {
+    if (fs.lstatSync(abs).isSymbolicLink()) return true;
+  } catch {
+    // target doesn't exist yet; only its ancestors can be symlinks
+  }
+  const root = path.resolve(cwd);
+  let dir = path.dirname(abs);
+  while (dir.startsWith(root) && dir !== path.dirname(dir)) {
+    try {
+      if (fs.lstatSync(dir).isSymbolicLink()) return true;
+    } catch {
+      // ancestor doesn't exist yet; mkdirSync will create a plain directory
+    }
+    if (dir === root) break;
+    dir = path.dirname(dir);
+  }
+  return false;
+}
+
 export type ScaffoldResult =
   | { ok: true; baseDir: string; created: string[]; skipped: string[]; devScript: DevScriptStatus }
   | { ok: false; error: string };
@@ -57,9 +84,17 @@ export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldR
     // the project root, never under baseDir. See buildTemplates' doc comment.
     const abs = relPath.startsWith("/") ? path.join(cwd, relPath.slice(1)) : path.join(cwd, baseDir, relPath);
     const rel = path.relative(cwd, abs);
+    // A dangling (or any) symlink at the target counts as "exists" below
+    // (see pathExists) and is left alone same as a real file, unless
+    // --force: only once a write is actually about to happen is it a
+    // symlink problem, whether that's this target or one of its parent
+    // directories redirecting the write outside the project.
     if (pathExists(abs) && !opts.force) {
       skipped.push(rel);
       continue;
+    }
+    if (hasSymlinkOnPath(cwd, abs)) {
+      return { ok: false, error: `refusing to write ${rel}: a symlink is on its path (the target itself or a parent directory). Remove it and retry.` };
     }
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, content);
@@ -275,14 +310,28 @@ function extractStringConst(text: string, name: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Slice names with a `@typren/core/seo` seoRegistry entry, scraped the same
- *  regex-probe way as extractStringConst. See its comment for why this
- *  doesn't just `import()` the file. Returns null when the file can't be
- *  read (check that depends on it degrades to "skip", not a guess). */
-function getSeoRegistryKeys(cwd: string, paths: ReviewPaths): string[] | null {
+/** Slice names with a `@typren/core/seo` seoRegistry entry. Scans line by
+ *  line with plain string ops rather than a single `^\s*(\w+):\s*(?:async\s*)?\(`
+ *  regex `matchAll` over the whole (repo-controlled) file: `indexOf`/`slice`
+ *  are guaranteed linear in the file size regardless of content, so this
+ *  can't regress into backtracking blowup if the pattern ever grows another
+ *  quantifier. Returns null when the file can't be read (check that depends
+ *  on it degrades to "skip", not a guess). */
+export function getSeoRegistryKeys(cwd: string, paths: ReviewPaths): string[] | null {
   const text = readTextSafe(path.join(cwd, paths.seoRegistryFile));
   if (text === null) return null;
-  return [...text.matchAll(/^\s*(\w+):\s*(?:async\s*)?\(/gm)].map((m) => m[1]);
+  const keys: string[] = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trimStart();
+    const colon = trimmed.indexOf(":");
+    if (colon <= 0) continue;
+    const key = trimmed.slice(0, colon);
+    if (!/^\w+$/.test(key)) continue;
+    let rest = trimmed.slice(colon + 1).trimStart();
+    if (rest.startsWith("async")) rest = rest.slice("async".length).trimStart();
+    if (rest.startsWith("(")) keys.push(key);
+  }
+  return keys;
 }
 
 function getSiteUrl(cwd: string, paths: ReviewPaths): string | null {

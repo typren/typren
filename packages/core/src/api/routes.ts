@@ -234,8 +234,11 @@ export function createTyprenApi(config: CmsConfig | CmsConfigFactory, options: T
   };
 }
 
-async function requireRead(built: Built): Promise<Response | null> {
-  return (await built.auth.authorize({ action: "read", siteId: built.config.siteId, accountId: built.config.accountId }))
+async function requireRead(
+  built: Built,
+  ctx: { slug?: string; collectionId?: string; locale?: string } = {}
+): Promise<Response | null> {
+  return (await built.auth.authorize({ action: "read", ...ctx, siteId: built.config.siteId, accountId: built.config.accountId }))
     ? null
     : json({ error: "Unauthorized" }, 403);
 }
@@ -252,8 +255,8 @@ async function pages(
 
   if (!slug) {
     if (method === "GET") {
-      const denied = await requireRead(built);
-      return denied ?? json({ pages: await store.listPages(locale) });
+      const denied = await requireRead(built, { locale });
+      return denied ?? jsonNoStore({ pages: await store.listPages(locale) });
     }
     if (method === "POST") {
       const { title } = await body<{ title?: string }>(request);
@@ -265,7 +268,7 @@ async function pages(
 
   if (!sub) {
     if (method === "GET") {
-      const denied = await requireRead(built);
+      const denied = await requireRead(built, { slug, locale });
       if (denied) return denied;
       if (!(await config.adapter.exists(slug, config.adapter.defaultLocale))) return json({ error: "Not found" }, 404);
       const [draft, published, version] = await Promise.all([
@@ -351,8 +354,8 @@ async function collections(
 
   if (!slug) {
     if (method === "GET") {
-      const denied = await requireRead(built);
-      return denied ?? json({ records: await listCollectionRecords(config, section, locale) });
+      const denied = await requireRead(built, { collectionId: id, locale });
+      return denied ?? jsonNoStore({ records: await listCollectionRecords(config, section, locale) });
     }
     if (method === "POST") {
       const { title } = await body<{ title?: string }>(request);
@@ -364,7 +367,7 @@ async function collections(
 
   if (!sub) {
     if (method === "GET") {
-      const denied = await requireRead(built);
+      const denied = await requireRead(built, { collectionId: id, slug, locale });
       if (denied) return denied;
       const adapter = collectionAdapters.get(id)!;
       if (!(await adapter.exists(slug, adapter.defaultLocale))) return json({ error: "Not found" }, 404);
@@ -441,7 +444,7 @@ async function settingsRoutes(
   const [sub] = rest;
 
   if (!sub && method === "GET") {
-    const denied = await requireRead(built);
+    const denied = await requireRead(built, { locale });
     // `version` completes the optimistic-lock loop: a client had no way to read
     // it, so its first save sent no baseVersion and could not conflict-detect.
     if (denied) return denied;

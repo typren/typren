@@ -70,6 +70,9 @@ actually issued to that visitor.
 - **`webhook` sink**: follows no redirect (`redirect: "manual"`); a 3xx
   response is treated as a failed delivery rather than resent to wherever it
   points.
+- **Every fetch-backed sink** (`webhook`, `hubspot`, `google-sheets`) aborts
+  its request after 10 seconds by default (`SinkRuntime.timeoutMs` to
+  override), so a slow or unresponsive receiver can't pin a submission open.
 - **`file` sink**: rejects (does not truncate) a line over 64 KB rather than
   writing a partial JSON line into the JSONL file.
 

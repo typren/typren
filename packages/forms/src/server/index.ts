@@ -198,7 +198,7 @@ export function createFormHandler(config: FormHandlerConfig): (request: Request)
       }
     }
 
-    const results = await Promise.allSettled(sinks.map(({ sink }) => sink.deliver(submission, config.schema)));
+    const results = await Promise.allSettled(sinks.map(({ sink }) => sink.deliver(submission, config.schema, request)));
     const outcomes: SinkOutcome[] = results.map((result, index) => {
       const type = sinks[index].sink.type;
       if (result.status === "fulfilled") return { type, ...result.value };

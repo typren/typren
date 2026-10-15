@@ -82,6 +82,19 @@ all interfaces and is refused), and refuses any request whose `Host` isn't
 loopback. The `Host` header is client-chosen, so only the bind keeps the dev
 server's file writes off the network. See [Auth model](./auth-model.md#localauth-for-development).
 
+On Astro or any other non-Next host, supply the bind and the `Host` yourself
+(`astro dev --host 127.0.0.1`, with the bound address recorded from Astro's
+`astro:server:start` hook):
+
+```ts
+localAuth({
+  isBoundToLoopback: () => globalThis.__typrenBoundToLoopback === true,
+  getHost: async () => request.headers.get("host"),
+});
+```
+
+The full recipe is in [Auth model](./auth-model.md#astro-and-other-non-next-hosts).
+
 ### NextAuth
 
 ```ts

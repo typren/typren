@@ -37,4 +37,11 @@ describe("collectSliceJsonLd", () => {
   it("defaults to an empty registry", () => {
     expect(collectSliceJsonLd([{ slice: "faq", items: [] }])).toEqual([]);
   });
+
+  it.each(["constructor", "toString", "__proto__", "hasOwnProperty"])(
+    "does not resolve Object.prototype's own %s member for an unregistered slice",
+    (name) => {
+      expect(collectSliceJsonLd([{ slice: name }], registry)).toEqual([]);
+    }
+  );
 });

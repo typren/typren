@@ -39,18 +39,38 @@ function getSvgPurifier(): ReturnType<typeof DOMPurify> {
     svgPurifier.addHook("uponSanitizeAttribute", (_node, data) => {
       if ((data.attrName === "href" || data.attrName === "xlink:href") && !data.attrValue.startsWith("#")) {
         data.keepAttr = false;
+        return;
+      }
+      // A presentation attribute (fill, stroke, filter, clip-path, mask, marker-*, ...) can carry a
+      // CSS url() the same way href does. A fragment reference (url(#id)) stays inside the document;
+      // anything else is an external fetch, so the whole attribute is dropped rather than rewritten.
+      if (hasExternalUrlFunc(data.attrValue)) {
+        data.keepAttr = false;
       }
     });
   }
   return svgPurifier;
 }
 
-/** Strips dangerous elements/attributes from an SVG's source, keeping the rest. `<style>` (CSS can
- *  fetch and exfiltrate) and `<image>` (loads arbitrary URLs) go too, on top of the svg profiles. */
+// `url(...)` functional values, same-document fragment ones (`url(#id)`, optionally quoted)
+// excepted: those are the only `url()` references staying off the network entirely. Presentation
+// attributes parse as CSS, so an escape (`\75 rl(...)`) can spell `url(` past the match below;
+// any backslash counts as external.
+const FRAGMENT_URL_FUNC = /^url\(\s*['"]?#/i;
+function hasExternalUrlFunc(value: string): boolean {
+  if (value.includes("\\")) return true;
+  const calls = value.match(/url\([^)]*\)/gi) ?? [];
+  return calls.some((call) => !FRAGMENT_URL_FUNC.test(call));
+}
+
+/** Strips dangerous elements/attributes from an SVG's source, keeping the rest. `<style>` elements
+ *  and `style` attributes (CSS can fetch and exfiltrate) and `<image>` (loads arbitrary URLs) go
+ *  too, on top of the svg profiles. */
 function sanitizeSvg(raw: string): string {
   return getSvgPurifier().sanitize(raw, {
     USE_PROFILES: { svg: true, svgFilters: true },
     FORBID_TAGS: ["style", "image"],
+    FORBID_ATTR: ["style"],
   });
 }
 
@@ -176,14 +196,24 @@ export async function handleMediaUpload(
   const file = form.get("file");
   if (!(file instanceof File)) return Response.json({ error: "No file" }, { status: 400 });
 
+  let prepared: PreparedFile;
   try {
-    const prepared = await processUpload(
+    prepared = await processUpload(
       { name: file.name, buffer: Buffer.from(await file.arrayBuffer()) },
       { allowSvg: config.allowSvg }
     );
+  } catch (e) {
+    // processUpload's own errors are deliberately user-facing (see its doc comment above).
+    return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+  }
+
+  try {
     const asset = await config.mediaAdapter.upload(prepared);
     return Response.json(asset);
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    // Unlike processUpload's, an adapter failure's message is not written for a client to read (it
+    // can carry storage paths, bucket names, or other backend detail); log it, echo nothing back.
+    console.error("typren: media upload failed", e);
+    return Response.json({ error: "Upload failed" }, { status: 400 });
   }
 }

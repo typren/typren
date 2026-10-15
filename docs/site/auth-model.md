@@ -21,8 +21,10 @@ interface AuthAdapter {
 `AuthContext` carries the `action` being attempted (`"read"`, `"saveDraft"`,
 `"discardDraft"`, `"publish"`, `"createPage"`, `"renamePage"`,
 `"deletePage"`, `"uploadMedia"`, `"deleteMedia"`, or `"admin"`), the target
-`slug` when there is one, and (for a hosted/multi-tenant setup) `siteId`/
-`accountId`.
+`slug` and `collectionId` when there are any, the `locale` the request
+resolved, and (for a hosted/multi-tenant setup) `siteId`/`accountId`. The API
+routes (`api/routes.ts`) pass all of these for both reads and writes, so a
+policy can grant or deny per slug, per collection, or per locale.
 
 **`authorize()` must fail closed.** Every adapter shipped in `@typren/core`
 wraps its identity resolution in a try/catch and returns `false` on any
@@ -160,3 +162,75 @@ rebinding. `localAuth()` reads the bind from Next's own startup state, so a
 `NODE_ENV=development` server bound to a public interface is refused too. See
 [Choosing auth](./choosing-auth.md) for wiring a real provider before you
 deploy.
+
+### Astro and other non-Next hosts
+
+`localAuth()`'s defaults read Next's startup state and Next's `headers()`, so
+on any other host they deny every request. Supply both facts yourself:
+
+- `isBoundToLoopback`: return `true` only from the address your server
+  **actually bound**, never from config you hope was applied and never from
+  the request;
+- `getHost`: return the request's `Host` header. It stays a deny-only filter.
+
+Astro hands integrations the dev server's real bound address in its
+`astro:server:start` hook. Record it in `astro.config.mjs`:
+
+```js
+import { defineConfig } from "astro/config";
+
+export default defineConfig({
+  output: "server",
+  integrations: [
+    {
+      name: "typren-loopback-bind",
+      hooks: {
+        // `address` is the dev server socket's own AddressInfo.
+        "astro:server:start": ({ address }) => {
+          globalThis.__typrenBoundToLoopback = address.address === "127.0.0.1";
+        },
+      },
+    },
+  ],
+});
+```
+
+Start the dev server on loopback (`package.json`):
+
+```json
+{ "scripts": { "dev": "astro dev --host 127.0.0.1" } }
+```
+
+Then build the config per request, so `getHost` reads that request's `Host`:
+
+```ts
+// src/pages/api/typren/[...path].ts
+import type { APIRoute } from "astro";
+import { createTyprenApi } from "@typren/core/api";
+import { localAuth } from "@typren/core/auth/local";
+import { cmsConfig } from "../../../cms.config";
+
+export const prerender = false;
+
+const { handler } = createTyprenApi(
+  (request) => ({
+    ...cmsConfig,
+    auth: localAuth({
+      isBoundToLoopback: () => globalThis.__typrenBoundToLoopback === true,
+      getHost: async () => request.headers.get("host"),
+    }),
+  }),
+  { basePath: "/api/typren" }
+);
+
+export const ALL: APIRoute = ({ request }) => handler(request);
+```
+
+`astro build`, `astro preview` and a production server never run
+`astro:server:start`, so the flag stays unset and every request is denied, as
+it is under `NODE_ENV=production`. An all-interfaces bind (`astro dev --host`)
+records `false`. Only a literal `true` passes; any other value, and any throw
+from a check, denies. The flag lives on `globalThis`, so it reaches your route
+only when Astro runs SSR in the dev server's own Node process (the default). A
+dev runtime that runs routes elsewhere, such as workerd, never sees it and
+denies.

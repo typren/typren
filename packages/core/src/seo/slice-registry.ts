@@ -9,7 +9,7 @@ import type { SliceJsonLd } from "./types";
 export function collectSliceJsonLd(slices: Slice[], registry: Record<string, SliceJsonLd> = {}): object[] {
   const out: object[] = [];
   for (const s of slices) {
-    const fn = registry[s.slice];
+    const fn = Object.hasOwn(registry, s.slice) ? registry[s.slice] : undefined;
     if (!fn) continue;
     try {
       const result = fn(s);

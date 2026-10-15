@@ -35,4 +35,9 @@ describe("renderSlicesAsMarkdown", () => {
     const out = renderSlicesAsMarkdown(slices, { custom: (props) => `custom:${props.note}` });
     expect(out).toBe("custom:x");
   });
+
+  it("does not resolve Object.prototype's own members as an override for an unregistered slice", () => {
+    const slices: Slice[] = [{ slice: "toString", heading: "H" }];
+    expect(renderSlicesAsMarkdown(slices, { custom: () => "unused" })).toBe("H");
+  });
 });

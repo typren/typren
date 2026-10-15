@@ -34,26 +34,47 @@ describe("createHubspotSink", () => {
     expect(calls[0].init.headers).not.toHaveProperty("authorization");
   });
 
-  it("pulls the hutk cookie out of the named field into context and excludes it from fields", async () => {
+  it("reads hutk from the request's hubspotutk cookie and excludes the legacy field from fields", async () => {
     const { impl, calls } = fakeFetch();
     const sink = createHubspotSink(
       { type: "hubspot", portalId: "424242", formGuid: "guid-1", hutkField: "hutk" },
       { fetchImpl: impl },
     );
-    await sink.deliver(makeSubmission({ email: "ada@example.com", hutk: "cookie-value" }, "/pricing"), schema);
+    const request = new Request("https://site.example/api", { headers: { cookie: "hubspotutk=cookie-value; other=1" } });
+    await sink.deliver(makeSubmission({ email: "ada@example.com", hutk: "body-value" }, "/pricing"), schema, request);
 
     const body = JSON.parse(String(calls[0].init.body));
     expect(body.fields).toEqual([{ name: "email", value: "ada@example.com" }]);
     expect(body.context).toEqual({ hutk: "cookie-value", pageUri: "/pricing" });
   });
 
-  it("omits an empty hutk but still sends the page as context.pageUri", async () => {
+  it("ignores a hutk value submitted in the body when there is no cookie header at all", async () => {
     const { impl, calls } = fakeFetch();
     const sink = createHubspotSink(
       { type: "hubspot", portalId: "424242", formGuid: "guid-1", hutkField: "hutk" },
       { fetchImpl: impl },
     );
-    await sink.deliver(makeSubmission({ email: "ada@example.com", hutk: "" }, "/pricing"), schema);
+    const request = new Request("https://site.example/api");
+    await sink.deliver(makeSubmission({ email: "ada@example.com", hutk: "forged-value" }, "/pricing"), schema, request);
+    expect(JSON.parse(String(calls[0].init.body)).context).toEqual({ pageUri: "/pricing" });
+  });
+
+  it("ignores a hutk value submitted in the body when the hubspotutk cookie is absent from a non-empty header", async () => {
+    const { impl, calls } = fakeFetch();
+    const sink = createHubspotSink(
+      { type: "hubspot", portalId: "424242", formGuid: "guid-1", hutkField: "hutk" },
+      { fetchImpl: impl },
+    );
+    const request = new Request("https://site.example/api", { headers: { cookie: "session=abc; other=1" } });
+    await sink.deliver(makeSubmission({ email: "ada@example.com", hutk: "forged-value" }, "/pricing"), schema, request);
+    expect(JSON.parse(String(calls[0].init.body)).context).toEqual({ pageUri: "/pricing" });
+  });
+
+  it("omits hutk entirely when hutkField is not configured, even with a cookie present", async () => {
+    const { impl, calls } = fakeFetch();
+    const sink = createHubspotSink({ type: "hubspot", portalId: "424242", formGuid: "guid-1" }, { fetchImpl: impl });
+    const request = new Request("https://site.example/api", { headers: { cookie: "hubspotutk=cookie-value" } });
+    await sink.deliver(makeSubmission({ email: "ada@example.com" }, "/pricing"), schema, request);
     expect(JSON.parse(String(calls[0].init.body)).context).toEqual({ pageUri: "/pricing" });
   });
 

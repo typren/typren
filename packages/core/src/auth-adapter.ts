@@ -26,6 +26,14 @@ export type AuthContext = {
   action: AuthAction;
   /** Target slug when the action has one (undefined for "read" of the index / createPage). */
   slug?: string;
+  /** Collection section id (see sections.ts's CollectionSection) when the
+   *  action targets a collection record, undefined for a Pages action. Lets
+   *  a policy grant/deny per collection the way `slug` lets it grant/deny
+   *  per page. */
+  collectionId?: string;
+  /** Locale the action targets, when the caller resolved one. Undefined
+   *  means the adapter's default locale. */
+  locale?: string;
   /** Hosted-platform tenant scope, resolved server-side (session -> user ->
    *  account -> membership -> site) and NEVER taken from client input.
    *  Optional: a single-site local/self-host config omits both and every

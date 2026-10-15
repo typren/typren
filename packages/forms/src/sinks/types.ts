@@ -14,7 +14,10 @@ export interface SinkResult {
  */
 export interface FormSink {
   type: string;
-  deliver(submission: Submission, schema: FormSchema): Promise<SinkResult>;
+  /** `request` is the original incoming request, passed through so a sink can
+   *  read a server-trusted source (e.g. a cookie) the Submission body never
+   *  carries. Optional: most sinks only need `submission` and `schema`. */
+  deliver(submission: Submission, schema: FormSchema, request?: Request): Promise<SinkResult>;
 }
 
 interface SinkConfigBase {
@@ -68,4 +71,7 @@ export type SinkConfig = WebhookSinkConfig | HubspotSinkConfig | GoogleSheetsSin
 export interface SinkRuntime {
   fetchImpl?: typeof fetch;
   env?: EnvRecord;
+  /** Aborts a sink's fetch after this many milliseconds, so a slow or
+   *  unresponsive receiver can't pin a form submission open. Default 10000. */
+  timeoutMs?: number;
 }

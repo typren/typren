@@ -476,6 +476,33 @@ describe("createExportApiSourceProvider", () => {
     await expect(provider.loadSource()).rejects.toThrow(error);
   });
 
+  it("a bundle URL that redirects is refused rather than followed to an unvetted host", async () => {
+    const bundleUrl = `${BASE_URL}/bundle.zip`;
+    const fetchImpl = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${BASE_URL}/export`) return new Response(JSON.stringify({ url: bundleUrl }), { status: 200 });
+      if (url === bundleUrl) {
+        expect(init?.redirect).toBe("manual");
+        return new Response(null, { status: 302, headers: { location: "https://attacker.example/evil.zip" } });
+      }
+      throw new Error(`unexpected url in test fetch: ${url}`);
+    });
+    const provider = createExportApiSourceProvider(
+      {
+        type: "export-api",
+        baseUrl: BASE_URL,
+        projectId: "proj-1",
+        token: `\${${TOKEN_ENV_VAR}}`,
+        create: { path: "/export" },
+        response: { urlPath: "url" },
+        bundle: "zip",
+      },
+      { fetchImpl: fetchImpl as unknown as typeof fetch },
+    );
+    await expect(provider.loadSource()).rejects.toThrow(/redirected/);
+    expect(fetchImpl).not.toHaveBeenCalledWith("https://attacker.example/evil.zip", expect.anything());
+  });
+
   it("a zip bomb past the 50 MB inflate cap is refused", async () => {
     // Stored (level 0): the cap reads declared sizes, and deflating 51 MB is too slow under coverage.
     const bomb = zipSync({ "en.json": new Uint8Array(51 * 1024 * 1024) }, { level: 0 });
