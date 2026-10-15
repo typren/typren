@@ -21,10 +21,11 @@ name: Release
 # the registry and skips anything already there. A merge that carries no
 # version bump therefore publishes nothing and exits clean.
 #
-# There is no manual tag step. `changeset publish` creates per-package tags
-# itself (@typren/core@0.1.2 and so on), which is the accurate shape for a
-# monorepo where the two packages could drift; this workflow pushes those
-# rather than a hand-rolled repo-wide v* tag.
+# Tagging is a separate step (scripts/tag-published.mjs) run from npm truth
+# rather than `changeset tag`: see that step's own comment for why. Tags are
+# still per-package (@typren/core@0.1.2 and so on), the accurate shape for a
+# monorepo where the two packages could drift, not a hand-rolled repo-wide
+# v* tag.
 on:
   push:
     branches: [main]
@@ -163,25 +164,33 @@ jobs:
       - name: Publish to npm
         run: changeset publish
 
-      # changesets tags with `git tag <name> -m <name>`, an annotated tag, which
-      # needs a committer identity the runner doesn't have. @changesets/git
-      # returns false on that failure and the CLI ignores the result, so it
-      # still prints "Created git tags" while creating none. That is why every
-      # release through 0.3.3 shipped tagless with a green run: the push below
-      # found nothing new ("Everything up-to-date") and the Releases step found
-      # no tags at HEAD. privatePackages.tag=false in .changeset/config.json
-      # keeps unpublished packages (the editor) out.
+      # `changeset tag` only tags versions created by *this* `changeset publish`
+      # call, and (separately) needs a committer identity the runner doesn't
+      # have -- @changesets/git returns false on that failure and the CLI
+      # ignores the result, so it still printed "Created git tags" while
+      # creating none. That is why every release through 0.3.3 shipped tagless
+      # with a green run. scripts/tag-published.mjs replaces it: it tags from
+      # npm truth (is this name@version actually published?) rather than from
+      # what changesets did this run, so a retry after a partial publish
+      # failure still tags whatever an earlier attempt already got onto npm.
+      # `if: !cancelled()` runs this (and the two steps after it) even when
+      # `changeset publish` above failed partway through -- some packages may
+      # still have reached npm before the failure, and those still need their
+      # tag. The job's overall conclusion stays "failure" from the publish
+      # step regardless; this doesn't paper over that.
       - name: Tag the published versions
+        if: ${{ !cancelled() }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          changeset tag
+          node scripts/tag-published.mjs
           git tag --points-at HEAD
 
       # The tags above exist only on the runner; without this they die with it.
       # HUSKY=0 skips the pre-push hook: it reruns the full local gate (and
       # needs bun, which this job never installs).
       - name: Push the release tags
+        if: ${{ !cancelled() }}
         run: git push origin --tags
         env:
           HUSKY: "0"
@@ -191,6 +200,7 @@ jobs:
       # cosmetic and must not fail a run whose packages are already public,
       # since npm publishes cannot be undone.
       - name: GitHub Releases
+        if: ${{ !cancelled() }}
         continue-on-error: true
         run: |
           for tag in $(git tag --points-at HEAD); do
