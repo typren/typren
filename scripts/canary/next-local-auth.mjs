@@ -39,7 +39,7 @@ export async function GET() {
 `
 );
 
-execFileSync("npm", ["install", "--no-audit", "--no-fund", "--loglevel=error", "--legacy-peer-deps"], { cwd: dir, stdio: "inherit" });
+execFileSync("npm", ["install", "--no-audit", "--no-fund", "--loglevel=error", "--legacy-peer-deps", "--ignore-scripts"], { cwd: dir, stdio: "inherit" });
 const nextVersion = JSON.parse(execFileSync("node", ["-p", "JSON.stringify(require('next/package.json').version)"], { cwd: dir, encoding: "utf8" }));
 const exportsForwarded = execFileSync(
   "node",

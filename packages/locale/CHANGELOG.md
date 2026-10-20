@@ -1,5 +1,13 @@
 # @typren/locale
 
+## 0.3.3
+
+### Patch Changes
+
+- cf2fdbc: Harden the export-api bundle fetch. Bundle download errors now log only the URL's origin and path, so a presigned-URL signature in the query string never reaches CI logs. Zip and JSON bundle downloads are read with a running 50 MB cap and a 60 s timeout, so a hostile bundle origin cannot exhaust memory or hang a pull.
+- e62ca36: Admit Lokalise's current export bucket in the `lokalise` preset's `bundleOrigins`. Lokalise now serves async exports from a virtual-hosted S3 bucket, so every Lokalise pull was refused.
+- 020b982: `export-api` skips a bundle locale that is not a BCP-47 tag (a TMS custom language such as Lokalise's `custom_1`) with a warning instead of failing the whole pull. Traversal-shaped names still throw.
+
 ## 0.3.2
 
 ### Patch Changes

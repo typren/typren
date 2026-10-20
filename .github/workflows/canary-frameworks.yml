@@ -3,6 +3,11 @@
 # can't show what the framework itself does to a request, and that is exactly where breakage
 # hides, so this runs the real server. Failures file an issue labelled `canary`, which closes
 # itself on the next passing run. No secrets.
+#
+# The `next` job installs unpinned third-party packages, so it holds a read-only token, does not
+# persist it into .git/config, and does not save a bun cache. That alone cannot stop code running
+# here from writing the Actions cache directly, so release.yml and version-pr.yml restore no cache
+# at all. Issue filing lives in the separate `report` job, which installs nothing and runs no third-party code.
 name: Canary (frameworks)
 
 on:
@@ -24,16 +29,18 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      issues: write
     strategy:
       fail-fast: false
       matrix:
         next: [latest, canary]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+          no-cache: true
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
@@ -41,8 +48,21 @@ jobs:
       - run: bun run --filter @typren/core build
       - id: check
         run: node scripts/canary/next-local-auth.mjs ${{ matrix.next }}
-      - name: File or close the canary issue
-        if: always()
-        run: node scripts/canary/report.mjs --title "Canary: next@${{ matrix.next }} with localAuth" --outcome "${{ steps.check.outcome }}" --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  report:
+    name: file or close the canary issue
+    needs: next
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: |
+          node scripts/canary/report.mjs --title "Canary: Next.js with localAuth" --outcome "${{ needs.next.result }}" --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         env:
           GH_TOKEN: ${{ github.token }}
