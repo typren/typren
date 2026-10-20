@@ -93,29 +93,33 @@ export function createMarkdownAdapter({
   const localeDraftDir = (loc: string) =>
     loc === defaultLocale ? defaultDraftDir : path.join(localeDir(loc), draftSubdir);
   // A symlink planted in the content tree (a merged PR can add one) would turn
-  // slug reads and writes into access to any file the server can reach, so the
-  // file itself must not be a link and its real directory must stay under root.
-  const contained = (file: string, root: string) => {
-    if (fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) {
-      throw new Error(`typren: refusing symlinked content file "${path.basename(file)}"`);
-    }
-    const dir = path.dirname(file);
-    if (fs.existsSync(dir)) {
-      const real = fs.realpathSync(dir);
-      const base = fs.realpathSync(root);
-      if (real !== base && !real.startsWith(base + path.sep)) {
-        throw new Error(`typren: content path escapes its root via a symlink`);
+  // slug reads and writes into access to any file the server can reach. Every
+  // component below the root is lstat'ed, so a linked file, locale dir or
+  // .drafts dir is refused; only the root itself may be reached via a link.
+  const contained = (target: string, root: string) => {
+    const rel = path.relative(root, target);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) throw new Error(`typren: content path escapes its root`);
+    let p = root;
+    for (const seg of rel.split(path.sep).filter(Boolean)) {
+      p = path.join(p, seg);
+      let st: fs.Stats | undefined;
+      try {
+        st = fs.lstatSync(p);
+      } catch {
+        break; // absent (or unreadable): nothing below it can be a link
       }
+      if (st.isSymbolicLink()) throw new Error(`typren: refusing symlinked content path "${path.relative(root, p)}"`);
     }
-    return file;
+    return target;
   };
+  // A custom draftDir inside contentDir is checked from contentDir, so a linked
+  // `.drafts` cannot become its own trusted root.
+  const draftRootOutside = draftDir !== undefined && path.relative(contentDir, draftDir).startsWith("..");
+  const draftRoot = (loc: string) => (loc === defaultLocale && draftRootOutside ? draftDir! : contentDir);
   const pageFile = (slug: string, loc = defaultLocale) =>
     contained(path.join(localeDir(loc), `${safe(slug)}.md`), contentDir);
   const draftFile = (slug: string, loc = defaultLocale) =>
-    contained(
-      path.join(localeDraftDir(loc), `${safe(slug)}.md`),
-      loc === defaultLocale && draftDir ? draftDir : contentDir
-    );
+    contained(path.join(localeDraftDir(loc), `${safe(slug)}.md`), draftRoot(loc));
 
   const parse = (raw: string): PageContent => {
     const { data, content } = parseMatter(raw);
@@ -142,7 +146,7 @@ export function createMarkdownAdapter({
     serialize,
 
     async listSlugs(locale = defaultLocale) {
-      const dir = localeDir(locale);
+      const dir = contained(localeDir(locale), contentDir);
       if (!fs.existsSync(dir)) return []; // a locale with no content yet
       return fs
         .readdirSync(dir, { withFileTypes: true })
@@ -175,8 +179,9 @@ export function createMarkdownAdapter({
       return fs.readFileSync(pageFile(slug, locale), "utf8");
     },
     async writeRaw(slug, raw, locale) {
-      fs.mkdirSync(localeDir(locale ?? defaultLocale), { recursive: true });
-      fs.writeFileSync(pageFile(slug, locale), raw);
+      const file = pageFile(slug, locale);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, raw);
     },
     async deletePublished(slug, locale) {
       if (fs.existsSync(pageFile(slug, locale))) fs.rmSync(pageFile(slug, locale));
@@ -186,8 +191,9 @@ export function createMarkdownAdapter({
       return fs.existsSync(draftFile(slug, locale)) ? fs.readFileSync(draftFile(slug, locale), "utf8") : null;
     },
     async writeDraftRaw(slug, raw, locale) {
-      fs.mkdirSync(localeDraftDir(locale ?? defaultLocale), { recursive: true });
-      fs.writeFileSync(draftFile(slug, locale), raw);
+      const file = draftFile(slug, locale);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, raw);
     },
     async deleteDraft(slug, locale) {
       if (fs.existsSync(draftFile(slug, locale))) fs.rmSync(draftFile(slug, locale));

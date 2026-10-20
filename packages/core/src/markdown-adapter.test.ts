@@ -131,6 +131,7 @@ describe("markdown-adapter symlinks", () => {
     const md = createMarkdownAdapter({ contentDir });
 
     await expect(md.readRaw("leak")).rejects.toThrow(/symlinked/);
+    await expect(md.exists("leak")).rejects.toThrow(/symlinked/);
     await expect(md.writeRaw("leak", "x")).rejects.toThrow(/symlinked/);
     await expect(md.writeDraftRaw("pwn", "x")).rejects.toThrow(/symlinked/);
     expect(fs.readFileSync(outside, "utf8")).toBe("DB_PASSWORD=hunter2\n");
@@ -144,9 +145,33 @@ describe("markdown-adapter symlinks", () => {
     fs.symlinkSync(elsewhere, path.join(contentDir, ".drafts"));
     const md = createMarkdownAdapter({ contentDir, locales: ["en", "es"] });
 
-    await expect(md.writeRaw("about", "x", "es")).rejects.toThrow(/escapes/);
-    await expect(md.writeDraftRaw("about", "x")).rejects.toThrow(/escapes/);
+    await expect(md.writeRaw("about", "x", "es")).rejects.toThrow(/symlinked/);
+    await expect(md.writeDraftRaw("about", "x")).rejects.toThrow(/symlinked/);
+    await expect(md.writeDraftRaw("about", "x", "es")).rejects.toThrow(/symlinked/);
+    await expect(md.listSlugs("es")).rejects.toThrow(/symlinked/);
     expect(fs.readdirSync(elsewhere)).toEqual([]);
+  });
+
+  it("refuses a linked .drafts even when draftDir is passed explicitly inside contentDir", async () => {
+    const elsewhere = path.join(root, "elsewhere");
+    fs.mkdirSync(elsewhere);
+    fs.writeFileSync(path.join(elsewhere, "notes.md"), "PRIVATE");
+    fs.rmSync(path.join(contentDir, ".drafts"), { recursive: true });
+    fs.symlinkSync(elsewhere, path.join(contentDir, ".drafts"));
+    const md = createMarkdownAdapter({ contentDir, draftDir: path.join(contentDir, ".drafts") });
+
+    await expect(md.readDraftRaw("notes")).rejects.toThrow(/symlinked/);
+    await expect(md.writeDraftRaw("pwned", "x")).rejects.toThrow(/symlinked/);
+    await expect(md.deleteDraft("notes")).rejects.toThrow(/symlinked/);
+    expect(fs.readdirSync(elsewhere)).toEqual(["notes.md"]);
+  });
+
+  it("allows a draftDir outside contentDir and reports absent paths as missing", async () => {
+    const md = createMarkdownAdapter({ contentDir, draftDir: path.join(root, "drafts") });
+
+    await md.writeDraftRaw("home", "x");
+    expect(await md.readDraftRaw("home")).toBe("x");
+    expect(await md.exists("a".repeat(300))).toBe(false);
   });
 
   it("still works when the content root itself is reached through a symlink", async () => {
