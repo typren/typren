@@ -1,5 +1,15 @@
 # typren
 
+## 0.5.3
+
+### Patch Changes
+
+- Updated dependencies [a30827e]
+- Updated dependencies [5dc7a16]
+- Updated dependencies [121d0c1]
+- Updated dependencies [5c11512]
+  - @typren/core@0.5.3
+
 ## 0.5.2
 
 ### Patch Changes
