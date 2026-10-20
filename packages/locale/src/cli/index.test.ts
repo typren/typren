@@ -140,11 +140,13 @@ describe("built CLI behind a proxy", () => {
     const child = spawn(
       process.execPath,
       [bin, "compat", "lokalise2", "file", "download", "--token", "t", "--project-id", "p", "--unzip-to", dir],
-      { env, stdio: "ignore" },
+      { env, stdio: ["ignore", "ignore", "pipe"] },
     );
+    let stderr = "";
+    child.stderr.on("data", (d: Buffer) => (stderr += d));
     await new Promise((r) => child.on("close", r));
     proxy.close();
     rmSync(dir, { recursive: true, force: true });
-    expect(connects.length).toBeGreaterThan(0);
+    expect(connects.length, `node ${process.version}: ${stderr}`).toBeGreaterThan(0);
   });
 });
