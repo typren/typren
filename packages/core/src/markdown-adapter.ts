@@ -92,8 +92,30 @@ export function createMarkdownAdapter({
   const localeDir = (loc: string) => path.join(contentDir, localeSubdir(safeLocale(loc), defaultLocale));
   const localeDraftDir = (loc: string) =>
     loc === defaultLocale ? defaultDraftDir : path.join(localeDir(loc), draftSubdir);
-  const pageFile = (slug: string, loc = defaultLocale) => path.join(localeDir(loc), `${safe(slug)}.md`);
-  const draftFile = (slug: string, loc = defaultLocale) => path.join(localeDraftDir(loc), `${safe(slug)}.md`);
+  // A symlink planted in the content tree (a merged PR can add one) would turn
+  // slug reads and writes into access to any file the server can reach, so the
+  // file itself must not be a link and its real directory must stay under root.
+  const contained = (file: string, root: string) => {
+    if (fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      throw new Error(`typren: refusing symlinked content file "${path.basename(file)}"`);
+    }
+    const dir = path.dirname(file);
+    if (fs.existsSync(dir)) {
+      const real = fs.realpathSync(dir);
+      const base = fs.realpathSync(root);
+      if (real !== base && !real.startsWith(base + path.sep)) {
+        throw new Error(`typren: content path escapes its root via a symlink`);
+      }
+    }
+    return file;
+  };
+  const pageFile = (slug: string, loc = defaultLocale) =>
+    contained(path.join(localeDir(loc), `${safe(slug)}.md`), contentDir);
+  const draftFile = (slug: string, loc = defaultLocale) =>
+    contained(
+      path.join(localeDraftDir(loc), `${safe(slug)}.md`),
+      loc === defaultLocale && draftDir ? draftDir : contentDir
+    );
 
   const parse = (raw: string): PageContent => {
     const { data, content } = parseMatter(raw);

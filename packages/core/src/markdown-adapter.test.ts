@@ -111,3 +111,50 @@ describe("markdown-adapter contract", () => {
 
   createContentAdapterContractSuite(() => createMarkdownAdapter({ contentDir: contractDir }));
 });
+
+describe("markdown-adapter symlinks", () => {
+  let root: string;
+  let contentDir: string;
+  let outside: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "typren-md-link-"));
+    contentDir = path.join(root, "content");
+    outside = path.join(root, "secret.txt");
+    fs.mkdirSync(path.join(contentDir, ".drafts"), { recursive: true });
+    fs.writeFileSync(outside, "DB_PASSWORD=hunter2\n");
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it("refuses to read or write through a symlinked page or draft file", async () => {
+    fs.symlinkSync(outside, path.join(contentDir, "leak.md"));
+    fs.symlinkSync(outside, path.join(contentDir, ".drafts", "pwn.md"));
+    const md = createMarkdownAdapter({ contentDir });
+
+    await expect(md.readRaw("leak")).rejects.toThrow(/symlinked/);
+    await expect(md.writeRaw("leak", "x")).rejects.toThrow(/symlinked/);
+    await expect(md.writeDraftRaw("pwn", "x")).rejects.toThrow(/symlinked/);
+    expect(fs.readFileSync(outside, "utf8")).toBe("DB_PASSWORD=hunter2\n");
+  });
+
+  it("refuses a locale or drafts directory that links outside the content root", async () => {
+    const elsewhere = path.join(root, "elsewhere");
+    fs.mkdirSync(elsewhere);
+    fs.symlinkSync(elsewhere, path.join(contentDir, "es"));
+    fs.rmSync(path.join(contentDir, ".drafts"), { recursive: true });
+    fs.symlinkSync(elsewhere, path.join(contentDir, ".drafts"));
+    const md = createMarkdownAdapter({ contentDir, locales: ["en", "es"] });
+
+    await expect(md.writeRaw("about", "x", "es")).rejects.toThrow(/escapes/);
+    await expect(md.writeDraftRaw("about", "x")).rejects.toThrow(/escapes/);
+    expect(fs.readdirSync(elsewhere)).toEqual([]);
+  });
+
+  it("still works when the content root itself is reached through a symlink", async () => {
+    const alias = path.join(root, "alias");
+    fs.symlinkSync(contentDir, alias);
+    const md = createMarkdownAdapter({ contentDir: alias });
+
+    await md.writeRaw("home", "---\nslices: []\n---\n");
+    expect(await md.readRaw("home")).toContain("slices");
+  });
+});
