@@ -1,9 +1,11 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { main } from "./index";
+import { main, envProxyReexecEnv, reexecWithEnvProxy } from "./index";
 
 function withTmpDir(): string {
   return mkdtempSync(join(tmpdir(), "typren-locale-cli-index-"));
@@ -95,5 +97,50 @@ describe("main (verb router)", () => {
     await main(["pull", "--config", "whatever.json", "--filename-style", "yell"]);
     expect(process.exitCode).toBe(1);
     expect(errorSpy.mock.calls.flat().join("\n")).toContain('--filename-style must be "dash" or "underscore"');
+  });
+});
+
+describe("envProxyReexecEnv", () => {
+  it("sets NODE_USE_ENV_PROXY only when a proxy var is set and the flag is not", () => {
+    expect(envProxyReexecEnv({})).toBeUndefined();
+    expect(envProxyReexecEnv({ HTTPS_PROXY: "http://p:1", NODE_USE_ENV_PROXY: "0" })).toBeUndefined();
+    expect(envProxyReexecEnv({ https_proxy: "http://p:1" })).toEqual({ https_proxy: "http://p:1", NODE_USE_ENV_PROXY: "1" });
+  });
+});
+
+describe("reexecWithEnvProxy", () => {
+  it("spawns under the flag and relays the exit code; skips when no proxy", () => {
+    const run = vi.fn(() => ({ status: 3 })) as never;
+    expect(reexecWithEnvProxy({}, run)).toBeUndefined();
+    expect(reexecWithEnvProxy({ HTTP_PROXY: "http://p:1" }, run)).toBe(3);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("built CLI behind a proxy", () => {
+  const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "cli", "index.js");
+
+  // Needs the built bin; `bun run verify` builds before it tests.
+  it.skipIf(!existsSync(bin))("routes fetch through HTTPS_PROXY without NODE_USE_ENV_PROXY", async () => {
+    const connects: string[] = [];
+    const proxy = createServer();
+    proxy.on("connect", (req, socket) => {
+      connects.push(req.url ?? "");
+      socket.destroy();
+    });
+    await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
+    const { port } = proxy.address() as { port: number };
+    const env: NodeJS.ProcessEnv = { ...process.env, HTTPS_PROXY: `http://127.0.0.1:${port}`, NO_PROXY: "" };
+    delete env.NODE_USE_ENV_PROXY;
+    const dir = withTmpDir();
+    const child = spawn(
+      process.execPath,
+      [bin, "compat", "lokalise2", "file", "download", "--token", "t", "--project-id", "p", "--unzip-to", dir],
+      { env, stdio: "ignore" },
+    );
+    await new Promise((r) => child.on("close", r));
+    proxy.close();
+    rmSync(dir, { recursive: true, force: true });
+    expect(connects.length).toBeGreaterThan(0);
   });
 });

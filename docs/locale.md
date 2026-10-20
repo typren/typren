@@ -208,6 +208,11 @@ The package ships a `typren-locale` bin with four verbs and a compat layer:
   vendor CLI. Suits `alias lokalise2='typren-locale compat lokalise2'` for
   build scripts mid-migration.
 
+The CLI honors `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`: when a proxy variable is
+set it re-executes itself with `NODE_USE_ENV_PROXY=1`, because Node's `fetch`
+ignores them otherwise. This needs Node 22.21+ or 24.5+; on older Node the
+variable is a no-op and requests go direct.
+
 ## Hosting
 
 Build output is nothing but static files — `dist/catalog/<app>/<lang>/<hash>.json`,
