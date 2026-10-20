@@ -120,8 +120,12 @@ describe("reexecWithEnvProxy", () => {
 describe("built CLI behind a proxy", () => {
   const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "cli", "index.js");
 
+  // Node only honors NODE_USE_ENV_PROXY from 22.21 / 24.5; older Node ignores it.
+  const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
+  const nodeHonorsEnvProxy = major >= 25 || (major === 24 && minor >= 5) || (major === 22 && minor >= 21);
+
   // Needs the built bin; `bun run verify` builds before it tests.
-  it.skipIf(!existsSync(bin))("routes fetch through HTTPS_PROXY without NODE_USE_ENV_PROXY", async () => {
+  it.skipIf(!existsSync(bin) || !nodeHonorsEnvProxy)("routes fetch through HTTPS_PROXY without NODE_USE_ENV_PROXY", async () => {
     const connects: string[] = [];
     const proxy = createServer();
     proxy.on("connect", (req, socket) => {
