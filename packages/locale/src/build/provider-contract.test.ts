@@ -449,6 +449,7 @@ describe("createExportApiSourceProvider", () => {
 
   it.each([
     ["lokalise's own bucket", "https://s3-eu-west-1.amazonaws.com/lokalise-assets/files/export/p/b.zip", lokalise],
+    ["lokalise's export bucket", "https://lokalise-live-lok-s3-fss-export.s3.eu-central-1.amazonaws.com/export/1/p/export/u", lokalise],
     ["a crowdin download subdomain", "https://production-enterprise-importer.downloads.crowdin.com/x/b.zip", crowdin],
   ])("preset bundleOrigins admit %s", async (_label, url, origins) => {
     await expect(zipProvider(smallZip(), url, origins).provider.loadSource()).resolves.toEqual({ en: { Greeting: "Hi" } });
@@ -459,6 +460,7 @@ describe("createExportApiSourceProvider", () => {
     ["a bucket sharing the prefix text", "https://s3-eu-west-1.amazonaws.com/lokalise-assets-evil/b.zip", lokalise],
     ["a dot-segment escape from the bucket", "https://s3-eu-west-1.amazonaws.com/lokalise-assets/../evil/b.zip", lokalise],
     ["plain http to the bucket", "http://s3-eu-west-1.amazonaws.com/lokalise-assets/b.zip", lokalise],
+    ["a look-alike export bucket host", "https://lokalise-live-lok-s3-fss-export.s3.eu-central-1.amazonaws.com.evil.example/b.zip", lokalise],
     ["a look-alike prefix host", "https://evildownloads.crowdin.com/b.zip", crowdin],
     ["a look-alike suffix host", "https://x.downloads.crowdin.com.evil.example/b.zip", crowdin],
     ["the bare suffix domain", "https://downloads.crowdin.com/b.zip", crowdin],
