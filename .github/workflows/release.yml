@@ -180,6 +180,12 @@ jobs:
       # delete `release-dist` and upload its own under the same name. A
       # replacement gets a new ID, so it is never what lands here, and
       # download-artifact fails on a digest mismatch by default.
+      # An empty id would make download-artifact fetch every artifact in the run.
+      - name: Require the build artifact id
+        run: '[ -n "$ID" ] || { echo "::error::build reported no artifact id" >&2; exit 1; }'
+        env:
+          ID: ${{ needs.build.outputs.artifact-id }}
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           artifact-ids: ${{ needs.build.outputs.artifact-id }}
