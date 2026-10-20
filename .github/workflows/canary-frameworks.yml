@@ -5,8 +5,9 @@
 # itself on the next passing run. No secrets.
 #
 # The `next` job installs unpinned third-party packages, so it holds a read-only token, does not
-# persist it into .git/config, and never writes the bun cache the release build restores. Issue
-# filing lives in the separate `report` job, which installs nothing and runs no third-party code.
+# persist it into .git/config, and does not save a bun cache. That alone cannot stop code running
+# here from writing the Actions cache directly, so release.yml and version-pr.yml restore no cache
+# at all. Issue filing lives in the separate `report` job, which installs nothing and runs no third-party code.
 name: Canary (frameworks)
 
 on:

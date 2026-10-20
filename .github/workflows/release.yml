@@ -36,40 +36,64 @@ permissions:
   contents: read
 
 jobs:
+  # Re-run the gate on a clean checkout. The local hook already ran it, but
+  # that was against a working tree, and this proves main builds green from
+  # nothing. typecheck needs @typren/core's dist (see .husky/pre-push), so it
+  # builds once first. Nothing from this job reaches the artifact: lint and
+  # test run a much larger dependency tree than tsc and postbuild, and any of
+  # it could rewrite sources, postbuild scripts or the compiler in this
+  # workspace, so the `build` job below starts from its own checkout.
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+          no-cache: true
+
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run test
+
   # No `id-token` here, on purpose: this job runs `bun install` against
-  # whatever the lockfile resolves, then builds/lints/tests it, which is
-  # exactly the code a malicious dependency would want to run. With
-  # `id-token: write` scoped to a job, GitHub exposes
-  # ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN to every step in that job, not just the
-  # one that happens to call it -- so a job that both installs untrusted code
-  # AND holds that permission lets any of that code mint an OIDC token and
-  # trusted-publish on its own. Keeping that permission out of this job
-  # entirely, rather than just not-calling-it, is the actual control.
+  # whatever the lockfile resolves, then builds it, which is exactly the code
+  # a malicious dependency would want to run. With `id-token: write` scoped to
+  # a job, GitHub exposes ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN to every step in
+  # that job, not just the one that happens to call it -- so a job that both
+  # installs untrusted code AND holds that permission lets any of that code
+  # mint an OIDC token and trusted-publish on its own. Keeping that permission
+  # out of this job entirely, rather than just not-calling-it, is the actual
+  # control.
+  #
+  # This job runs only what produces the artifact: an install with lifecycle
+  # scripts off, then tsc and postbuild. `no-cache: true` because the Actions
+  # cache is writable by any workflow running in main's scope (the scheduled
+  # canaries execute unpinned third-party code there), so a restored bun
+  # binary is not a trustworthy toolchain.
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+          no-cache: true
 
-      - run: bun install --frozen-lockfile
-
-      # Re-run the gate on a clean checkout. The local hook already ran it, but
-      # that was against a working tree, and this proves main builds green from
-      # nothing, which is the artifact people actually install. typecheck needs
-      # @typren/core's dist (see .husky/pre-push), so build once for it, then
-      # wipe every dist and build again as the LAST step before staging: lint
-      # and test run a much larger dependency tree than tsc and postbuild, and
-      # none of it may get the chance to rewrite what ships.
+      - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run build
-      - run: bun run typecheck
-      - run: bun run lint
-      - run: bun run test
-      - run: rm -rf packages/*/dist packages/core/migrations && bun run build
 
       # Everything else `npm publish` packs (each package's package.json, src,
       # README, LICENSE, CHANGELOG.md) is already committed to main by the
@@ -109,7 +133,7 @@ jobs:
           retention-days: 1
 
   publish:
-    needs: build
+    needs: [verify, build]
     runs-on: ubuntu-latest
     # Required reviewer on this environment (repo Settings -> Environments):
     # a tag push queues the run, but the job itself waits for a manual

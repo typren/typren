@@ -4,7 +4,9 @@
 # next passing run. It cannot see a silent infra move the way a real authenticated pull would.
 #
 # The check job installs dependencies, so it holds a read-only token, does not persist it into
-# .git/config, and never writes the bun cache the release build restores. Issue filing lives in
+# .git/config, and does not save a bun cache. That alone cannot stop code running here from
+# writing the Actions cache directly, so release.yml and version-pr.yml restore no cache at all.
+# Issue filing lives in
 # the separate `report` job, which installs nothing and runs no third-party code.
 name: Canary (providers)
 
