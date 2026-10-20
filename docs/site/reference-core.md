@@ -46,6 +46,7 @@ Core type definitions shared across the package. No runtime exports; this is whe
 | `writeDraftRaw(slug, raw, locale?, opts?)` | `Promise<void>` | Same `expectedVersion` CAS option as `writeRaw`. |
 | `deleteDraft(slug, locale?)` | `Promise<void>` | |
 | `hasDraft(slug, locale?)` | `Promise<boolean>` | |
+| `draftsWriteThrough?` | `boolean` | `true` when `writeDraftRaw` writes live content (Notion). `makeActions` then authorizes draft writes as `"publish"`. |
 | `parse(raw)` | `PageContent` | Sync, pure, no I/O. |
 | `serialize(page)` | `string` | Sync, pure, no I/O. |
 
@@ -140,7 +141,7 @@ Neither function throws; they are pure transforms.
 - Throws `typren: notion property "<name>" expected type "<type>" but got "<actual>"` on a property type mismatch.
 - Throws on any non-ok Notion API response, with the method, path, status and response body in the message.
 
-> Notion has no draft/publish distinction: every draft write goes straight through to the published row (`writeDraftRaw` calls the same path as `writeRaw`; `readDraftRaw`/`hasDraft` always report no draft). This drops optimistic-locking and "unpublished changes" UX for Notion-backed collections.
+> Notion has no draft/publish distinction: every draft write goes straight through to the published row (`writeDraftRaw` calls the same path as `writeRaw`; `readDraftRaw`/`hasDraft` always report no draft), so the adapter sets `draftsWriteThrough` and draft saves need the `"publish"` permission. This drops optimistic-locking and "unpublished changes" UX for Notion-backed collections.
 
 ### notion-blocks.js
 

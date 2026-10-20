@@ -41,6 +41,10 @@ export function makeActions(config: CmsConfig, scope: { collectionId?: string } 
   const auth = resolveAuth(config); // throws early if the config is misconfigured
   const defaultLocale = config.adapter.defaultLocale;
 
+  // An adapter whose draft write IS the live write (Notion) makes a draft
+  // save a publish, so it must clear the publish tier, not just saveDraft.
+  const draftAction: AuthAction = config.adapter.draftsWriteThrough ? "publish" : "saveDraft";
+
   async function guard(action: AuthAction, target: { slug?: string; locale?: string } = {}) {
     const ctx = { action, ...target, collectionId: scope.collectionId, siteId: config.siteId, accountId: config.accountId };
     if (!(await auth.authorize(ctx))) throw new Error("typren: unauthorized");
@@ -53,7 +57,7 @@ export function makeActions(config: CmsConfig, scope: { collectionId?: string } 
       baseVersion?: string,
       locale?: string
     ): Promise<SaveResult> {
-      await guard("saveDraft", { slug, locale });
+      await guard(draftAction, { slug, locale });
       try {
         return { ok: true, version: await store.saveDraft(slug, page, baseVersion, locale) };
       } catch (e) {
@@ -130,7 +134,7 @@ export function makeActions(config: CmsConfig, scope: { collectionId?: string } 
     /** Seed a draft translation of `slug` into `toLocale` from the default
      *  locale's published content. Gated as a draft write to `toLocale`. */
     async createTranslation(slug: string, toLocale: string) {
-      await guard("saveDraft", { slug, locale: toLocale });
+      await guard(draftAction, { slug, locale: toLocale });
       await store.createTranslation(slug, defaultLocale, toLocale);
     },
     async deletePage(slug: string) {

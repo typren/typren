@@ -108,3 +108,15 @@ describe("makeActions guard context", () => {
     await expect(makeActions(makeConfig()).createPage("Home")).rejects.toThrow(/unauthorized/);
   });
 });
+
+describe("draftsWriteThrough adapters", () => {
+  it("gate draft writes as publish, so saveDraft alone can't make content live", async () => {
+    const base = makeConfig().adapter;
+    const writeThrough: ContentAdapter = { ...base, draftsWriteThrough: true };
+    deny = (ctx) => ctx.action === "publish";
+    const a = makeActions(makeConfig(writeThrough));
+    await expect(a.saveDraft("home", page)).rejects.toThrow(/unauthorized/);
+    await expect(a.createTranslation("home", "de")).rejects.toThrow(/unauthorized/);
+    expect(seen.map((c) => c.action)).toEqual(["publish", "publish"]);
+  });
+});

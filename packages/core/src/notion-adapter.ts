@@ -400,6 +400,7 @@ export function createNotionAdapter({
       return null;
     },
     writeDraftRaw: doWriteRaw,
+    draftsWriteThrough: true,
     async deleteDraft() {
       // no-op: there is no separate draft row to remove
     },

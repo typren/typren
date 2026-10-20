@@ -37,6 +37,12 @@ per slug, per collection, or per locale:
   copy slug checked before anything is written. A policy that reserves a
   slug can't be bypassed by renaming or duplicating onto it.
 
+**`"saveDraft"` is not always a lesser tier than `"publish"`.** An adapter
+with no separate draft storage (the Notion adapter) writes a draft straight
+to the live row, so it sets `draftsWriteThrough: true` and `makeActions`
+authorizes its draft writes (`saveDraft`, `createTranslation`) as
+`"publish"`. A role granted only `"saveDraft"` can't change Notion-backed
+content at all.
 
 **`authorize()` must fail closed.** Every adapter shipped in `@typren/core`
 wraps its identity resolution in a try/catch and returns `false` on any
