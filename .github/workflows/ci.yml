@@ -27,9 +27,17 @@ permissions:
   contents: read
 
 jobs:
-  ci:
-    name: CI
+  test:
+    name: test (node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # No package declares `engines`, so the floor is the oldest Node
+        # still in maintenance (22); the second leg tracks the current LTS.
+        # Tests spawn process.execPath, so the runner's own Node must be a
+        # known one, not whatever the image ships.
+        node: ["22", "lts/*"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -37,6 +45,10 @@ jobs:
           # gate (below) need to diff against origin/develop, not just the
           # PR's own commits.
           fetch-depth: 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ matrix.node }}
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -88,7 +100,17 @@ jobs:
       # this one: version-pr.yml only ever pushes changeset-release/develop
       # to this repo, a fork can't produce that combination, and a fork
       # naming its branch "changeset-release/develop" no longer skips the
-      # gate.
+      # gate. Runs on one leg only: the result doesn't depend on Node.
       - name: Changeset required for package changes
-        if: ${{ !(startsWith(github.head_ref, 'changeset-release/') && github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ matrix.node == '22' && !(startsWith(github.head_ref, 'changeset-release/') && github.event.pull_request.head.repo.full_name == github.repository) }}
         run: bunx changeset status --since=origin/develop
+
+  # The one required status check named `CI` (the develop ruleset), so the
+  # matrix legs above can change without touching branch protection.
+  ci:
+    name: CI
+    needs: test
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.test.result }}" = success
