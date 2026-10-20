@@ -153,6 +153,10 @@ export interface ContentAdapter {
   writeDraftRaw(slug: string, raw: string, locale?: string, opts?: { expectedVersion?: string }): Promise<void>;
   deleteDraft(slug: string, locale?: string): Promise<void>;
   hasDraft(slug: string, locale?: string): Promise<boolean>;
+  /** True when `writeDraftRaw` writes the live content (no separate draft
+   *  storage, e.g. Notion). `makeActions` then gates draft writes as
+   *  "publish", since a draft save publishes. */
+  readonly draftsWriteThrough?: boolean;
   /** Parse raw source into structured content, and back. Locale-agnostic: the
    *  locale is a path segment, never inside the file. Pure/sync: no I/O. */
   parse(raw: string): PageContent;

@@ -31,8 +31,14 @@ export type RenameResult = {
  * Every handler takes an optional `locale` (defaults to the default locale, so
  * single-locale hosts are unchanged); it is threaded to the store alongside the
  * existing `baseVersion` optimistic lock. Locale does NOT displace baseVersion.
+ *
+ * `scope.collectionId` marks these as a collection section's actions (see
+ * collection.ts); every guard forwards it with the target slug and locale, so
+ * a policy keyed on any of them gates writes exactly as it gates reads.
  */
-export declare function makeActions(config: CmsConfig): {
+export declare function makeActions(config: CmsConfig, scope?: {
+    collectionId?: string;
+}): {
     saveDraft(slug: string, page: PageContent, baseVersion?: string, locale?: string): Promise<SaveResult>;
     discardDraft(slug: string, locale?: string): Promise<void>;
     publish(slug: string, baseVersion?: string, locale?: string): Promise<SaveResult>;
@@ -50,7 +56,10 @@ export declare function makeActions(config: CmsConfig): {
      *  client still holding the OLD slug's `baseVersion` after a rename lands
      *  gets a 404 on its next saveDraft/publish call (the file is gone) and
      *  has to reload: the same "your view is stale" outcome a version
-     *  conflict gives, just via a different status than 409. */
+     *  conflict gives, just via a different status than 409.
+     *
+     *  Authorized on both ends: a per-slug policy must be able to protect
+     *  the page being moved and a reserved destination slug. */
     renamePage(slug: string, newSlug: string): Promise<RenameResult>;
     /** Duplicate a page under a new, auto-derived slug (`slugify`-based
      *  "-copy"/"-copy-2"/... suffix, same helper `createPage` uses, so
@@ -59,10 +68,11 @@ export declare function makeActions(config: CmsConfig): {
      *  `ContentStore.duplicatePage` for the justification). Gated as a
      *  "createPage" action: a duplicate IS creating a new page, just seeded
      *  from an existing one, so it shares that permission rather than adding
-     *  a distinct one. */
+     *  a distinct one. Both the source and the derived destination slug are
+     *  authorized, the destination before anything is written. */
     duplicatePage(slug: string, locale?: string): Promise<string>;
     /** Seed a draft translation of `slug` into `toLocale` from the default
-     *  locale's published content. Gated as a draft write. */
+     *  locale's published content. Gated as a draft write to `toLocale`. */
     createTranslation(slug: string, toLocale: string): Promise<void>;
     deletePage(slug: string): Promise<void>;
     /** Delete a single translation (one locale) + its draft. */
@@ -414,12 +424,33 @@ export declare function clerkAuthAdapter(opts?: {
 // ---- dist/auth/local.d.ts ----
 import type { AuthAdapter } from "../auth-adapter.js";
 /**
+ * True when `headers` look like they passed through a reverse proxy, tunnel
+ * or port forwarder. Presence can't be the signal: Next itself fills
+ * `X-Forwarded-For/-Host/-Proto` on every request (`??=`, so a proxy's own
+ * value survives). Values can: a browser talking straight to a loopback-bound
+ * server yields only loopback addresses, while a forwarder carries the real
+ * client IP or public host. Refuses a non-loopback hop in `X-Forwarded-For`,
+ * a non-loopback `X-Forwarded-Host`, and any `Forwarded` or `X-Real-IP`
+ * (Next adds neither). `X-Forwarded-Proto` is ignored, it says nothing about
+ * where the request came from.
+ *
+ * Best-effort tripwire, not a boundary: a forwarder on the same host that
+ * sets none of these (nginx's default) shows Next its own loopback peer and
+ * passes. Never put localAuth behind one.
+ * ponytail: a per-boot secret (cookie set by a loopback-only page) would
+ * close this properly, but needs a scaffolded route and an editor change.
+ */
+export declare function isForwardedRequest(headers: {
+    get(name: string): string | null;
+}): boolean;
+/**
  * Dev-only gate (entry `@typren/core/auth/local`, no peer deps outside the
  * `getHost` default above). Refuses in production unless `allowInProduction`
  * is explicitly set, refuses unless the server is bound to loopback (Next:
  * `next dev -H 127.0.0.1`, which `typren init` scaffolds; other hosts pass
  * `isBoundToLoopback` and `getHost`), and refuses a non-loopback Host even
- * then. Any throw from a check denies. The editor writes files, so never ship it open
+ * then. Also refuses a request that shows proxy forwarding (see
+ * `isForwardedRequest`). Any throw from a check denies. The editor writes files, so never ship it open
  * by omission. Doesn't branch on `ctx.action`, so "admin"
  * (settings/onboarding/bootstrap writes) gets the exact same local-only gate
  * as every other write. There's only one tier in local dev.
@@ -432,6 +463,10 @@ export declare function localAuth(opts?: {
     /** Resolve the request's Host header. Default: Next's `headers()` (see
      *  `defaultGetHost`). Override in tests. Only ever narrows access. */
     getHost?: () => Promise<string | null>;
+    /** True when the request shows proxy forwarding. Default: Next's
+     *  `headers()` through `isForwardedRequest`. A non-Next host should call
+     *  `isForwardedRequest(request.headers)`. */
+    hasForwardedHeaders?: () => Promise<boolean>;
     /** True only when the server is listening on loopback alone. Default:
      *  Next's startup state (see `isBoundToLoopback`). A non-Next host must
      *  supply it from the address its server actually bound -- e.g. Astro's
@@ -637,7 +672,9 @@ import { type CollectionSection } from "./sections.js";
  *  `PageActions` can't do): resolves a collection section's own
  *  `ContentAdapter`, guarded against overlapping the Pages adapter's root. */
 export declare function makeCollectionAdapter(config: CmsConfig, section: CollectionSection): ContentAdapter;
-export declare function makeCollectionActions(config: CmsConfig, section: CollectionSection): PageActions;
+/** `collectionId` defaults to the id `resolveSections` would give `section`;
+ *  it reaches every write's AuthContext so a policy can gate per collection. */
+export declare function makeCollectionActions(config: CmsConfig, section: CollectionSection, collectionId?: string): PageActions;
 export declare function buildCollectionActions(config: CmsConfig): Record<string, PageActions>;
 /** List every record in a collection section as `CollectionRecordInfo` rows:
  *  the list view's data source (spec: collections have no client "read"
@@ -1989,8 +2026,10 @@ export interface ContentStore {
      *  auto-derived non-colliding slug (see `slugify`) and return it. Single-
      *  locale (defaults to the default locale), matching `createPage`'s own
      *  scope; other translations of the source are not duplicated. Throws if
-     *  `slug` has neither published nor draft content to copy. */
-    duplicatePage(slug: string, locale?: string): Promise<string>;
+     *  `slug` has neither published nor draft content to copy. `beforeWrite`
+     *  runs on the derived slug before anything is written, so a caller can
+     *  authorize the destination (it throws to abort). */
+    duplicatePage(slug: string, locale?: string, beforeWrite?: (newSlug: string) => Promise<void>): Promise<string>;
 }
 export declare function createStore(adapter: ContentAdapter, opts?: {
     onPublish?: (slug: string, locale: string) => void | Promise<void>;
@@ -2157,6 +2196,10 @@ export interface ContentAdapter {
     }): Promise<void>;
     deleteDraft(slug: string, locale?: string): Promise<void>;
     hasDraft(slug: string, locale?: string): Promise<boolean>;
+    /** True when `writeDraftRaw` writes the live content (no separate draft
+     *  storage, e.g. Notion). `makeActions` then gates draft writes as
+     *  "publish", since a draft save publishes. */
+    readonly draftsWriteThrough?: boolean;
     /** Parse raw source into structured content, and back. Locale-agnostic: the
      *  locale is a path segment, never inside the file. Pure/sync: no I/O. */
     parse(raw: string): PageContent;

@@ -39,7 +39,7 @@ If your adapter is an `AuthAdapter`, the same doctrine applies to `authorize()`:
 
 ## A tier with no separate draft, if that's your backend's shape
 
-An adapter whose backend has no API-level draft/publish distinction (Notion: a database row is just a row, there's no draft/published flag the API itself tracks) should make `writeDraftRaw` alias straight through to the same write `writeRaw` uses, and have `readDraftRaw`/`hasDraft` always report "no draft." This isn't a workaround to hide — it's a real, documented behavior difference (see notion-adapter.ts's own doc comment), and the contract suite has a seed option for exactly this case (see below). Don't fabricate a fake draft tier (a shadow property, a parallel row) just to fit the generic shape unless your backend actually gives you one worth using.
+An adapter whose backend has no API-level draft/publish distinction (Notion: a database row is just a row, there's no draft/published flag the API itself tracks) should make `writeDraftRaw` alias straight through to the same write `writeRaw` uses, and have `readDraftRaw`/`hasDraft` always report "no draft," and set `draftsWriteThrough: true` so `makeActions` authorizes a draft save as the publish it really is. This isn't a workaround to hide — it's a real, documented behavior difference (see notion-adapter.ts's own doc comment), and the contract suite has a seed option for exactly this case (see below). Don't fabricate a fake draft tier (a shadow property, a parallel row) just to fit the generic shape unless your backend actually gives you one worth using.
 
 ## Run the contract suite
 

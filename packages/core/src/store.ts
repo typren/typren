@@ -72,8 +72,10 @@ export interface ContentStore {
    *  auto-derived non-colliding slug (see `slugify`) and return it. Single-
    *  locale (defaults to the default locale), matching `createPage`'s own
    *  scope; other translations of the source are not duplicated. Throws if
-   *  `slug` has neither published nor draft content to copy. */
-  duplicatePage(slug: string, locale?: string): Promise<string>;
+   *  `slug` has neither published nor draft content to copy. `beforeWrite`
+   *  runs on the derived slug before anything is written, so a caller can
+   *  authorize the destination (it throws to abort). */
+  duplicatePage(slug: string, locale?: string, beforeWrite?: (newSlug: string) => Promise<void>): Promise<string>;
 }
 
 export function createStore(
@@ -215,7 +217,7 @@ export function createStore(
       }
     },
 
-    async duplicatePage(slug, locale = defaultLocale) {
+    async duplicatePage(slug, locale = defaultLocale, beforeWrite) {
       const [publishedExists, draft] = await Promise.all([adapter.exists(slug, locale), adapter.readDraftRaw(slug, locale)]);
       const published = publishedExists ? await adapter.readRaw(slug, locale) : null;
       if (published === null && draft === null) throw new Error(`typren: page "${slug}" does not exist`);
@@ -226,6 +228,7 @@ export function createStore(
       let newSlug = base;
       for (let n = 2; (await adapter.exists(newSlug, locale)) || (await adapter.hasDraft(newSlug, locale)); n++)
         newSlug = `${base}-${n}`;
+      await beforeWrite?.(newSlug);
 
       // Copy BOTH tiers that exist: a duplicate is meant to be a faithful
       // clone of the source's current state, not just its last published

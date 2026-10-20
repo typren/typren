@@ -28,6 +28,16 @@ describe("markdown-adapter parse/serialize", () => {
     expect(adapter.parse(serialized)).toEqual(parsed);
   });
 
+  // `body` is typed as required, but pages arrive as JSON from untyped callers.
+  it("serializes a page with no body as front matter only", () => {
+    const page = { meta: { title: "x" }, slices: [] } as unknown as Parameters<typeof adapter.serialize>[0];
+    expect(adapter.parse(adapter.serialize(page))).toEqual({
+      meta: { title: "x" },
+      slices: [],
+      body: "\n",
+    });
+  });
+
   // Regression: the editor's duplicate() shallow-copies a slice (`{...slice}`),
   // so a duplicated page can carry two slices pointing at the very same nested
   // object. Before noRefs, gray-matter dumped that as a YAML anchor/alias pair,
@@ -110,4 +120,86 @@ describe("markdown-adapter contract", () => {
   afterEach(() => fs.rmSync(contractDir, { recursive: true, force: true }));
 
   createContentAdapterContractSuite(() => createMarkdownAdapter({ contentDir: contractDir }));
+});
+
+describe("markdown-adapter symlinks", () => {
+  let root: string;
+  let contentDir: string;
+  let outside: string;
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "typren-md-link-"));
+    contentDir = path.join(root, "content");
+    outside = path.join(root, "secret.txt");
+    fs.mkdirSync(path.join(contentDir, ".drafts"), { recursive: true });
+    fs.writeFileSync(outside, "DB_PASSWORD=hunter2\n");
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it("refuses to read or write through a symlinked page or draft file", async () => {
+    fs.symlinkSync(outside, path.join(contentDir, "leak.md"));
+    fs.symlinkSync(outside, path.join(contentDir, ".drafts", "pwn.md"));
+    const md = createMarkdownAdapter({ contentDir });
+
+    await expect(md.readRaw("leak")).rejects.toThrow(/symlinked/);
+    await expect(md.exists("leak")).rejects.toThrow(/symlinked/);
+    await expect(md.writeRaw("leak", "x")).rejects.toThrow(/symlinked/);
+    await expect(md.writeDraftRaw("pwn", "x")).rejects.toThrow(/symlinked/);
+    expect(fs.readFileSync(outside, "utf8")).toBe("DB_PASSWORD=hunter2\n");
+  });
+
+  it("refuses a locale or drafts directory that links outside the content root", async () => {
+    const elsewhere = path.join(root, "elsewhere");
+    fs.mkdirSync(elsewhere);
+    fs.symlinkSync(elsewhere, path.join(contentDir, "es"));
+    fs.rmSync(path.join(contentDir, ".drafts"), { recursive: true });
+    fs.symlinkSync(elsewhere, path.join(contentDir, ".drafts"));
+    const md = createMarkdownAdapter({ contentDir, locales: ["en", "es"] });
+
+    await expect(md.writeRaw("about", "x", "es")).rejects.toThrow(/symlinked/);
+    await expect(md.writeDraftRaw("about", "x")).rejects.toThrow(/symlinked/);
+    await expect(md.writeDraftRaw("about", "x", "es")).rejects.toThrow(/symlinked/);
+    await expect(md.listSlugs("es")).rejects.toThrow(/symlinked/);
+    expect(fs.readdirSync(elsewhere)).toEqual([]);
+  });
+
+  it("refuses a linked .drafts even when draftDir is passed explicitly inside contentDir", async () => {
+    const elsewhere = path.join(root, "elsewhere");
+    fs.mkdirSync(elsewhere);
+    fs.writeFileSync(path.join(elsewhere, "notes.md"), "PRIVATE");
+    fs.rmSync(path.join(contentDir, ".drafts"), { recursive: true });
+    fs.symlinkSync(elsewhere, path.join(contentDir, ".drafts"));
+    const md = createMarkdownAdapter({ contentDir, draftDir: path.join(contentDir, ".drafts") });
+
+    await expect(md.readDraftRaw("notes")).rejects.toThrow(/symlinked/);
+    await expect(md.writeDraftRaw("pwned", "x")).rejects.toThrow(/symlinked/);
+    await expect(md.deleteDraft("notes")).rejects.toThrow(/symlinked/);
+    expect(fs.readdirSync(elsewhere)).toEqual(["notes.md"]);
+  });
+
+  it("treats a draftDir named like ..drafts inside contentDir as inside", async () => {
+    const elsewhere = path.join(root, "elsewhere");
+    fs.mkdirSync(elsewhere);
+    fs.symlinkSync(elsewhere, path.join(contentDir, "..drafts"));
+    const md = createMarkdownAdapter({ contentDir, draftDir: path.join(contentDir, "..drafts") });
+
+    await expect(md.writeDraftRaw("pwned", "x")).rejects.toThrow(/symlinked/);
+    expect(fs.readdirSync(elsewhere)).toEqual([]);
+  });
+
+  it("allows a draftDir outside contentDir and reports absent paths as missing", async () => {
+    const md = createMarkdownAdapter({ contentDir, draftDir: path.join(root, "drafts") });
+
+    await md.writeDraftRaw("home", "x");
+    expect(await md.readDraftRaw("home")).toBe("x");
+    expect(await md.exists("a".repeat(300))).toBe(false);
+  });
+
+  it("still works when the content root itself is reached through a symlink", async () => {
+    const alias = path.join(root, "alias");
+    fs.symlinkSync(contentDir, alias);
+    const md = createMarkdownAdapter({ contentDir: alias });
+
+    await md.writeRaw("home", "---\nslices: []\n---\n");
+    expect(await md.readRaw("home")).toContain("slices");
+  });
 });

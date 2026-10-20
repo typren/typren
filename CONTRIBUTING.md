@@ -55,6 +55,15 @@ run on a laptop. Release publishing needs a CI environment for npm provenance
 attestation, and the CLA check has to answer on your pull request the moment you
 open it.
 
+Scheduled canaries are the other exception, because a laptop can't run on a
+timer. Neither needs secrets. `canary-providers.yml` (nightly) watches
+Lokalise's public signals: new releases of its CLI and Node SDK, and whether
+the preset's export buckets still exist. Once you've reviewed a new release,
+bump `scripts/canary/lokalise-signals.json` to close the issue.
+`canary-frameworks.yml` (weekly) boots `next dev` at the latest stable and
+canary releases and checks `localAuth` over real HTTP. A failure opens an issue
+labelled `canary`, which closes itself on the next passing run.
+
 If a hook blocks you, fix the cause. Don't `--no-verify`.
 
 ## Coverage

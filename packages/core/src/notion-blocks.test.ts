@@ -320,3 +320,18 @@ describe("pageRecordFrom", () => {
     expect(record).toEqual({ meta: {}, slices: [{ slice: "markdown-block", markdown: "hi" }], body: "" });
   });
 });
+
+describe("code blocks nested in lists", () => {
+  it.each(["\r", "\r\n"])("keeps every code line inside the list item for a %j line ending", (eol) => {
+    const payload = { rich_text: text(`ok${eol}<div><img src=x onerror=alert(1)></div>${eol}more`) };
+    for (const type of ["bulleted_list_item", "numbered_list_item", "to_do"]) {
+      const out = blocksToMarkdown([
+        block(type, { rich_text: text("item"), checked: false }, { has_children: true, children: [block("code", payload)] }),
+      ]);
+      const codeLines = out.split("\n").slice(1);
+      expect(codeLines.length).toBeGreaterThan(3);
+      for (const line of codeLines) expect(line.startsWith("  ")).toBe(true);
+      expect(out.split("\n").some((l) => l.startsWith("<div"))).toBe(false);
+    }
+  });
+});

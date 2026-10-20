@@ -22,9 +22,27 @@ interface AuthAdapter {
 `"discardDraft"`, `"publish"`, `"createPage"`, `"renamePage"`,
 `"deletePage"`, `"uploadMedia"`, `"deleteMedia"`, or `"admin"`), the target
 `slug` and `collectionId` when there are any, the `locale` the request
-resolved, and (for a hosted/multi-tenant setup) `siteId`/`accountId`. The API
-routes (`api/routes.ts`) pass all of these for both reads and writes, so a
-policy can grant or deny per slug, per collection, or per locale.
+resolved, and (for a hosted/multi-tenant setup) `siteId`/`accountId`. Reads
+(`api/routes.ts`) and every write (`makeActions`, which the routes and
+collection actions share) pass all of these, so a policy can grant or deny
+per slug, per collection, or per locale:
+
+- A collection write carries the section's `collectionId`.
+- A write carries the `locale` it targets; `createTranslation` carries the
+  new `toLocale`, and `deleteTranslation` the locale being deleted.
+  `deletePage` and `renamePage` act on every locale, so they pass none.
+- `createPage` carries the slug derived from the title. `renamePage` is
+  authorized twice, once for the source slug and once for the destination,
+  and `duplicatePage` the same way (as `"createPage"`), with the derived
+  copy slug checked before anything is written. A policy that reserves a
+  slug can't be bypassed by renaming or duplicating onto it.
+
+**`"saveDraft"` is not always a lesser tier than `"publish"`.** An adapter
+with no separate draft storage (the Notion adapter) writes a draft straight
+to the live row, so it sets `draftsWriteThrough: true` and `makeActions`
+authorizes its draft writes (`saveDraft`, `createTranslation`) as
+`"publish"`. A role granted only `"saveDraft"` can't change Notion-backed
+content at all.
 
 **`authorize()` must fail closed.** Every adapter shipped in `@typren/core`
 wraps its identity resolution in a try/catch and returns `false` on any
@@ -151,7 +169,11 @@ so it doesn't branch on `ctx.action`) only when all three hold:
   runtime, so both are refused. `-H ::1` is refused too: Next reports it the
   same way as `-H ::`, which listens on every interface;
 - the request's `Host` is loopback (`localhost`, `127.0.0.1`, `[::1]`, or a
-  `*.localhost` name).
+  `*.localhost` name);
+- the request doesn't look forwarded: no non-loopback hop in
+  `X-Forwarded-For`, no non-loopback `X-Forwarded-Host`, and no `Forwarded` or
+  `X-Real-IP` header. (Next fills `X-Forwarded-*` itself on every request, with
+  loopback values for a direct browser, so only the values count.)
 
 The bind is the actual network boundary. A route handler or server action
 never sees the client's socket address, and the `Host` header is whatever the
@@ -163,6 +185,15 @@ rebinding. `localAuth()` reads the bind from Next's own startup state, so a
 [Choosing auth](./choosing-auth.md) for wiring a real provider before you
 deploy.
 
+**Never put `localAuth()` behind a reverse proxy, tunnel or port forwarder.**
+Anything on the same machine that rewrites `Host` to the upstream (nginx's
+default `proxy_set_header Host $proxy_host`, a VS Code or Codespaces public
+forwarded port, `ngrok --host-header=rewrite`) reaches the loopback-bound
+server from the internet and passes the bind and `Host` checks. The
+forwarding-header refusal catches forwarders that announce themselves, but one
+that strips those headers defeats it, so treat it as a tripwire, not a
+boundary. If you need to share a dev server, wire a real `AuthAdapter`.
+
 ### Astro and other non-Next hosts
 
 `localAuth()`'s defaults read Next's startup state and Next's `headers()`, so
@@ -171,7 +202,10 @@ on any other host they deny every request. Supply both facts yourself:
 - `isBoundToLoopback`: return `true` only from the address your server
   **actually bound**, never from config you hope was applied and never from
   the request;
-- `getHost`: return the request's `Host` header. It stays a deny-only filter.
+- `getHost`: return the request's `Host` header. It stays a deny-only filter;
+- `hasForwardedHeaders`: return `true` when the request looks forwarded;
+  `isForwardedRequest(request.headers)`, exported from the same entry, applies
+  the check above.
 
 Astro hands integrations the dev server's real bound address in its
 `astro:server:start` hook. Record it in `astro.config.mjs`:
@@ -207,7 +241,7 @@ Then build the config per request, so `getHost` reads that request's `Host`:
 // src/pages/api/typren/[...path].ts
 import type { APIRoute } from "astro";
 import { createTyprenApi } from "@typren/core/api";
-import { localAuth } from "@typren/core/auth/local";
+import { isForwardedRequest, localAuth } from "@typren/core/auth/local";
 import { cmsConfig } from "../../../cms.config";
 
 export const prerender = false;
@@ -218,6 +252,7 @@ const { handler } = createTyprenApi(
     auth: localAuth({
       isBoundToLoopback: () => globalThis.__typrenBoundToLoopback === true,
       getHost: async () => request.headers.get("host"),
+      hasForwardedHeaders: async () => isForwardedRequest(request.headers),
     }),
   }),
   { basePath: "/api/typren" }

@@ -12,7 +12,9 @@ guide that explains the reasoning; this page is the checklist form.
 
 - [ ] `auth` is set to a real `AuthAdapter`, not the dev-only `localAuth()`
       fallback. (`localAuth()` also refuses a dev server that isn't bound to
-      loopback, but it is still never a production adapter.)
+      loopback, but it is still never a production adapter, and it must never sit
+      behind a reverse proxy, tunnel or forwarded port: a same-host forwarder
+      can rewrite `Host` to loopback and expose the editor's writes.)
 - [ ] Every email allowlist entry is backed by an identity provider that
       actually sends a **verified**-email signal (OIDC `email_verified`,
       Clerk's primary-email verification status, Better Auth
@@ -41,6 +43,11 @@ guide that explains the reasoning; this page is the checklist form.
       `onboarded` is a boolean. `createSettingsStore` throws at construction
       if `siteId` (or another multi-tenant/factory signal) is set with no
       `settingsAdapter` configured.
+- [ ] A policy that grants `"saveDraft"` but withholds `"publish"` only
+      holds for adapters with real draft storage. A custom adapter whose
+      `writeDraftRaw` writes the live content must set
+      `draftsWriteThrough: true` (the Notion adapter does), or a
+      draft-only role can publish.
 - [ ] If you renamed `adminRoute`, the old `/editor/**` path still serves the
       editor unless your proxy opts in: call `typrenBlocksDirectEditorAccess(url)`
       from `@typren/core/proxy` ahead of `typrenProxyRewrite` and return a 404

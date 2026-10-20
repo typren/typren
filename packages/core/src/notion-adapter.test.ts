@@ -82,6 +82,10 @@ describe("notion-adapter list/read", () => {
     await expect(adapter.readRaw("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")).rejects.toThrow(/not found/);
   });
 
+  it("flags drafts as write-through, so makeActions gates a draft save as publish", () => {
+    expect(createNotionAdapter({ client: fakeClient(), databaseId: "db1", properties }).draftsWriteThrough).toBe(true);
+  });
+
   it("excludes archived rows from listSlugs/exists", async () => {
     const client = fakeClient([{ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", archived: true, properties: {} }]);
     const adapter = createNotionAdapter({ client, databaseId: "db1", properties });
