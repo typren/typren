@@ -9,7 +9,10 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const version = process.argv[2] || "latest";
+const requested = process.argv[2] || "latest";
+// Pin the dist-tag to an exact version: a bare "canary" lets npm fall back to stable when a peer
+// range (core's next >=15) excludes the prerelease, and the run would test the wrong release.
+const version = execFileSync("npm", ["view", `next@${requested}`, "version"], { encoding: "utf8" }).trim().split("\n").pop();
 const core = resolve(import.meta.dirname, "../../packages/core");
 const dir = mkdtempSync(join(tmpdir(), "typren-next-canary-"));
 const port = 39000 + Math.floor(Math.random() * 900);
@@ -36,14 +39,19 @@ export async function GET() {
 `
 );
 
-execFileSync("npm", ["install", "--no-audit", "--no-fund", "--loglevel=error"], { cwd: dir, stdio: "inherit" });
+execFileSync("npm", ["install", "--no-audit", "--no-fund", "--loglevel=error", "--legacy-peer-deps"], { cwd: dir, stdio: "inherit" });
 const nextVersion = JSON.parse(execFileSync("node", ["-p", "JSON.stringify(require('next/package.json').version)"], { cwd: dir, encoding: "utf8" }));
 const exportsForwarded = execFileSync(
   "node",
   ["--input-type=module", "-e", "import('@typren/core/auth/local').then(m => console.log(typeof m.isForwardedRequest === 'function'))"],
   { cwd: dir, encoding: "utf8" }
 ).trim() === "true";
-console.log(`next ${nextVersion} (requested ${version}); isForwardedRequest exported: ${exportsForwarded}`);
+console.log(`next ${nextVersion} (requested ${requested}); isForwardedRequest exported: ${exportsForwarded}`);
+if (nextVersion !== version) {
+  console.error(`FAIL installed next ${nextVersion}, but ${requested} resolves to ${version}`);
+  rmSync(dir, { recursive: true, force: true });
+  process.exit(1);
+}
 
 const server = spawn(join(dir, "node_modules/.bin/next"), ["dev", "-H", "127.0.0.1", "-p", String(port)], {
   cwd: dir,
