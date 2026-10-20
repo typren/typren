@@ -44,9 +44,24 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # Pinned release, verified against its published sha256, for
+      # check:workflows (part of verify below). Not a package.json
+      # dependency: actionlint is a Go binary. Bump version and checksum
+      # together.
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          curl -fsSLo actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum --check
+          tar -xzf actionlint.tar.gz -C "$RUNNER_TEMP" actionlint
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          rm actionlint.tar.gz
+
       # Same gate `bun run verify` runs in the local pre-push hook (build,
       # typecheck, lint, test with coverage, the new-code coverage floor,
-      # check:scaffold, check:api-surface). COVERAGE_BASE_REF overrides that
+      # check:scaffold, check:api-surface, check:workflows). COVERAGE_BASE_REF overrides that
       # gate's default (origin/main): PRs land on develop, and main can be well
       # behind it (release is a separate promotion), so diffing new-code
       # coverage against main would flag every line since the last release,
