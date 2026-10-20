@@ -411,6 +411,14 @@ describe("createExportApiSourceProvider", () => {
     warn.mockRestore();
   });
 
+  it("the skip warning escapes a TMS-supplied locale name instead of echoing control characters", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await exportApiJsonFactory({ "x\u001b[2Jy": { Greeting: "Hi" }, en: { Greeting: "Yo" } }).loadSource();
+    expect(warn.mock.calls[0]![0]).not.toContain("\u001b");
+    expect(warn.mock.calls[0]![0]).toContain('"x\\u001b[2Jy"');
+    warn.mockRestore();
+  });
+
   it('a langMap override cannot map a key onto a traversal either', async () => {
     await expect(exportApiJsonFactory({ en: { Greeting: "Hi" } }, { en: "../package" }).loadSource()).rejects.toThrow(
       /unsafe locale key "\.\.\/package"/,

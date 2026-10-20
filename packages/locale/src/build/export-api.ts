@@ -281,7 +281,7 @@ function bundleLocaleKey(name: string, langMap: Record<string, string> | undefin
     return normalizeLocaleKey(name, langMap);
   } catch (e) {
     if (/[./\\]/.test(langMap?.[name] ?? name)) throw e;
-    console.warn(`export-api: skipping bundle locale "${name}": not a BCP-47 tag (map it with langMap to keep it)`);
+    console.warn(`export-api: skipping bundle locale ${JSON.stringify(name)}: not a BCP-47 tag (map it with langMap to keep it)`);
     return undefined;
   }
 }
