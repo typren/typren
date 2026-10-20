@@ -1,5 +1,15 @@
 # @typren/core
 
+## 0.5.3
+
+### Patch Changes
+
+- a30827e: The SVG upload sanitizer now drops any attribute with a `url(` that is not a same-document fragment reference, including an unterminated one that CSS would still resolve externally. Markdown/llms rendering now skips malformed repeating-item props (`columns`, `cards`, `items`, `quotes`, `stats`) instead of throwing, so one bad page no longer breaks `llms-full.txt` or its `.md` route.
+- 5dc7a16: `ContentAdapter` gains an optional `draftsWriteThrough` flag, set by the Notion adapter. When it is set, `makeActions` authorizes draft writes (`saveDraft`, `createTranslation`) as `"publish"`, because a draft save on that adapter makes the content live. A role granted only `"saveDraft"` can no longer publish Notion-backed content.
+- 121d0c1: `localAuth()` now refuses requests that look forwarded by a proxy or tunnel: a non-loopback `X-Forwarded-For` hop or `X-Forwarded-Host`, or any `Forwarded` or `X-Real-IP` header. It takes a `hasForwardedHeaders` option for non-Next hosts, and `isForwardedRequest(headers)` is exported to implement it. A same-host proxy that rewrites `Host` to loopback used to pass every check and expose the dev editor's writes to the internet. This is a best-effort tripwire; the docs now say `localAuth()` must never sit behind a forwarder.
+- 5ea6713: Notion code blocks normalise CR / CRLF line endings, so a bare CR inside a list-nested code block can no longer break out of its list item and fence.
+- 5c11512: Write actions now pass the target `slug`, `locale` and `collectionId` to `authorize()`, as reads already did. Collection writes carry their section's `collectionId`, translation actions carry the locale they create or delete, and `createPage`, `renamePage` and `duplicatePage` authorize the destination slug, so a per-collection, per-locale or reserved-slug policy can no longer be bypassed through a write route.
+
 ## 0.5.2
 
 ### Patch Changes
