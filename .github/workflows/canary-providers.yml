@@ -2,6 +2,10 @@
 # secrets): new releases of Lokalise's own CLI and Node SDK, and whether the lokalise preset's
 # export buckets still exist. A change opens an issue labelled `canary`, which closes itself on the
 # next passing run. It cannot see a silent infra move the way a real authenticated pull would.
+#
+# The check job installs dependencies, so it holds a read-only token, does not persist it into
+# .git/config, and never writes the bun cache the release build restores. Issue filing lives in
+# the separate `report` job, which installs nothing and runs no third-party code.
 name: Canary (providers)
 
 on:
@@ -23,20 +27,34 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
+          no-cache: true
       - run: bun install --frozen-lockfile
       - run: bun run --filter @typren/locale build
       - id: check
         run: node scripts/canary/lokalise-signals.mjs
         env:
           GH_TOKEN: ${{ github.token }}
-      - name: File or close the canary issue
-        if: always()
-        run: node scripts/canary/report.mjs --title "Canary: Lokalise public signals" --outcome "${{ steps.check.outcome }}" --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  report:
+    name: file or close the canary issue
+    needs: lokalise-signals
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: node scripts/canary/report.mjs --title "Canary: Lokalise public signals" --outcome "${{ needs.lokalise-signals.result }}" --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         env:
           GH_TOKEN: ${{ github.token }}
