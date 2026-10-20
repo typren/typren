@@ -113,6 +113,22 @@ describe("processUpload", () => {
     expect(out).toContain('fill="url(#gradient)"');
   });
 
+  it("drops presentation attributes whose url( is unterminated, quoted, or mixed-case, keeping url(#id)", async () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg">' +
+      '<rect fill="url(https://evil.test/p.svg#g" mask="url(https://evil.test/m.svg#m" width="1" height="1"/>' +
+      '<rect fill="URL(\'https://evil.test/q.svg#g" width="1" height="1"/>' +
+      '<rect fill="url(&quot;https://evil.test/r.svg#g&quot;)" width="1" height="1"/>' +
+      '<rect fill="url(#a) url(https://evil.test/s.svg#g" width="1" height="1"/>' +
+      '<rect id="ok1" fill="url( #g1 )" width="1" height="1"/>' +
+      '<rect id="ok2" fill="URL(\'#g2\')" width="1" height="1"/>' +
+      "</svg>";
+    const out = (await processUpload({ name: "s3.svg", buffer: Buffer.from(svg) }, SVG_ON)).buffer.toString("utf8");
+    expect(out).not.toMatch(/evil\.test/i);
+    expect(out).toContain("url( #g1 )");
+    expect(out).toMatch(/url\(('|&#39;)?#g2/i);
+  });
+
   // Re-encoded, not passed through: the old passthrough kept EXIF/GPS and skipped the dimension cap.
   const withGps = (img: Sharp) => img.withExif({ IFD3: { GPSLatitudeRef: "N", GPSLatitude: "51/1 30/1 0/1" } });
 
