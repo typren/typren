@@ -424,12 +424,33 @@ export declare function clerkAuthAdapter(opts?: {
 // ---- dist/auth/local.d.ts ----
 import type { AuthAdapter } from "../auth-adapter.js";
 /**
+ * True when `headers` look like they passed through a reverse proxy, tunnel
+ * or port forwarder. Presence can't be the signal: Next itself fills
+ * `X-Forwarded-For/-Host/-Proto` on every request (`??=`, so a proxy's own
+ * value survives). Values can: a browser talking straight to a loopback-bound
+ * server yields only loopback addresses, while a forwarder carries the real
+ * client IP or public host. Refuses a non-loopback hop in `X-Forwarded-For`,
+ * a non-loopback `X-Forwarded-Host`, and any `Forwarded` or `X-Real-IP`
+ * (Next adds neither). `X-Forwarded-Proto` is ignored, it says nothing about
+ * where the request came from.
+ *
+ * Best-effort tripwire, not a boundary: a forwarder on the same host that
+ * sets none of these (nginx's default) shows Next its own loopback peer and
+ * passes. Never put localAuth behind one.
+ * ponytail: a per-boot secret (cookie set by a loopback-only page) would
+ * close this properly, but needs a scaffolded route and an editor change.
+ */
+export declare function isForwardedRequest(headers: {
+    get(name: string): string | null;
+}): boolean;
+/**
  * Dev-only gate (entry `@typren/core/auth/local`, no peer deps outside the
  * `getHost` default above). Refuses in production unless `allowInProduction`
  * is explicitly set, refuses unless the server is bound to loopback (Next:
  * `next dev -H 127.0.0.1`, which `typren init` scaffolds; other hosts pass
  * `isBoundToLoopback` and `getHost`), and refuses a non-loopback Host even
- * then. Any throw from a check denies. The editor writes files, so never ship it open
+ * then. Also refuses a request that shows proxy forwarding (see
+ * `isForwardedRequest`). Any throw from a check denies. The editor writes files, so never ship it open
  * by omission. Doesn't branch on `ctx.action`, so "admin"
  * (settings/onboarding/bootstrap writes) gets the exact same local-only gate
  * as every other write. There's only one tier in local dev.
@@ -442,6 +463,10 @@ export declare function localAuth(opts?: {
     /** Resolve the request's Host header. Default: Next's `headers()` (see
      *  `defaultGetHost`). Override in tests. Only ever narrows access. */
     getHost?: () => Promise<string | null>;
+    /** True when the request shows proxy forwarding. Default: Next's
+     *  `headers()` through `isForwardedRequest`. A non-Next host should call
+     *  `isForwardedRequest(request.headers)`. */
+    hasForwardedHeaders?: () => Promise<boolean>;
     /** True only when the server is listening on loopback alone. Default:
      *  Next's startup state (see `isBoundToLoopback`). A non-Next host must
      *  supply it from the address its server actually bound -- e.g. Astro's
