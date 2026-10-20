@@ -46,11 +46,11 @@ jobs:
 
       # Same gate `bun run verify` runs in the local pre-push hook (build,
       # typecheck, lint, test with coverage, the new-code coverage floor,
-      # check:scaffold). COVERAGE_BASE_REF overrides that gate's default
-      # (origin/main): PRs land on develop, and main can be well behind it
-      # (release is a separate promotion), so diffing new-code coverage
-      # against main would flag every line since the last release, not just
-      # this PR's.
+      # check:scaffold, check:api-surface). COVERAGE_BASE_REF overrides that
+      # gate's default (origin/main): PRs land on develop, and main can be well
+      # behind it (release is a separate promotion), so diffing new-code
+      # coverage against main would flag every line since the last release,
+      # not just this PR's.
       - run: bun run verify
         env:
           COVERAGE_BASE_REF: origin/develop
@@ -77,14 +77,3 @@ jobs:
       - name: Changeset required for package changes
         if: ${{ !(startsWith(github.head_ref, 'changeset-release/') && github.event.pull_request.head.repo.full_name == github.repository) }}
         run: bunx changeset status --since=origin/develop
-
-      # See docs/hosted-platform.md#cross-repo-compatibility item 1 and
-      # scripts/gen-api-surface.mjs's own header for why this is a plain
-      # script over dist/*.d.ts rather than api-extractor.
-      - name: Public API surface matches the checked-in snapshot
-        run: |
-          node scripts/gen-api-surface.mjs
-          if ! git diff --exit-code -- etc/api-surface; then
-            echo "::error::The public .d.ts surface of @typren/core and/or typren changed. Run 'bun run api-surface:generate', commit the updated etc/api-surface/*.d.ts, and add a changeset describing the change."
-            exit 1
-          fi
