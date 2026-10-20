@@ -79,8 +79,10 @@ const auth = localAuth(); // refuses in production unless allowInProduction is s
 `localAuth()` also refuses every request unless the Next server itself is
 bound to loopback (`next dev -H 127.0.0.1`; the default `next dev` listens on
 all interfaces and is refused), and refuses any request whose `Host` isn't
-loopback. The `Host` header is client-chosen, so only the bind keeps the dev
-server's file writes off the network. See [Auth model](./auth-model.md#localauth-for-development).
+loopback or that looks forwarded by a proxy (a non-loopback `X-Forwarded-For` or
+`X-Forwarded-Host`, or any `Forwarded` or `X-Real-IP`). The `Host` header is client-chosen, so only the bind keeps the dev
+server's file writes off the network, and never run `localAuth()` behind a
+reverse proxy or tunnel. See [Auth model](./auth-model.md#localauth-for-development).
 
 On Astro or any other non-Next host, supply the bind and the `Host` yourself
 (`astro dev --host 127.0.0.1`, with the bound address recorded from Astro's
@@ -90,6 +92,7 @@ On Astro or any other non-Next host, supply the bind and the `Host` yourself
 localAuth({
   isBoundToLoopback: () => globalThis.__typrenBoundToLoopback === true,
   getHost: async () => request.headers.get("host"),
+  hasForwardedHeaders: async () => isForwardedRequest(request.headers),
 });
 ```
 

@@ -3,6 +3,7 @@ import { createMarkdownAdapter } from "./markdown-adapter";
 import { makeActions, type PageActions } from "./actions";
 import type { CmsConfig, CollectionRecordInfo, ContentAdapter } from "./types";
 import { resolveSections, type CollectionSection } from "./sections";
+import { slugify } from "./store";
 
 /** True when `child` is inside (or equal to) `parent`. */
 function isInside(child: string, parent: string): boolean {
@@ -45,18 +46,24 @@ export function makeCollectionAdapter(config: CmsConfig, section: CollectionSect
   });
 }
 
-export function makeCollectionActions(config: CmsConfig, section: CollectionSection): PageActions {
+/** `collectionId` defaults to the id `resolveSections` would give `section`;
+ *  it reaches every write's AuthContext so a policy can gate per collection. */
+export function makeCollectionActions(
+  config: CmsConfig,
+  section: CollectionSection,
+  collectionId = section.id ?? slugify(section.label)
+): PageActions {
   const adapter = makeCollectionAdapter(config, section);
   // ponytail: onPublish/onSaveDraft omitted: their (slug, locale[, version])
   // signature can't identify a collection for revalidation or review-queue
   // triage. Add a per-section hook if a host needs collection revalidation.
-  return makeActions({ ...config, adapter, onPublish: undefined, onSaveDraft: undefined }) as PageActions;
+  return makeActions({ ...config, adapter, onPublish: undefined, onSaveDraft: undefined }, { collectionId }) as PageActions;
 }
 
 export function buildCollectionActions(config: CmsConfig): Record<string, PageActions> {
   const out: Record<string, PageActions> = {};
   for (const s of resolveSections(config))
-    if (s.kind === "collection") out[s.id] = makeCollectionActions(config, s.raw as CollectionSection);
+    if (s.kind === "collection") out[s.id] = makeCollectionActions(config, s.raw as CollectionSection, s.id);
   return out;
 }
 

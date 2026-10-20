@@ -11,6 +11,14 @@ describe("generateLlmsFullTxt", () => {
     expect(await generateLlmsFullTxt(store)).toBe("# Home\n\nWelcome\n\n---\n\n# about\n\nAbout us");
   });
 
+  it("keeps rendering other pages when one page has a malformed slice prop", async () => {
+    const store = fakeStore([
+      { slug: "bad", slices: [{ slice: "cards", items: [null], columns: { a: 1 } }] },
+      { slug: "good", slices: [{ slice: "hero", heading: "Fine" }] },
+    ]);
+    expect(await generateLlmsFullTxt(store)).toBe("# bad\n\n\n\n---\n\n# good\n\nFine");
+  });
+
   it("falls back to the slug when a page has no title", async () => {
     const store = fakeStore([{ slug: "untitled", slices: [] }]);
     expect(await generateLlmsFullTxt(store)).toBe("# untitled\n\n");

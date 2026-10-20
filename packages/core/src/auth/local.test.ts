@@ -1,5 +1,10 @@
 import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
-import { localAuth } from "./local";
+import { localAuth as rawLocalAuth } from "./local";
+
+// Outside a Next request the default forwarded-header check fails closed, so
+// tests that aren't about it opt out; the forwarding tests use the default.
+const localAuth = (opts: Parameters<typeof rawLocalAuth>[0] = {}) =>
+  rawLocalAuth({ hasForwardedHeaders: async () => false, ...opts });
 
 // What next's start-server sets after `next dev -H 127.0.0.1`. Every test
 // starts loopback-bound; the bind tests override it.
@@ -7,6 +12,64 @@ beforeEach(() => vi.stubEnv("__NEXT_PRIVATE_ORIGIN", "http://127.0.0.1:3000"));
 afterEach(() => vi.unstubAllEnvs());
 
 describe("localAuth", () => {
+  // Regression: a same-host proxy/tunnel rewrites Host to loopback, so the
+  // bind and Host checks pass for an internet visitor. Next fills
+  // x-forwarded-* itself, so only the values can tell.
+  const nextHeaders = async (init: Record<string, string>) => {
+    vi.doMock("next/headers", () => ({ headers: async () => new Headers(init) }));
+    vi.resetModules();
+    return (await import("./local")).localAuth();
+  };
+  const browser = {
+    host: "localhost:3000",
+    "x-forwarded-host": "localhost:3000",
+    "x-forwarded-for": "127.0.0.1",
+    "x-forwarded-proto": "http",
+  };
+
+  it("allows a plain browser carrying the x-forwarded-* headers Next itself adds", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    for (const xff of ["127.0.0.1", "::1", "::ffff:127.0.0.1", "127.0.0.1, ::1"]) {
+      const adapter = await nextHeaders({ ...browser, "x-forwarded-for": xff });
+      expect(await adapter.authorize({ action: "saveDraft" }), xff).toBe(true);
+    }
+    vi.doUnmock("next/headers");
+  });
+
+  it("denies headers that show a forwarder", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const cases: Record<string, string>[] = [
+      { "x-forwarded-for": "203.0.113.9" },
+      { "x-forwarded-for": "127.0.0.1, 203.0.113.9" },
+      { "x-forwarded-for": "not an ip" },
+      { "x-forwarded-host": "app.example.com" },
+      { "x-forwarded-host": "localhost:3000, app.example.com" },
+      { forwarded: "for=127.0.0.1" },
+      { "x-real-ip": "127.0.0.1" },
+    ];
+    for (const extra of cases) {
+      const adapter = await nextHeaders({ ...browser, ...extra });
+      expect(await adapter.authorize({ action: "saveDraft" }), JSON.stringify(extra)).toBe(false);
+      expect(await adapter.getUser!({ action: "read" }), JSON.stringify(extra)).toBeNull();
+    }
+    vi.doUnmock("next/headers");
+  });
+
+  it("allows plain loopback with no forwarding headers", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const adapter = await nextHeaders({ host: "localhost:3000" });
+    expect(await adapter.authorize({ action: "saveDraft" })).toBe(true);
+    vi.doUnmock("next/headers");
+  });
+
+  it("denies when hasForwardedHeaders reports true or throws", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const getHost = async () => "localhost:3000";
+    expect(await localAuth({ getHost, hasForwardedHeaders: async () => true }).authorize({ action: "saveDraft" })).toBe(false);
+    const throws = async () => { throw new Error("boom"); };
+    expect(await localAuth({ getHost, hasForwardedHeaders: throws }).authorize({ action: "saveDraft" })).toBe(false);
+  });
+
   // Regression: the Host header is client-chosen, so a LAN client could reach
   // a dev server bound to all interfaces and send `Host: localhost`. The
   // server's own bind address is the boundary; a spoofed Host must not pass.

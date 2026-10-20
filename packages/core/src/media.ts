@@ -52,15 +52,16 @@ function getSvgPurifier(): ReturnType<typeof DOMPurify> {
   return svgPurifier;
 }
 
-// `url(...)` functional values, same-document fragment ones (`url(#id)`, optionally quoted)
-// excepted: those are the only `url()` references staying off the network entirely. Presentation
-// attributes parse as CSS, so an escape (`\75 rl(...)`) can spell `url(` past the match below;
-// any backslash counts as external.
-const FRAGMENT_URL_FUNC = /^url\(\s*['"]?#/i;
+// Every `url(` must open a same-document fragment reference (`url(#id)`, optionally quoted): those
+// are the only `url()` references staying off the network entirely. Matching the opener rather than
+// a closed `url(...)` call fails closed on an unterminated one, which CSS ends at end of input.
+// Presentation attributes parse as CSS, so an escape (`\75 rl(...)`) can spell `url(` past the
+// match below; any backslash counts as external.
 function hasExternalUrlFunc(value: string): boolean {
   if (value.includes("\\")) return true;
-  const calls = value.match(/url\([^)]*\)/gi) ?? [];
-  return calls.some((call) => !FRAGMENT_URL_FUNC.test(call));
+  const openers = value.match(/url\(/gi)?.length ?? 0;
+  const fragments = value.match(/url\(\s*['"]?#/gi)?.length ?? 0;
+  return openers !== fragments;
 }
 
 /** Strips dangerous elements/attributes from an SVG's source, keeping the rest. `<style>` elements

@@ -155,7 +155,11 @@ method. `loadSource()` returns parsed catalogs keyed by the *canonical*
 locale (BCP-47, `-`-separated; the default normalization is `en_US` →
 `en-US`, overridable per key via `langMap`). A key, `langMap` result
 included, must look like a BCP-47 tag (`^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$`)
-or the load fails naming it, because the key becomes a path segment on disk;
+or the load fails naming it, because the key becomes a path segment on disk.
+The one exception is a TMS bundle (`export-api`): a locale there that is simply
+not a BCP-47 tag, such as a TMS custom language exported as `custom_1`, is
+skipped with a warning instead (map it with `langMap` to keep it), while a name
+containing `.`, `/` or `\` still fails the load;
 every catalog, manifest, delta and locale-file write additionally refuses a
 path that resolves outside its output directory. The package owns its output
 shape the same way it owns hashing: nothing mirrors a vendor's export
@@ -179,10 +183,13 @@ Two providers ship today:
   must share the create endpoint's origin or match a `bundleOrigins` entry
   (https only): an exact origin, an origin plus a path prefix ending in `/`
   (for shared storage hosts), or a `https://*.suffix` host suffix. The presets
-  ship theirs: `lokalise` admits only its own bucket on path-style S3
+  ship theirs: `lokalise` admits its own bucket on path-style S3
   (`https://s3-eu-west-1.amazonaws.com/lokalise-assets/`, not every bucket on
-  that host), and `crowdin` admits `https://*.downloads.crowdin.com`. Zip
-  bundles are capped at 50 MB inflated and 1000 entries.
+  that host) and the whole host of its virtual-hosted export bucket
+  (`https://lokalise-live-lok-s3-fss-export.s3.eu-central-1.amazonaws.com/`,
+  which belongs to that one bucket), and `crowdin` admits `https://*.downloads.crowdin.com`. Bundle
+  downloads (zip or JSON) are capped at 50 MB on the wire and time out after 60 s; zip
+  bundles are also capped at 50 MB inflated and 1000 entries.
 
 A platform whose protocol genuinely diverges from create/poll/fetch gets its
 own provider only when demand shows up; each new source is a config shape

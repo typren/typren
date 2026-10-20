@@ -46,6 +46,7 @@ Core type definitions shared across the package. No runtime exports; this is whe
 | `writeDraftRaw(slug, raw, locale?, opts?)` | `Promise<void>` | Same `expectedVersion` CAS option as `writeRaw`. |
 | `deleteDraft(slug, locale?)` | `Promise<void>` | |
 | `hasDraft(slug, locale?)` | `Promise<boolean>` | |
+| `draftsWriteThrough?` | `boolean` | `true` when `writeDraftRaw` writes live content (Notion). `makeActions` then authorizes draft writes as `"publish"`. |
 | `parse(raw)` | `PageContent` | Sync, pure, no I/O. |
 | `serialize(page)` | `string` | Sync, pure, no I/O. |
 
@@ -140,7 +141,7 @@ Neither function throws; they are pure transforms.
 - Throws `typren: notion property "<name>" expected type "<type>" but got "<actual>"` on a property type mismatch.
 - Throws on any non-ok Notion API response, with the method, path, status and response body in the message.
 
-> Notion has no draft/publish distinction: every draft write goes straight through to the published row (`writeDraftRaw` calls the same path as `writeRaw`; `readDraftRaw`/`hasDraft` always report no draft). This drops optimistic-locking and "unpublished changes" UX for Notion-backed collections.
+> Notion has no draft/publish distinction: every draft write goes straight through to the published row (`writeDraftRaw` calls the same path as `writeRaw`; `readDraftRaw`/`hasDraft` always report no draft), so the adapter sets `draftsWriteThrough` and draft saves need the `"publish"` permission. This drops optimistic-locking and "unpublished changes" UX for Notion-backed collections.
 
 ### notion-blocks.js
 
@@ -258,7 +259,7 @@ Operations that fan out over every slug in the store (`listPages`, and anything 
 
 | Export | Signature | Notes |
 |---|---|---|
-| `makeActions(config)` | `(config: CmsConfig) => CmsActions` | Builds the mutation handlers for a config. Every handler calls `auth.authorize()` before touching the store, since a Server Action is a public POST endpoint. Every handler takes an optional `locale` (defaults to the default locale). |
+| `makeActions(config, scope?)` | `(config: CmsConfig, scope?: { collectionId?: string }) => CmsActions` | Builds the mutation handlers for a config. Every handler calls `auth.authorize()` before touching the store, since a Server Action is a public POST endpoint, passing the target `slug`, `locale` and `scope.collectionId` (see [Auth model](./auth-model.md)). Every handler takes an optional `locale` (defaults to the default locale). |
 
 `CmsActions` (the object `makeActions` returns):
 
@@ -406,7 +407,7 @@ When `config.adapter` carries a filesystem `root` (a markdown adapter), the sett
 | Export | Signature | Notes |
 |---|---|---|
 | `makeCollectionAdapter(config, section)` | `(config: CmsConfig, section: CollectionSection) => ContentAdapter` | Resolves a collection section's own `ContentAdapter`, guarded against overlapping the Pages adapter's root. |
-| `makeCollectionActions(config, section)` | `(config: CmsConfig, section: CollectionSection) => PageActions` | |
+| `makeCollectionActions(config, section, collectionId?)` | `(config: CmsConfig, section: CollectionSection, collectionId?: string) => PageActions` | Every write's `AuthContext` carries `collectionId`, defaulting to the id `resolveSections` gives the section. |
 | `buildCollectionActions(config)` | `(config: CmsConfig) => Record<string, PageActions>` | |
 | `listCollectionRecords(config, section, locale?)` | `(config: CmsConfig, section: CollectionSection, locale?: string) => Promise<CollectionRecordInfo[]>` | The list view's data source: collections have no client `"read"` action, so this is what a host's server-fetch calls into. |
 

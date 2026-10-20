@@ -127,7 +127,9 @@ than trusting this one layer.
 > - **No draft/publish distinction.** Notion has no separate draft storage;
 >   every draft save writes straight through to the published row. This drops
 >   optimistic-locking and "unpublished changes" UX for Notion-backed
->   collections — an open design question, not silently dropped.
+>   collections — an open design question, not silently dropped. Because a
+>   draft save is a publish here, the adapter sets `draftsWriteThrough` and
+>   draft writes are authorized as `"publish"` (see [Auth model](./auth-model.md)).
 > - **Slug lookup without `slugProperty` scans the whole database** client-side
 >   (Notion's filter JSON is property-type-specific; not worth the code for an
 >   internal lookup). Notion's API is rate-limited to roughly 3 requests/second,

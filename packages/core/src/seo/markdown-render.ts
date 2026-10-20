@@ -13,12 +13,13 @@ function flattenSlice(slice: Slice): string {
   const lines: string[] = [];
   if (typeof s.heading === "string") lines.push(s.heading.replaceAll("**", ""));
   if (typeof s.body === "string") lines.push(s.body.replaceAll("**", ""));
-  const repeating = (s.columns ?? s.cards ?? s.items ?? s.quotes ?? s.stats) as
-    | Record<string, unknown>[]
-    | undefined;
-  for (const item of repeating ?? []) {
-    const title = item.title ?? item.question ?? item.name ?? item.label;
-    const body = item.body ?? item.answer ?? item.quote ?? item.value;
+  // Content-authored props: a wrong shape degrades to "nothing to render" instead of throwing.
+  const repeating = [s.columns, s.cards, s.items, s.quotes, s.stats].find(Array.isArray) ?? [];
+  for (const item of repeating as unknown[]) {
+    if (typeof item !== "object" || item === null) continue;
+    const entry = item as Record<string, unknown>;
+    const title = entry.title ?? entry.question ?? entry.name ?? entry.label;
+    const body = entry.body ?? entry.answer ?? entry.quote ?? entry.value;
     if (title || body) lines.push([title, body].filter(Boolean).join(": "));
   }
   return lines.join("\n");
