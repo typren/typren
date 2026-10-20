@@ -7,7 +7,7 @@ import { createTyprenClient } from "./client";
 import { createMarkdownAdapter } from "../markdown-adapter";
 import { createFsMediaAdapter } from "../fs-media-adapter";
 import { createFsSettingsAdapter } from "../settings";
-import type { AuthAdapter } from "../auth-adapter";
+import type { AuthAdapter, AuthContext } from "../auth-adapter";
 import type { CmsConfig } from "../types";
 
 let dir: string;
@@ -754,5 +754,87 @@ describe("createTyprenClient over the handler", () => {
   it("creates a page and returns the normalized slug", async () => {
     const client = clientFor(api);
     expect(await client.createPage("Hello World")).toBe("hello-world");
+  });
+});
+
+// Writes must reach authorize() with the same scope reads do: collectionId,
+// locale and the target slug. A route that dropped one would let a policy
+// keyed on it (a "legal" collection, a "de" team, an admin-only slug) be
+// bypassed by the write while still holding for the read.
+describe("AuthContext on every write route", () => {
+  it("carries collectionId, locale and slug through each route", async () => {
+    const legalDir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-legal-"));
+    const seen: AuthContext[] = [];
+    const scopedApi = createTyprenApi(
+      {
+        ...makeConfig(),
+        adapter: createMarkdownAdapter({
+          contentDir: dir,
+          draftDir: path.join(dir, ".drafts"),
+          locales: ["en", "de"],
+          defaultLocale: "en",
+        }),
+        sections: [
+          { kind: "pages", label: "Pages" },
+          { kind: "collection", id: "legal", label: "Legal", dir: legalDir, schema: {} },
+        ],
+        auth: {
+          authorize: async (ctx) => {
+            seen.push(ctx);
+            return true;
+          },
+        },
+      },
+      { basePath: BASE }
+    );
+    const page = { page: { meta: {}, slices: [], body: "x" } };
+    const call = async (r: Request) => {
+      seen.length = 0;
+      expect((await scopedApi.handler(r)).status).toBeLessThan(300);
+      return seen.map(({ action, slug, locale, collectionId }) => ({ action, slug, locale, collectionId }));
+    };
+    try {
+      expect(await call(jsonReq("POST", "/collections/legal?locale=de", { title: "Terms" }))).toEqual([
+        { action: "createPage", slug: "terms", locale: "de", collectionId: "legal" },
+      ]);
+      expect(await call(jsonReq("PUT", "/collections/legal/terms/draft?locale=de", page))).toEqual([
+        { action: "saveDraft", slug: "terms", locale: "de", collectionId: "legal" },
+      ]);
+      expect(await call(jsonReq("POST", "/collections/legal/terms/publish?locale=de", {}))).toEqual([
+        { action: "publish", slug: "terms", locale: "de", collectionId: "legal" },
+      ]);
+      expect(await call(req("DELETE", "/collections/legal/terms/draft?locale=de"))).toEqual([
+        { action: "discardDraft", slug: "terms", locale: "de", collectionId: "legal" },
+      ]);
+      expect(await call(req("DELETE", "/collections/legal/terms"))).toEqual([
+        { action: "deletePage", slug: "terms", locale: undefined, collectionId: "legal" },
+      ]);
+
+      expect(await call(jsonReq("POST", "/pages/home/translations", { toLocale: "de" }))).toEqual([
+        { action: "saveDraft", slug: "home", locale: "de", collectionId: undefined },
+      ]);
+      expect(await call(jsonReq("PUT", "/pages/home/draft?locale=de", page))).toEqual([
+        { action: "saveDraft", slug: "home", locale: "de", collectionId: undefined },
+      ]);
+      expect(await call(jsonReq("POST", "/pages/home/publish?locale=de", {}))).toEqual([
+        { action: "publish", slug: "home", locale: "de", collectionId: undefined },
+      ]);
+      expect(await call(req("DELETE", "/pages/home/translations/de"))).toEqual([
+        { action: "deletePage", slug: "home", locale: "de", collectionId: undefined },
+      ]);
+      expect(await call(jsonReq("POST", "/pages?locale=en", { title: "About" }))).toEqual([
+        { action: "createPage", slug: "about", locale: "en", collectionId: undefined },
+      ]);
+      expect(await call(jsonReq("POST", "/pages/about/duplicate?locale=en", {}))).toEqual([
+        { action: "createPage", slug: "about", locale: "en", collectionId: undefined },
+        { action: "createPage", slug: "about-copy", locale: "en", collectionId: undefined },
+      ]);
+      expect(await call(jsonReq("POST", "/pages/about/rename", { newSlug: "team" }))).toEqual([
+        { action: "renamePage", slug: "about", locale: undefined, collectionId: undefined },
+        { action: "renamePage", slug: "team", locale: undefined, collectionId: undefined },
+      ]);
+    } finally {
+      fs.rmSync(legalDir, { recursive: true, force: true });
+    }
   });
 });

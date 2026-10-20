@@ -31,8 +31,14 @@ export type RenameResult = {
  * Every handler takes an optional `locale` (defaults to the default locale, so
  * single-locale hosts are unchanged); it is threaded to the store alongside the
  * existing `baseVersion` optimistic lock. Locale does NOT displace baseVersion.
+ *
+ * `scope.collectionId` marks these as a collection section's actions (see
+ * collection.ts); every guard forwards it with the target slug and locale, so
+ * a policy keyed on any of them gates writes exactly as it gates reads.
  */
-export declare function makeActions(config: CmsConfig): {
+export declare function makeActions(config: CmsConfig, scope?: {
+    collectionId?: string;
+}): {
     saveDraft(slug: string, page: PageContent, baseVersion?: string, locale?: string): Promise<SaveResult>;
     discardDraft(slug: string, locale?: string): Promise<void>;
     publish(slug: string, baseVersion?: string, locale?: string): Promise<SaveResult>;
@@ -50,7 +56,10 @@ export declare function makeActions(config: CmsConfig): {
      *  client still holding the OLD slug's `baseVersion` after a rename lands
      *  gets a 404 on its next saveDraft/publish call (the file is gone) and
      *  has to reload: the same "your view is stale" outcome a version
-     *  conflict gives, just via a different status than 409. */
+     *  conflict gives, just via a different status than 409.
+     *
+     *  Authorized on both ends: a per-slug policy must be able to protect
+     *  the page being moved and a reserved destination slug. */
     renamePage(slug: string, newSlug: string): Promise<RenameResult>;
     /** Duplicate a page under a new, auto-derived slug (`slugify`-based
      *  "-copy"/"-copy-2"/... suffix, same helper `createPage` uses, so
@@ -59,10 +68,11 @@ export declare function makeActions(config: CmsConfig): {
      *  `ContentStore.duplicatePage` for the justification). Gated as a
      *  "createPage" action: a duplicate IS creating a new page, just seeded
      *  from an existing one, so it shares that permission rather than adding
-     *  a distinct one. */
+     *  a distinct one. Both the source and the derived destination slug are
+     *  authorized, the destination before anything is written. */
     duplicatePage(slug: string, locale?: string): Promise<string>;
     /** Seed a draft translation of `slug` into `toLocale` from the default
-     *  locale's published content. Gated as a draft write. */
+     *  locale's published content. Gated as a draft write to `toLocale`. */
     createTranslation(slug: string, toLocale: string): Promise<void>;
     deletePage(slug: string): Promise<void>;
     /** Delete a single translation (one locale) + its draft. */
@@ -637,7 +647,9 @@ import { type CollectionSection } from "./sections.js";
  *  `PageActions` can't do): resolves a collection section's own
  *  `ContentAdapter`, guarded against overlapping the Pages adapter's root. */
 export declare function makeCollectionAdapter(config: CmsConfig, section: CollectionSection): ContentAdapter;
-export declare function makeCollectionActions(config: CmsConfig, section: CollectionSection): PageActions;
+/** `collectionId` defaults to the id `resolveSections` would give `section`;
+ *  it reaches every write's AuthContext so a policy can gate per collection. */
+export declare function makeCollectionActions(config: CmsConfig, section: CollectionSection, collectionId?: string): PageActions;
 export declare function buildCollectionActions(config: CmsConfig): Record<string, PageActions>;
 /** List every record in a collection section as `CollectionRecordInfo` rows:
  *  the list view's data source (spec: collections have no client "read"
@@ -1989,8 +2001,10 @@ export interface ContentStore {
      *  auto-derived non-colliding slug (see `slugify`) and return it. Single-
      *  locale (defaults to the default locale), matching `createPage`'s own
      *  scope; other translations of the source are not duplicated. Throws if
-     *  `slug` has neither published nor draft content to copy. */
-    duplicatePage(slug: string, locale?: string): Promise<string>;
+     *  `slug` has neither published nor draft content to copy. `beforeWrite`
+     *  runs on the derived slug before anything is written, so a caller can
+     *  authorize the destination (it throws to abort). */
+    duplicatePage(slug: string, locale?: string, beforeWrite?: (newSlug: string) => Promise<void>): Promise<string>;
 }
 export declare function createStore(adapter: ContentAdapter, opts?: {
     onPublish?: (slug: string, locale: string) => void | Promise<void>;

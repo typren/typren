@@ -27,8 +27,12 @@ export type RenameResult =
  * Every handler takes an optional `locale` (defaults to the default locale, so
  * single-locale hosts are unchanged); it is threaded to the store alongside the
  * existing `baseVersion` optimistic lock. Locale does NOT displace baseVersion.
+ *
+ * `scope.collectionId` marks these as a collection section's actions (see
+ * collection.ts); every guard forwards it with the target slug and locale, so
+ * a policy keyed on any of them gates writes exactly as it gates reads.
  */
-export function makeActions(config: CmsConfig) {
+export function makeActions(config: CmsConfig, scope: { collectionId?: string } = {}) {
   const store = createStore(config.adapter, {
     onPublish: config.onPublish,
     onSaveDraft: config.onSaveDraft,
@@ -37,9 +41,9 @@ export function makeActions(config: CmsConfig) {
   const auth = resolveAuth(config); // throws early if the config is misconfigured
   const defaultLocale = config.adapter.defaultLocale;
 
-  async function guard(action: AuthAction, slug?: string) {
-    if (!(await auth.authorize({ action, slug, siteId: config.siteId, accountId: config.accountId })))
-      throw new Error("typren: unauthorized");
+  async function guard(action: AuthAction, target: { slug?: string; locale?: string } = {}) {
+    const ctx = { action, ...target, collectionId: scope.collectionId, siteId: config.siteId, accountId: config.accountId };
+    if (!(await auth.authorize(ctx))) throw new Error("typren: unauthorized");
   }
 
   return {
@@ -49,7 +53,7 @@ export function makeActions(config: CmsConfig) {
       baseVersion?: string,
       locale?: string
     ): Promise<SaveResult> {
-      await guard("saveDraft", slug);
+      await guard("saveDraft", { slug, locale });
       try {
         return { ok: true, version: await store.saveDraft(slug, page, baseVersion, locale) };
       } catch (e) {
@@ -59,11 +63,11 @@ export function makeActions(config: CmsConfig) {
       }
     },
     async discardDraft(slug: string, locale?: string) {
-      await guard("discardDraft", slug);
+      await guard("discardDraft", { slug, locale });
       await store.discardDraft(slug, locale);
     },
     async publish(slug: string, baseVersion?: string, locale?: string): Promise<SaveResult> {
-      await guard("publish", slug);
+      await guard("publish", { slug, locale });
       try {
         await store.publish(slug, baseVersion, locale);
         return { ok: true, version: (await store.currentVersion(slug, locale)) ?? "" };
@@ -76,8 +80,8 @@ export function makeActions(config: CmsConfig) {
     /** Create an empty page (in `locale`, default when omitted); returns the
      *  normalized slug for navigation. */
     async createPage(title: string, locale?: string): Promise<string> {
-      await guard("createPage");
       const slug = slugify(title);
+      await guard("createPage", { slug, locale });
       if (!slug) throw new Error("typren: page name is required");
       await store.createPage(slug, { meta: { title: title.trim() || slug }, slices: [], body: "" }, locale);
       return slug;
@@ -93,11 +97,15 @@ export function makeActions(config: CmsConfig) {
      *  client still holding the OLD slug's `baseVersion` after a rename lands
      *  gets a 404 on its next saveDraft/publish call (the file is gone) and
      *  has to reload: the same "your view is stale" outcome a version
-     *  conflict gives, just via a different status than 409. */
+     *  conflict gives, just via a different status than 409.
+     *
+     *  Authorized on both ends: a per-slug policy must be able to protect
+     *  the page being moved and a reserved destination slug. */
     async renamePage(slug: string, newSlug: string): Promise<RenameResult> {
-      await guard("renamePage", slug);
+      await guard("renamePage", { slug });
       const target = slugify(newSlug);
       if (!target) throw new Error("typren: new slug is required");
+      await guard("renamePage", { slug: target });
       try {
         await store.renamePage(slug, target);
         return { ok: true, slug: target };
@@ -113,24 +121,25 @@ export function makeActions(config: CmsConfig) {
      *  `ContentStore.duplicatePage` for the justification). Gated as a
      *  "createPage" action: a duplicate IS creating a new page, just seeded
      *  from an existing one, so it shares that permission rather than adding
-     *  a distinct one. */
+     *  a distinct one. Both the source and the derived destination slug are
+     *  authorized, the destination before anything is written. */
     async duplicatePage(slug: string, locale?: string): Promise<string> {
-      await guard("createPage", slug);
-      return store.duplicatePage(slug, locale);
+      await guard("createPage", { slug, locale });
+      return store.duplicatePage(slug, locale, (newSlug) => guard("createPage", { slug: newSlug, locale }));
     },
     /** Seed a draft translation of `slug` into `toLocale` from the default
-     *  locale's published content. Gated as a draft write. */
+     *  locale's published content. Gated as a draft write to `toLocale`. */
     async createTranslation(slug: string, toLocale: string) {
-      await guard("saveDraft", slug);
+      await guard("saveDraft", { slug, locale: toLocale });
       await store.createTranslation(slug, defaultLocale, toLocale);
     },
     async deletePage(slug: string) {
-      await guard("deletePage", slug);
+      await guard("deletePage", { slug });
       await store.deletePage(slug);
     },
     /** Delete a single translation (one locale) + its draft. */
     async deleteTranslation(slug: string, locale: string) {
-      await guard("deletePage", slug);
+      await guard("deletePage", { slug, locale });
       await store.deleteTranslation(slug, locale);
     },
     async listMedia() {

@@ -22,9 +22,21 @@ interface AuthAdapter {
 `"discardDraft"`, `"publish"`, `"createPage"`, `"renamePage"`,
 `"deletePage"`, `"uploadMedia"`, `"deleteMedia"`, or `"admin"`), the target
 `slug` and `collectionId` when there are any, the `locale` the request
-resolved, and (for a hosted/multi-tenant setup) `siteId`/`accountId`. The API
-routes (`api/routes.ts`) pass all of these for both reads and writes, so a
-policy can grant or deny per slug, per collection, or per locale.
+resolved, and (for a hosted/multi-tenant setup) `siteId`/`accountId`. Reads
+(`api/routes.ts`) and every write (`makeActions`, which the routes and
+collection actions share) pass all of these, so a policy can grant or deny
+per slug, per collection, or per locale:
+
+- A collection write carries the section's `collectionId`.
+- A write carries the `locale` it targets; `createTranslation` carries the
+  new `toLocale`, and `deleteTranslation` the locale being deleted.
+  `deletePage` and `renamePage` act on every locale, so they pass none.
+- `createPage` carries the slug derived from the title. `renamePage` is
+  authorized twice, once for the source slug and once for the destination,
+  and `duplicatePage` the same way (as `"createPage"`), with the derived
+  copy slug checked before anything is written. A policy that reserves a
+  slug can't be bypassed by renaming or duplicating onto it.
+
 
 **`authorize()` must fail closed.** Every adapter shipped in `@typren/core`
 wraps its identity resolution in a try/catch and returns `false` on any

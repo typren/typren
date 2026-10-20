@@ -258,7 +258,7 @@ Operations that fan out over every slug in the store (`listPages`, and anything 
 
 | Export | Signature | Notes |
 |---|---|---|
-| `makeActions(config)` | `(config: CmsConfig) => CmsActions` | Builds the mutation handlers for a config. Every handler calls `auth.authorize()` before touching the store, since a Server Action is a public POST endpoint. Every handler takes an optional `locale` (defaults to the default locale). |
+| `makeActions(config, scope?)` | `(config: CmsConfig, scope?: { collectionId?: string }) => CmsActions` | Builds the mutation handlers for a config. Every handler calls `auth.authorize()` before touching the store, since a Server Action is a public POST endpoint, passing the target `slug`, `locale` and `scope.collectionId` (see [Auth model](./auth-model.md)). Every handler takes an optional `locale` (defaults to the default locale). |
 
 `CmsActions` (the object `makeActions` returns):
 
@@ -406,7 +406,7 @@ When `config.adapter` carries a filesystem `root` (a markdown adapter), the sett
 | Export | Signature | Notes |
 |---|---|---|
 | `makeCollectionAdapter(config, section)` | `(config: CmsConfig, section: CollectionSection) => ContentAdapter` | Resolves a collection section's own `ContentAdapter`, guarded against overlapping the Pages adapter's root. |
-| `makeCollectionActions(config, section)` | `(config: CmsConfig, section: CollectionSection) => PageActions` | |
+| `makeCollectionActions(config, section, collectionId?)` | `(config: CmsConfig, section: CollectionSection, collectionId?: string) => PageActions` | Every write's `AuthContext` carries `collectionId`, defaulting to the id `resolveSections` gives the section. |
 | `buildCollectionActions(config)` | `(config: CmsConfig) => Record<string, PageActions>` | |
 | `listCollectionRecords(config, section, locale?)` | `(config: CmsConfig, section: CollectionSection, locale?: string) => Promise<CollectionRecordInfo[]>` | The list view's data source: collections have no client `"read"` action, so this is what a host's server-fetch calls into. |
 
