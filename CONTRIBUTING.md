@@ -62,7 +62,10 @@ latest stable and canary releases and checks `localAuth` over real HTTP. A
 failure opens an issue labelled `canary`, which closes itself on the next
 passing run. Provider secrets live in the `canary` environment and must belong
 to Typren-owned test projects. A preset without secrets is skipped with a
-warning.
+warning. The nightly run also watches Lokalise's public signals without an
+account: new releases of its CLI and Node SDK, and whether the preset's export
+buckets still exist. Once you've reviewed a new release, bump
+`scripts/canary/lokalise-signals.json` to close the issue.
 
 If a hook blocks you, fix the cause. Don't `--no-verify`.
 

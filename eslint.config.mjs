@@ -64,7 +64,7 @@ export default tseslint.config(
   {
     // Build scripts run under bare node.
     files: ["**/scripts/**/*.mjs"],
-    languageOptions: { globals: { process: "readonly", console: "readonly" } },
+    languageOptions: { globals: { process: "readonly", console: "readonly", fetch: "readonly", URL: "readonly", AbortSignal: "readonly" } },
   },
   {
     files: ["**/*.{ts,tsx}"],
