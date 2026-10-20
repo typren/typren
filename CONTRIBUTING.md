@@ -55,6 +55,15 @@ run on a laptop. Release publishing needs a CI environment for npm provenance
 attestation, and the CLA check has to answer on your pull request the moment you
 open it.
 
+Scheduled canaries are the other exception, because a laptop can't run on a
+timer. `canary-providers.yml` (nightly) pulls a real project through each
+shipped TMS preset, and `canary-frameworks.yml` (weekly) boots `next dev` at the
+latest stable and canary releases and checks `localAuth` over real HTTP. A
+failure opens an issue labelled `canary`, which closes itself on the next
+passing run. Provider secrets live in the `canary` environment and must belong
+to Typren-owned test projects. A preset without secrets is skipped with a
+warning.
+
 If a hook blocks you, fix the cause. Don't `--no-verify`.
 
 ## Coverage
