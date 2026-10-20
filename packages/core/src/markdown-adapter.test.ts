@@ -28,6 +28,16 @@ describe("markdown-adapter parse/serialize", () => {
     expect(adapter.parse(serialized)).toEqual(parsed);
   });
 
+  // `body` is typed as required, but pages arrive as JSON from untyped callers.
+  it("serializes a page with no body as front matter only", () => {
+    const page = { meta: { title: "x" }, slices: [] } as unknown as Parameters<typeof adapter.serialize>[0];
+    expect(adapter.parse(adapter.serialize(page))).toEqual({
+      meta: { title: "x" },
+      slices: [],
+      body: "\n",
+    });
+  });
+
   // Regression: the editor's duplicate() shallow-copies a slice (`{...slice}`),
   // so a duplicated page can carry two slices pointing at the very same nested
   // object. Before noRefs, gray-matter dumped that as a YAML anchor/alias pair,
@@ -164,6 +174,16 @@ describe("markdown-adapter symlinks", () => {
     await expect(md.writeDraftRaw("pwned", "x")).rejects.toThrow(/symlinked/);
     await expect(md.deleteDraft("notes")).rejects.toThrow(/symlinked/);
     expect(fs.readdirSync(elsewhere)).toEqual(["notes.md"]);
+  });
+
+  it("treats a draftDir named like ..drafts inside contentDir as inside", async () => {
+    const elsewhere = path.join(root, "elsewhere");
+    fs.mkdirSync(elsewhere);
+    fs.symlinkSync(elsewhere, path.join(contentDir, "..drafts"));
+    const md = createMarkdownAdapter({ contentDir, draftDir: path.join(contentDir, "..drafts") });
+
+    await expect(md.writeDraftRaw("pwned", "x")).rejects.toThrow(/symlinked/);
+    expect(fs.readdirSync(elsewhere)).toEqual([]);
   });
 
   it("allows a draftDir outside contentDir and reports absent paths as missing", async () => {

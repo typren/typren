@@ -97,10 +97,9 @@ export function createMarkdownAdapter({
   // component below the root is lstat'ed, so a linked file, locale dir or
   // .drafts dir is refused; only the root itself may be reached via a link.
   const contained = (target: string, root: string) => {
-    const rel = path.relative(root, target);
-    if (rel.startsWith("..") || path.isAbsolute(rel)) throw new Error(`typren: content path escapes its root`);
+    // Lexically under root already: safe() and safeLocale() rule out "..".
     let p = root;
-    for (const seg of rel.split(path.sep).filter(Boolean)) {
+    for (const seg of path.relative(root, target).split(path.sep).filter(Boolean)) {
       p = path.join(p, seg);
       let st: fs.Stats | undefined;
       try {
@@ -114,7 +113,8 @@ export function createMarkdownAdapter({
   };
   // A custom draftDir inside contentDir is checked from contentDir, so a linked
   // `.drafts` cannot become its own trusted root.
-  const draftRootOutside = draftDir !== undefined && path.relative(contentDir, draftDir).startsWith("..");
+  const draftRel = draftDir === undefined ? "" : path.relative(contentDir, draftDir);
+  const draftRootOutside = draftRel === ".." || draftRel.startsWith(`..${path.sep}`) || path.isAbsolute(draftRel);
   const draftRoot = (loc: string) => (loc === defaultLocale && draftRootOutside ? draftDir! : contentDir);
   const pageFile = (slug: string, loc = defaultLocale) =>
     contained(path.join(localeDir(loc), `${safe(slug)}.md`), contentDir);
