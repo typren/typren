@@ -402,6 +402,15 @@ describe("createExportApiSourceProvider", () => {
     },
   );
 
+  it("a non-BCP-47 bundle locale (a TMS custom language) is skipped with a warning, not fatal", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const catalogs = { custom_1: { Greeting: "Hi" }, en: { Greeting: "Yo" } };
+    await expect(exportApiZipFactory(catalogs).loadSource()).resolves.toEqual({ en: { Greeting: "Yo" } });
+    await expect(exportApiJsonFactory(catalogs).loadSource()).resolves.toEqual({ en: { Greeting: "Yo" } });
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/skipping bundle locale "custom_1"/));
+    warn.mockRestore();
+  });
+
   it('a langMap override cannot map a key onto a traversal either', async () => {
     await expect(exportApiJsonFactory({ en: { Greeting: "Hi" } }, { en: "../package" }).loadSource()).rejects.toThrow(
       /unsafe locale key "\.\.\/package"/,

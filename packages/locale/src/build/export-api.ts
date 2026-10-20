@@ -271,6 +271,21 @@ async function pollUntilDone(
   }
 }
 
+/**
+ * A TMS can export a locale that is not BCP-47 at all (Lokalise's custom languages export as
+ * `custom_1`): skip it with a warning rather than fail the whole pull. A name carrying a path
+ * separator or dot still throws, so a traversal-shaped entry stays a loud failure.
+ */
+function bundleLocaleKey(name: string, langMap: Record<string, string> | undefined): string | undefined {
+  try {
+    return normalizeLocaleKey(name, langMap);
+  } catch (e) {
+    if (/[./\\]/.test(langMap?.[name] ?? name)) throw e;
+    console.warn(`export-api: skipping bundle locale "${name}": not a BCP-47 tag (map it with langMap to keep it)`);
+    return undefined;
+  }
+}
+
 function parseZipBundle(
   bytes: Uint8Array,
   localeFrom: "filename" | "dir",
@@ -288,7 +303,8 @@ function parseZipBundle(
       throw new Error(`export-api: zip entry "${filename}" has no locale folder (zipLocaleFrom is "dir")`);
     }
     const catalog = JSON.parse(strFromU8(contents)) as Catalog;
-    const key = normalizeLocaleKey(rawName, langMap);
+    const key = bundleLocaleKey(rawName, langMap);
+    if (!key) continue;
     catalogs[key] = catalogs[key] ? { ...catalogs[key], ...catalog } : catalog;
   }
   return catalogs;
@@ -297,7 +313,8 @@ function parseZipBundle(
 function parseJsonBundle(doc: unknown, langMap: Record<string, string> | undefined): Record<string, Catalog> {
   const catalogs: Record<string, Catalog> = {};
   for (const [name, catalog] of Object.entries(doc as Record<string, unknown>)) {
-    const key = normalizeLocaleKey(name, langMap);
+    const key = bundleLocaleKey(name, langMap);
+    if (!key) continue;
     catalogs[key] = catalog as Catalog;
   }
   return catalogs;
