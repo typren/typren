@@ -144,6 +144,38 @@ function assertBundleOrigin(bundleUrl: string, createUrl: string, bundleOrigins:
 // A zip bomb inflates a few KB into gigabytes in memory, and a real TMS export is nowhere near either cap.
 const MAX_ZIP_BYTES = 50 * 1024 * 1024;
 const MAX_ZIP_ENTRIES = 1000;
+// The download is capped on the wire too, or a hostile admitted origin could stream gigabytes before
+// unzipCapped ever runs. The same figure bounds a JSON bundle, which is buffered whole to parse.
+const MAX_BUNDLE_BYTES = 50 * 1024 * 1024;
+const BUNDLE_TIMEOUT_MS = 60_000;
+
+/** Read a response body with a running byte count: Content-Length is only a hint a chunked response never sends. */
+async function readBundleCapped(response: Response): Promise<Uint8Array> {
+  const tooBig = () => new Error(`export-api: bundle download exceeds ${MAX_BUNDLE_BYTES} bytes`);
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_BUNDLE_BYTES) throw tooBig();
+  if (!response.body) return new Uint8Array(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BUNDLE_BYTES) {
+      await reader.cancel();
+      throw tooBig();
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
 
 function unzipCapped(bytes: Uint8Array): Record<string, Uint8Array> {
   let total = 0;
@@ -364,14 +396,17 @@ export function createExportApiSourceProvider(
         // Manual redirect handling: bundleOrigins only vets the URL above, so
         // letting fetch follow a redirect would hand the bundle request (and
         // its auth header) to whatever a 3xx response names, unvetted.
-        const bundleResponse = await fetchImpl(bundleUrl, { redirect: "manual" });
+        const bundleResponse = await fetchImpl(bundleUrl, { redirect: "manual", signal: AbortSignal.timeout(BUNDLE_TIMEOUT_MS) });
+        // The query string can carry a presigned-URL signature, and these errors reach CI logs.
+        const safeUrl = new URL(bundleUrl, createUrl);
+        const loggedUrl = `${safeUrl.origin}${safeUrl.pathname}`;
         if (bundleResponse.type === "opaqueredirect" || (bundleResponse.status >= 300 && bundleResponse.status < 400)) {
-          throw new Error(`export-api: bundle URL "${bundleUrl}" redirected (${bundleResponse.status || "opaque"}); add the redirect target's origin to bundleOrigins and configure it directly`);
+          throw new Error(`export-api: bundle URL "${loggedUrl}" redirected (${bundleResponse.status || "opaque"}); add the redirect target's origin to bundleOrigins and configure it directly`);
         }
         if (!bundleResponse.ok) {
-          throw new Error(`export-api: bundle request failed (${bundleResponse.status} ${bundleResponse.statusText}): ${bundleUrl}`);
+          throw new Error(`export-api: bundle request failed (${bundleResponse.status} ${bundleResponse.statusText}): ${loggedUrl}`);
         }
-        bundleDoc = resolved.bundle === "zip" ? new Uint8Array(await bundleResponse.arrayBuffer()) : await bundleResponse.json();
+        bundleDoc = resolved.bundle === "zip" ? await readBundleCapped(bundleResponse) : JSON.parse(new TextDecoder().decode(await readBundleCapped(bundleResponse)));
       } else {
         if (resolved.bundle === "zip") {
           throw new Error('export-api: "zip" bundles require response.urlPath (or poll.urlPath) to locate the bundle');

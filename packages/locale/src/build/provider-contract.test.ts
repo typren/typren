@@ -522,11 +522,90 @@ describe("createExportApiSourceProvider", () => {
     expect(fetchImpl).not.toHaveBeenCalledWith("https://attacker.example/evil.zip", expect.anything());
   });
 
-  it("a zip bomb past the 50 MB inflate cap is refused", async () => {
-    // Stored (level 0): the cap reads declared sizes, and deflating 51 MB is too slow under coverage.
-    const bomb = zipSync({ "en.json": new Uint8Array(51 * 1024 * 1024) }, { level: 0 });
-    await expect(zipProvider(bomb).provider.loadSource()).rejects.toThrow(/inflates past/);
+  describe("bundle fetch hardening", () => {
+    const SIGNED = "?X-Amz-Signature=deadbeef&X-Amz-Credential=AKIASECRET";
+    const jsonProvider = (respond: () => Response) => {
+      const bundleUrl = `${BASE_URL}/bundle.json${SIGNED}`;
+      const fetchImpl = vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url === `${BASE_URL}/export`) return new Response(JSON.stringify({ url: bundleUrl }), { status: 200 });
+        if (url === bundleUrl) return respond();
+        throw new Error(`unexpected url in test fetch: ${url}`);
+      });
+      return createExportApiSourceProvider(
+        {
+          type: "export-api",
+          baseUrl: BASE_URL,
+          projectId: "proj-1",
+          token: `\${${TOKEN_ENV_VAR}}`,
+          create: { path: "/export" },
+          response: { urlPath: "url" },
+          bundle: "json",
+        },
+        { fetchImpl: fetchImpl as unknown as typeof fetch },
+      );
+    };
+
+    it.each([
+      ["redirect", () => new Response(null, { status: 302, headers: { location: "https://x.example/" } }), /redirected/],
+      ["non-2xx", () => new Response("no", { status: 403, statusText: "Forbidden" }), /request failed \(403/],
+    ])("a %s error never carries the presigned query string", async (_label, respond, error) => {
+      const failure = await jsonProvider(respond).loadSource().catch((e: Error) => e);
+      expect((failure as Error).message).toMatch(error);
+      expect((failure as Error).message).toContain(`${BASE_URL}/bundle.json`);
+      expect((failure as Error).message).not.toMatch(/X-Amz|deadbeef|AKIASECRET/);
+    });
+
+    it("a JSON bundle declaring a Content-Length past the cap is refused", async () => {
+      const provider = jsonProvider(() => new Response("{}", { status: 200, headers: { "content-length": String(60 * 1024 * 1024) } }));
+      await expect(provider.loadSource()).rejects.toThrow(/bundle download exceeds/);
+    });
+
+    it.each(["json", "zip"] as const)("a %s bundle streaming past the cap with no Content-Length is cut off", async (kind) => {
+      let sent = 0;
+      let cancelled = false;
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          sent++;
+          controller.enqueue(new Uint8Array(1024 * 1024));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+      const bundleUrl = `${BASE_URL}/bundle.${kind}`;
+      const fetchImpl = vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url === `${BASE_URL}/export`) return new Response(JSON.stringify({ url: bundleUrl }), { status: 200 });
+        return new Response(body, { status: 200 });
+      });
+      const provider = createExportApiSourceProvider(
+        {
+          type: "export-api",
+          baseUrl: BASE_URL,
+          projectId: "proj-1",
+          token: `\${${TOKEN_ENV_VAR}}`,
+          create: { path: "/export" },
+          response: { urlPath: "url" },
+          bundle: kind,
+        },
+        { fetchImpl: fetchImpl as unknown as typeof fetch },
+      );
+      await expect(provider.loadSource()).rejects.toThrow(/bundle download exceeds/);
+      expect(cancelled).toBe(true);
+      expect(sent).toBeLessThan(80);
+    });
+
+    it("a bundle with no body yields an empty bundle, not a crash", async () => {
+      await expect(jsonProvider(() => new Response(null, { status: 200 })).loadSource()).rejects.toThrow();
+    });
   });
+
+  it("a zip bomb past the 50 MB inflate cap is refused", async () => {
+    // Deflated, so the archive stays under the download cap while inflating past the inflate cap.
+    const bomb = zipSync({ "en.json": new Uint8Array(51 * 1024 * 1024) }, { level: 1 });
+    await expect(zipProvider(bomb).provider.loadSource()).rejects.toThrow(/inflates past/);
+  }, 30_000);
 
   it("a zip with more than 1000 entries is refused", async () => {
     const files: Record<string, Uint8Array> = {};

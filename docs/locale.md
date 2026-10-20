@@ -187,8 +187,9 @@ Two providers ship today:
   (`https://s3-eu-west-1.amazonaws.com/lokalise-assets/`, not every bucket on
   that host) and the whole host of its virtual-hosted export bucket
   (`https://lokalise-live-lok-s3-fss-export.s3.eu-central-1.amazonaws.com/`,
-  which belongs to that one bucket), and `crowdin` admits `https://*.downloads.crowdin.com`. Zip
-  bundles are capped at 50 MB inflated and 1000 entries.
+  which belongs to that one bucket), and `crowdin` admits `https://*.downloads.crowdin.com`. Bundle
+  downloads (zip or JSON) are capped at 50 MB on the wire and time out after 60 s; zip
+  bundles are also capped at 50 MB inflated and 1000 entries.
 
 A platform whose protocol genuinely diverges from create/poll/fetch gets its
 own provider only when demand shows up; each new source is a config shape
