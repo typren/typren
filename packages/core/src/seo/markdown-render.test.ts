@@ -21,6 +21,13 @@ describe("renderSlicesAsMarkdown", () => {
     expect(renderSlicesAsMarkdown(slices)).toBe("Q1: A1\nQ2: A2");
   });
 
+  it("degrades on malformed repeating props instead of throwing", () => {
+    const bad = (props: Record<string, unknown>) => ({ slice: "x", heading: "H", ...props }) as Slice;
+    expect(renderSlicesAsMarkdown([bad({ columns: { a: 1 } })])).toBe("H");
+    expect(renderSlicesAsMarkdown([bad({ items: [null, 3, "s", { title: "T", body: "B" }] })])).toBe("H\nT: B");
+    expect(renderSlicesAsMarkdown([bad({ columns: "nope", cards: [{ title: "C" }] })])).toBe("H\nC");
+  });
+
   it("joins multiple slices with a blank line, skipping slices with no renderable output", () => {
     const slices: Slice[] = [
       { slice: "hero", heading: "H1" },
