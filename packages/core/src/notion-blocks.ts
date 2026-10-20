@@ -160,7 +160,7 @@ function componentDirective(block: NotionBlock): { name: string; props: Record<s
   if (block.type !== "callout" && block.type !== "code") return null;
   const payload = asObj(block[block.type]);
   const raw = richTextToPlain(payload.rich_text);
-  const lines = raw.split("\n");
+  const lines = raw.replace(/\r\n?/g, "\n").split("\n");
   const head = lines[0]?.trim() ?? "";
   if (!head.startsWith("::")) return null;
   const name = head.slice(2).trim();
@@ -261,7 +261,9 @@ function renderBlock(block: NotionBlock, depth: number, numberedIndex: number): 
       // that drops below the marker's indent, so an unindented code line
       // would end the container (and the fence with it) early, spilling the
       // rest of the code out as a top-level block.
+      // A lone CR is a line ending to CommonMark too, so fold it before splitting.
       const code = raw
+        .replace(/\r\n?/g, "\n")
         .split("\n")
         .map((line) => indent + line)
         .join("\n");
