@@ -27,9 +27,17 @@ permissions:
   contents: read
 
 jobs:
-  ci:
-    name: CI
+  test:
+    name: test (node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # No package declares `engines`, so the floor is the oldest Node
+        # still in maintenance (22); the second leg tracks the current LTS.
+        # Tests spawn process.execPath, so the runner's own Node must be a
+        # known one, not whatever the image ships.
+        node: ["22", "lts/*"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -38,19 +46,38 @@ jobs:
           # PR's own commits.
           fetch-depth: 0
 
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ matrix.node }}
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
 
       - run: bun install --frozen-lockfile
 
+      # Pinned release, verified against its published sha256, for
+      # check:workflows (part of verify below). Not a package.json
+      # dependency: actionlint is a Go binary. Bump version and checksum
+      # together.
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          curl -fsSLo actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum --check
+          tar -xzf actionlint.tar.gz -C "$RUNNER_TEMP" actionlint
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          rm actionlint.tar.gz
+
       # Same gate `bun run verify` runs in the local pre-push hook (build,
       # typecheck, lint, test with coverage, the new-code coverage floor,
-      # check:scaffold). COVERAGE_BASE_REF overrides that gate's default
-      # (origin/main): PRs land on develop, and main can be well behind it
-      # (release is a separate promotion), so diffing new-code coverage
-      # against main would flag every line since the last release, not just
-      # this PR's.
+      # check:scaffold, check:api-surface, check:workflows). COVERAGE_BASE_REF overrides that
+      # gate's default (origin/main): PRs land on develop, and main can be well
+      # behind it (release is a separate promotion), so diffing new-code
+      # coverage against main would flag every line since the last release,
+      # not just this PR's.
       - run: bun run verify
         env:
           COVERAGE_BASE_REF: origin/develop
@@ -73,18 +100,17 @@ jobs:
       # this one: version-pr.yml only ever pushes changeset-release/develop
       # to this repo, a fork can't produce that combination, and a fork
       # naming its branch "changeset-release/develop" no longer skips the
-      # gate.
+      # gate. Runs on one leg only: the result doesn't depend on Node.
       - name: Changeset required for package changes
-        if: ${{ !(startsWith(github.head_ref, 'changeset-release/') && github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ matrix.node == '22' && !(startsWith(github.head_ref, 'changeset-release/') && github.event.pull_request.head.repo.full_name == github.repository) }}
         run: bunx changeset status --since=origin/develop
 
-      # See docs/hosted-platform.md#cross-repo-compatibility item 1 and
-      # scripts/gen-api-surface.mjs's own header for why this is a plain
-      # script over dist/*.d.ts rather than api-extractor.
-      - name: Public API surface matches the checked-in snapshot
-        run: |
-          node scripts/gen-api-surface.mjs
-          if ! git diff --exit-code -- etc/api-surface; then
-            echo "::error::The public .d.ts surface of @typren/core and/or typren changed. Run 'bun run api-surface:generate', commit the updated etc/api-surface/*.d.ts, and add a changeset describing the change."
-            exit 1
-          fi
+  # The one required status check named `CI` (the develop ruleset), so the
+  # matrix legs above can change without touching branch protection.
+  ci:
+    name: CI
+    needs: test
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.test.result }}" = success

@@ -35,7 +35,10 @@ carry no new authorship.
 ## Setup
 
 Requires [Bun](https://bun.sh) and, for the secret scan,
-[gitleaks](https://github.com/gitleaks/gitleaks) (`brew install gitleaks`).
+[gitleaks](https://github.com/gitleaks/gitleaks) (`brew install gitleaks`). The
+workflow lint uses [actionlint](https://github.com/rhysd/actionlint)
+(`brew install actionlint`); without it `verify` warns and skips that check
+locally, while CI fails hard.
 
 ```bash
 bun install
