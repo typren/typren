@@ -130,7 +130,7 @@ describe("built CLI behind a proxy", () => {
     const proxy = createServer();
     proxy.on("connect", (req, socket) => {
       connects.push(req.url ?? "");
-      socket.destroy();
+      socket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
     });
     await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
     const { port } = proxy.address() as { port: number };
