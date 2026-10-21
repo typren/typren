@@ -24,7 +24,9 @@
     "test:tag-published": "bun test scripts/tag-published.test.mjs",
     "test:publish-unpublished": "bun test scripts/publish-unpublished.test.mjs",
     "api-surface:generate": "node scripts/gen-api-surface.mjs",
-    "verify": "bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:migrations && bun run test:security-gate && bun run test:tag-published && bun run test:publish-unpublished",
+    "check:workflows": "bun test scripts/check-workflows.test.mjs && node scripts/check-workflows.mjs",
+    "check:api-surface": "node scripts/gen-api-surface.mjs && git diff --exit-code -- etc/api-surface || (echo 'API surface snapshot is stale: run bun run api-surface:generate, commit etc/api-surface and add a changeset.' >&2; exit 1)",
+    "verify": "bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:api-surface && bun run check:workflows && bun run check:migrations && bun run test:security-gate && bun run test:tag-published && bun run test:publish-unpublished",
     "prepare": "husky"
   },
   "devDependencies": {

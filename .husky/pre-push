@@ -4,7 +4,8 @@
 # resolve @typren/core from a sibling package until dist exists. lint and test
 # don't need it, lint isn't type-aware and vitest aliases straight to src, but
 # reordering the whole gate is simpler than special-casing one step.
-# check:scaffold runs last because it executes the built CLI too.
+# check:scaffold runs after the build because it executes the built CLI too;
+# check:api-surface regenerates etc/api-surface from dist and fails on a diff.
 #
 # coverage:new gates CHANGED LINES at 90% (scripts/coverage-new-code.mjs); the
 # whole-repo floor is enforced by vitest's own ratcheting thresholds inside
@@ -12,7 +13,7 @@
 # git passes the refs being pushed on stdin once; keep them for both checks below.
 pushed_refs=$(cat)
 
-bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:migrations && bun run test:security-gate && bun run test:tag-published && bun run test:publish-unpublished
+bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:api-surface && bun run check:workflows && bun run check:migrations && bun run test:security-gate && bun run test:tag-published && bun run test:publish-unpublished
 status=$?
 if [ $status -ne 0 ]; then
   exit $status
