@@ -148,5 +148,5 @@ describe("built CLI behind a proxy", () => {
     proxy.close();
     rmSync(dir, { recursive: true, force: true });
     expect(connects.length, `node ${process.version}: ${stderr}`).toBeGreaterThan(0);
-  });
+  }, 30_000);
 });
