@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -146,9 +147,36 @@ function isDirectRun(): boolean {
   }
 }
 
+const PROXY_VARS = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"];
+
+/** Node's global fetch ignores proxy variables unless the process starts with
+ *  NODE_USE_ENV_PROXY=1 (22.21+/24.5+, ignored by older Node). Returns the env
+ *  to re-exec under when a proxy is configured and the flag is not set yet. */
+export function envProxyReexecEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv | undefined {
+  if (env.NODE_USE_ENV_PROXY !== undefined || !PROXY_VARS.some((k) => env[k])) return undefined;
+  return { ...env, NODE_USE_ENV_PROXY: "1" };
+}
+
+/** Re-runs this CLI under NODE_USE_ENV_PROXY=1 and returns its exit code, or
+ *  undefined when no re-exec is needed. */
+export function reexecWithEnvProxy(
+  env: NodeJS.ProcessEnv = process.env,
+  run: typeof spawnSync = spawnSync,
+): number | undefined {
+  const reexecEnv = envProxyReexecEnv(env);
+  if (!reexecEnv) return undefined;
+  // ponytail: re-exec costs one extra node startup, only when a proxy is set; no runtime API sets fetch's dispatcher.
+  const r = run(process.execPath, [...process.execArgv, ...process.argv.slice(1)], { stdio: "inherit", env: reexecEnv });
+  return r.status ?? 2;
+}
+
+/* v8 ignore start -- only runs as a real process; the built-bin test exercises it in a child. */
 if (isDirectRun()) {
+  const code = reexecWithEnvProxy();
+  if (code !== undefined) process.exit(code);
   main().catch((e: unknown) => {
     console.error(`typren-locale: unexpected error: ${e instanceof Error ? e.message : String(e)}`);
     process.exitCode = 2;
   });
 }
+/* v8 ignore stop */

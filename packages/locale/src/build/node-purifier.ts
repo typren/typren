@@ -1,5 +1,6 @@
 import DOMPurify, { type WindowLike } from "dompurify";
-import { JSDOM } from "jsdom";
+import { createRequire } from "node:module";
+import type { JSDOM as JSDOMType } from "jsdom";
 import type { Purifier } from "../no-html";
 
 let purifier: Purifier | undefined;
@@ -10,6 +11,11 @@ let purifier: Purifier | undefined;
  * and reused because constructing a JSDOM has real startup cost.
  */
 export function createNodePurifier(): Purifier {
-  purifier ??= DOMPurify(new JSDOM("").window as unknown as WindowLike);
+  if (!purifier) {
+    // ponytail: jsdom is required lazily because loading it replaces Node 22's env-proxy fetch dispatcher, so it must
+    // load after the CLI's network fetches; a source that fetches after the first purify would bypass the proxy.
+    const { JSDOM } = createRequire(import.meta.url)("jsdom") as { JSDOM: typeof JSDOMType };
+    purifier = DOMPurify(new JSDOM("").window as unknown as WindowLike);
+  }
   return purifier;
 }
