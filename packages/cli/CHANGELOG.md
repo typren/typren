@@ -1,5 +1,15 @@
 # typren
 
+## 0.5.4
+
+### Patch Changes
+
+- 6da1d23: Raise the runtime dependency floors to js-yaml ^5.5.0 and jose ^6.2.13.
+- ddc554b: Declare a Node.js `engines` floor of `^22.23.4 || ^24.22.1 || >=26.12.1`, the releases that fix the 2026-10-21 Node.js security advisory (Brotli decoder out-of-bounds write, TLS hostname check bypasses). Installing on an older Node now prints an engine warning; nothing fails unless the consumer enables `engine-strict`.
+- Updated dependencies [6da1d23]
+- Updated dependencies [ddc554b]
+  - @typren/core@0.5.4
+
 ## 0.5.3
 
 ### Patch Changes
