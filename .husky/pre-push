@@ -13,7 +13,7 @@
 # git passes the refs being pushed on stdin once; keep them for both checks below.
 pushed_refs=$(cat)
 
-bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:api-surface && bun run check:workflows && bun run check:migrations && bun run test:tag-published && bun run test:publish-unpublished
+bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:api-surface && bun run check:workflows && bun run check:migrations && bun run check:audit && bun run test:tag-published && bun run test:publish-unpublished
 status=$?
 if [ $status -ne 0 ]; then
   exit $status
