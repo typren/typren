@@ -12,8 +12,8 @@ Follow both. When they disagree, CONTRIBUTING.md wins.
 - The gate is local: `bun install`, then `bun run verify` must pass before you
   claim anything is done. There is no server-side test CI to catch you; the
   pre-push hook is the gate, and `--no-verify` is never the answer.
-- Pull requests target `develop`, never `main`. Promotions to `main` need a security review record
-  ([docs/security-review.md](docs/security-review.md)); with Claude Code, run the `security-review` workflow.
+- Pull requests target `develop`, never `main`. Promotions to `main` pass an automated security review
+  ([docs/security-review.md](docs/security-review.md)).
 - Conventional Commits, one concern per commit. The body explains **why**; the
   diff already says what.
 - Any change to a published package needs a changeset (`bun changeset`).
@@ -68,7 +68,7 @@ on an existing interface, not a new abstraction.
 | [docs/](docs/) | design docs, including the hosted-platform plan |
 | [CLA.md](CLA.md) | the contributor licence agreement your human signs |
 | [SECURITY.md](SECURITY.md) | vulnerabilities go here, never into public issues |
-| [docs/security-review.md](docs/security-review.md) | the pre-promotion security review, its gate, and waivers |
+| [docs/security-review.md](docs/security-review.md) | the pre-promotion security review and how to handle its findings |
 
 ## Attribution
 

@@ -136,9 +136,10 @@ That is deliberate belt and braces, because an npm publish cannot be undone.
 
 ### Security review before promoting to main
 
-A PR into `main` (and any push to `main`) needs a whole-repo security review record in `security-reviews/` that covers the
-exact commit, or an expiring waiver. The **Security review** check enforces it. How to run the review, with Claude Code or
-any other agent or by hand, and how to waive it: [docs/security-review.md](docs/security-review.md).
+Every PR into `main` gets an automated security review of the commits being promoted: the **Security review** check fails
+on any open critical or high finding. `bun run check:audit` (part of `verify`) fails on high or critical advisories in
+runtime dependencies. How it works, how to handle a false positive, and how to run the same review locally:
+[docs/security-review.md](docs/security-review.md).
 
 ## Architecture
 
