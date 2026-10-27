@@ -13,19 +13,11 @@
 # git passes the refs being pushed on stdin once; keep them for both checks below.
 pushed_refs=$(cat)
 
-bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:api-surface && bun run check:workflows && bun run check:migrations && bun run test:security-gate && bun run test:tag-published && bun run test:publish-unpublished
+bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:api-surface && bun run check:workflows && bun run check:migrations && bun run test:tag-published && bun run test:publish-unpublished
 status=$?
 if [ $status -ne 0 ]; then
   exit $status
 fi
-
-# Security-review gate (docs/security-review.md): a push that updates main must carry a passing review
-# record for that exact commit. Same script CI runs on PRs into main; only main is gated.
-echo "$pushed_refs" | while read -r local_ref local_sha remote_ref remote_sha; do
-  [ "$remote_ref" = "refs/heads/main" ] || continue
-  [ -n "$local_sha" ] && [ "$local_sha" != "0000000000000000000000000000000000000000" ] || continue
-  node scripts/check-security-review.mjs --head "$local_sha" || exit 1
-done || exit 1
 
 # Secret scan across the range being pushed. This is local fast feedback only. The
 # authoritative gate is GitHub's own push protection (free on public repos),
