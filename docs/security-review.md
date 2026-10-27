@@ -1,61 +1,42 @@
 # Security review before promoting to main
 
-Every promotion from `develop` to `main` carries a whole-repo security review. A PR into `main`, and a direct push to
-`main`, are blocked until a passing review record covers the exact commit being promoted. The check is the same for every
-reviewer, whatever tool they use: it reads the record, not how the record was produced.
+Every promotion from `develop` to `main` is security-reviewed, and nothing is committed to record it. Three checks share
+the job:
 
-## What the gate checks
+- **Security review** (`.github/workflows/security-review.yml`) runs on every PR into `main`. Claude Code reviews the
+  commits being promoted (`main...head`) against the threat model and lenses below and posts its findings in the job
+  summary. The check fails when any critical or high finding is open, and when the review produces no output. Make it a
+  required status check on `main`.
+- **Dependency audit** (`bun run check:audit`, part of `verify`, so it runs in CI and in the pre-push hook) fails on
+  high or critical advisories in runtime dependencies. `bun audit fix` resolves most of them within the declared ranges.
+- **CodeQL** runs on every PR.
 
-`scripts/check-security-review.mjs` (run by the **Security review** CI check on PRs into `main`, and by the pre-push hook on
-pushes to `main`) passes when a file in `security-reviews/` has:
+The `release` environment's required reviewer is the last gate: nothing publishes until the maintainer approves the run.
 
-- `outcome: pass`, with `open.critical: 0` and `open.high: 0`, and an empty `incomplete` list;
-- a `reviewedHead` that is the commit being promoted or one of its ancestors;
-- no security-sensitive changes between `reviewedHead` and that commit.
+## Setup
 
-The check is deny-by-default: every changed path is sensitive unless it matches one of these exceptions, so a new
-top-level directory, workflow, or config file is covered automatically rather than needing this list to learn its name.
-Not sensitive:
+The review runs on the maintainer's Claude subscription, not an API key. Run `claude setup-token` and store the result
+as the repository secret `CLAUDE_CODE_OAUTH_TOKEN`. Replace the secret's value to rotate it rather than deleting it,
+which fails every review until a new one is set.
 
-- `docs/**`, except `docs/migrations/**` (core packs those notes into its tarball, and `typren migrate` runs their
-  `detect` regexes, so they stay sensitive like any other shipped file);
-- any other `*.md`, except under a package's own `src/` (a README re-exported as docs still ships);
-- `.changeset/*.md`;
-- `security-reviews/**` (the records themselves).
+The workflow uses plain `pull_request`, so a fork's PR never receives the secret and the job skips it. Promotions come
+from `develop` in this repository.
 
-Everything else — `packages/`, `apps/`, `scripts/`, every root-level manifest and config, `.husky/`, `.github/`,
-`.changeset/config.json`, `.claude/`, generated snapshots like `etc/api-surface/`, and any path not listed above — is
-sensitive. Tests count because the release job runs them before it stages `dist/`. Markdown exemptions let docs,
-changeset notes and review records change after a review without invalidating it; anything else means re-review the
-delta.
+## When the review is wrong
 
-The CI check runs the gate script from the base branch, so a PR cannot edit the gate to pass itself. Make **Security review**
-a required status check on `main` in branch protection.
+A false positive is resolved in the PR: explain it in a comment and merge with the owner's bypass. A real finding is
+fixed on `develop` and the promotion PR updates. Medium and low findings do not block; open an issue for each one worth
+keeping. Never describe an unfixed vulnerability in a public issue: report it privately ([SECURITY.md](../SECURITY.md)).
 
-A record is an attestation by the reviewer, not proof. Records are reviewed like code: `security-reviews/` is code-owned.
+## Running it locally
 
-## Running the review
+Run Claude Code's `/security-review` on the promotion branch, or ask any agent to review `git diff main...develop`
+against the lenses below. For a whole-repo pass (before a major release, or after a large change), work through every
+lens against the full repository. Stay read-only: put repros in a temporary directory, and if you spawn git there, strip
+`GIT_*` variables from its environment. For every candidate finding, trace the full exploit path in code (or reproduce
+it) before counting it. Rate severity honestly, and say which findings depend on host configuration.
 
-### With Claude Code
-
-From the repository root, on the commit you intend to promote:
-
-```
-Workflow({ name: "security-review", args: { head: "<git rev-parse HEAD>", date: "YYYY-MM-DD", slug: "<short-name>",
-  notes: "<what changed since the last review; known accepted risks>" } })
-```
-
-The workflow (`.claude/workflows/security-review.mjs`) runs four read-only lenses in parallel (parsing and injection,
-request surface and authorization, supply chain and CI, edge runtime and integrations) plus a red-team lead that chains
-weaknesses across them. It then has two skeptics try to refute every finding and keeps only what survives both. Its
-`record` output is the review record: save it as `security-reviews/<date>-<slug>.md`.
-
-### With any other agent, or by hand
-
-Work through each lens below against the whole repository at the commit you will promote. Stay read-only: put repros in a
-temporary directory, and if you spawn git there, strip `GIT_*` variables from its environment. For every candidate finding,
-trace the full exploit path in code (or reproduce it) before counting it. Rate severity honestly, and say which findings
-depend on host configuration.
+## Threat model and lenses
 
 Threat actors to consider for every lens: an anonymous visitor, a low-privilege editor, a content contributor via pull
 request, a malicious npm or remote-note publisher, another tenant on the hosted tier, and a compromised third party (identity
@@ -78,63 +59,3 @@ provider, translation service, Notion, HubSpot, webhook receiver).
    between tenants.
 5. **Red team.** For each threat actor, the most damaging realistic chain across packages, and the cheapest link to break.
    Also check `SECURITY.md` and the security pages in `docs/site/` against what the code actually enforces.
-
-Then write the record yourself in the format below, with `method: runbook` (or `manual`).
-
-## Templates
-
-- `security-reviews/_TEMPLATE-review.md`: copy to `security-reviews/<date>-<slug>.md` for a review record.
-- `security-reviews/_TEMPLATE-waiver.md`: copy for a waiver.
-- `.github/PULL_REQUEST_TEMPLATE/promotion.md`: the promotion PR checklist. Open the PR with `?template=promotion.md`.
-
-The gate ignores `README.md` and any file starting with `_`.
-
-## Record format
-
-```markdown
----
-reviewedHead: <full or 7+ char commit sha>
-date: YYYY-MM-DD
-method: workflow | runbook | manual
-outcome: pass | fail
-open:
-  critical: 0
-  high: 0
-  medium: 0
-  low: 0
-incomplete: []
----
-
-Summary, a ranked table of confirmed findings (severity, title, path:line, fix), refuted claims with the reason,
-and what was verified clean.
-```
-
-`outcome: pass` requires zero open critical and high findings. Fix them (and re-review the fix), or record a deliberate
-acceptance by downgrading with a written rationale in the body that a code owner approves. Medium and low findings go to the
-issue tracker or the deferred list; they do not block.
-
-## Skipping the review (waivers)
-
-When a promotion can't wait for a review, such as an urgent fix to a broken release, commit a waiver record instead:
-
-```markdown
----
-reviewedHead: <sha being promoted>
-date: YYYY-MM-DD
-outcome: waived
-waivedBy: "@your-github-handle"
-reason: "Why this can't wait, and where the follow-up review is tracked"
-expires: YYYY-MM-DD
----
-```
-
-The gate accepts a waiver only when it names an owner, gives a real reason, and expires no more than 14 days after its date.
-A waiver covers that commit only: a later security-sensitive change voids it, exactly like a review. The CI check and the
-pre-push hook print a loud warning whenever a waiver is what lets a commit through, and once it expires it stops counting, so
-the next promotion needs a real review. A waiver is a file in the PR, so a code owner approves it and git keeps the trail.
-
-A repository admin can also bypass branch protection on GitHub in a real emergency. That leaves no record in the repository,
-so prefer a waiver.
-
-Never put exploit details for an unfixed vulnerability in a public record. Report it privately per `SECURITY.md`, fix it, and
-describe it in the record only after the fix ships.

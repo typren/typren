@@ -19,14 +19,13 @@
     "build": "bun run --filter '*' build",
     "check:scaffold": "bun run --filter typren check:scaffold",
     "check:migrations": "bun test scripts/check-migrations.test.mjs && node scripts/check-migrations.mjs",
-    "test:security-gate": "bun test scripts/check-security-review.test.mjs",
-    "check:security-review": "node scripts/check-security-review.mjs",
+    "check:audit": "bun audit --audit-level=high --prod",
     "test:tag-published": "bun test scripts/tag-published.test.mjs",
     "test:publish-unpublished": "bun test scripts/publish-unpublished.test.mjs",
     "api-surface:generate": "node scripts/gen-api-surface.mjs",
     "check:workflows": "bun test scripts/check-workflows.test.mjs && node scripts/check-workflows.mjs",
     "check:api-surface": "node scripts/gen-api-surface.mjs && git diff --exit-code -- etc/api-surface || (echo 'API surface snapshot is stale: run bun run api-surface:generate, commit etc/api-surface and add a changeset.' >&2; exit 1)",
-    "verify": "bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:api-surface && bun run check:workflows && bun run check:migrations && bun run test:security-gate && bun run test:tag-published && bun run test:publish-unpublished",
+    "verify": "bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:api-surface && bun run check:workflows && bun run check:migrations && bun run check:audit && bun run test:tag-published && bun run test:publish-unpublished",
     "prepare": "husky"
   },
   "devDependencies": {
