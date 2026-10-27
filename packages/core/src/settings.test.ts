@@ -5,7 +5,7 @@ import path from "node:path";
 import { createMarkdownAdapter } from "./markdown-adapter";
 import { createFsSettingsAdapter, createSettingsStore, validateBootstrap } from "./settings";
 import type { CmsConfig } from "./types";
-import type { AuthAdapter, AuthAction } from "./auth-adapter";
+import type { AuthAdapter, AuthAction, AuthContext } from "./auth-adapter";
 import type { SiteSettingsBootstrap } from "./settings";
 
 let dir: string;
@@ -225,6 +225,23 @@ describe("createSettingsStore", () => {
     const store = createSettingsStore(makeConfig(denyAdmin));
     await expect(store.saveDraft({ brand: { name: "X" }, seo: {} })).rejects.toThrow(/unauthorized/);
     expect(actions).toContain("admin");
+  });
+
+  // The admin gate must see the locale it writes, as every content write
+  // does, or a per-locale settings policy is bypassed by the admin check.
+  it("passes the target locale to the admin gate, and a policy denying it denies", async () => {
+    const seen: AuthContext[] = [];
+    const denyDeAdmin: AuthAdapter = {
+      authorize: async (ctx) => {
+        seen.push(ctx);
+        return !(ctx.action === "admin" && ctx.locale === "de");
+      },
+    };
+    const store = createSettingsStore(makeConfig(denyDeAdmin));
+    await expect(store.saveDraft({ brand: { name: "X" }, seo: {} }, undefined, "de")).rejects.toThrow(/unauthorized/);
+    await expect(store.publish(undefined, "de")).rejects.toThrow(/unauthorized/);
+    expect(seen.filter((c) => c.action === "admin").map((c) => c.locale)).toEqual(["de", "de"]);
+    await expect(store.saveDraft({ brand: { name: "X" }, seo: {} }, undefined, "en")).resolves.toMatchObject({ ok: true });
   });
 });
 
