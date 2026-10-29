@@ -64,6 +64,8 @@ export function clientHost(actions: TyprenClient, site: StudioSiteProps, uploadP
       list: () => actions.listMedia(),
       delete: (id: string, opts?: { force?: boolean }) => actions.deleteMedia(id, opts),
       uploadPath,
+      // Through the client, so a token-authenticated host's credentials go too.
+      upload: (file, folder) => actions.uploadMedia(file, folder),
       usage: () => actions.mediaUsage(),
       folders: {
         list: () => actions.listMediaFolders(),

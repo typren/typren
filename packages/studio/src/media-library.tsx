@@ -21,6 +21,13 @@ import { DataTableSkeleton } from "./primitives/data-table";
 export async function uploadAssets(media: FieldFormMedia, files: FileList, folder = ""): Promise<string> {
   let failed = "";
   for (const file of Array.from(files)) {
+    if (media.upload) {
+      failed = await media.upload(file, folder || undefined).then(
+        () => failed,
+        (e: unknown) => (e instanceof Error ? e.message : String(e))
+      );
+      continue;
+    }
     const body = new FormData();
     body.append("file", file);
     if (folder) body.append("folder", folder);

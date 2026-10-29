@@ -19,6 +19,10 @@ export type FieldFormMedia = {
   delete: (id: string, opts?: { force?: boolean }) => Promise<void>;
   /** Uploads POST multipart "file", plus "folder" when uploading into one. */
   uploadPath: string;
+  /** Uploads through the host's own client instead of a plain POST to
+   *  `uploadPath`, so its credentials ride along (the connected studio's
+   *  bearer token). Throws with the server's reason on a refusal. */
+  upload?: (file: File, folder?: string) => Promise<MediaAsset>;
   /** Where each asset URL is referenced; omit to hide usage. */
   usage?: () => Promise<Record<string, MediaUse[]>>;
   /** Folder support (see `MediaAdapter.listFolders`); omit for a flat library. */

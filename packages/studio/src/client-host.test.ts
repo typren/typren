@@ -3,7 +3,7 @@ import type { TyprenClient } from "@typren/core/api/client";
 import { clientHost, STUDIO_SECTIONS } from "./client-host";
 
 const site = { sliceNames: ["hero"], defaults: { hero: {} }, previewPath: "http://127.0.0.1:4401", homeSlug: "home", trailingSlash: true, git: false };
-const client = { library: {}, gitPush: vi.fn() } as unknown as TyprenClient;
+const client = { library: {}, gitPush: vi.fn(), uploadMedia: vi.fn() } as unknown as TyprenClient;
 
 describe("clientHost", () => {
   it("frames home at the site root and other pages with the site's trailing slash", () => {
@@ -12,6 +12,9 @@ describe("clientHost", () => {
     expect(host.previewUrl!("about")).toBe("http://127.0.0.1:4401/about/");
     expect(host.sectionPreviewUrl).toBeUndefined();
     expect(host.media!.uploadPath).toBe("/api/typren/media");
+    const file = new File(["x"], "a.png");
+    void host.media!.upload!(file, "pics");
+    expect(client.uploadMedia).toHaveBeenCalledWith(file, "pics");
   });
 
   it("defaults the rail and wires git only for a git checkout", () => {

@@ -47,6 +47,10 @@ export function ImagePickerField({
       // Sequential: avoids the fs adapter's random-suffix writes racing each
       // other for no benefit.
       for (const file of Array.from(files)) {
+        if (media.upload) {
+          await media.upload(file);
+          continue;
+        }
         const body = new FormData();
         body.append("file", file);
         await fetch(media.uploadPath, { method: "POST", body });

@@ -1,9 +1,13 @@
+// @vitest-environment node
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type http from "node:http";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { StudioManifest } from "@typren/core";
+import { createTyprenClient } from "@typren/core/api/client";
+import { createTyprenApi } from "@typren/core/api";
+import { studioSiteConfig } from "@typren/core";
 import { serveOnLoopback, studioApi } from "./studio-server";
 
 const CLOUD = "https://app.typren.test";
@@ -21,6 +25,10 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
+// A 1x1 PNG, so the upload passes the real image checks.
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+const png = () => new File([Buffer.from(PNG, "base64")], "a.png", { type: "image/png" });
+
 const call = (handler: (r: Request) => Promise<Response>, url: string, headers: Record<string, string> = {}, init: RequestInit = {}) =>
   handler(new Request(`http://127.0.0.1:4400/api/typren${url}`, { ...init, headers }));
 
@@ -37,6 +45,35 @@ describe("studioApi", () => {
     });
     expect(save.status).toBe(200);
     expect(fs.readFileSync(path.join(manifest.contentDir, ".drafts", "home.md"), "utf8")).toContain("edited");
+  });
+
+  it("takes an upload through the paired client, the bearer token riding along", async () => {
+    const api = studioApi(manifest, { origin: CLOUD, token: TOKEN });
+    const sent: Headers[] = [];
+    // What the cloud page's pairedFetch adds, plus the Origin the browser sets.
+    const client = createTyprenClient({
+      baseUrl: "http://127.0.0.1:4400/api/typren",
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        headers.set("authorization", `Bearer ${TOKEN}`);
+        headers.set("origin", CLOUD);
+        sent.push(headers);
+        return api(new Request(String(input), { ...init, headers }));
+      }) as typeof fetch,
+    });
+    const asset = await client.uploadMedia(png(), "pics");
+    expect(asset.url).toMatch(/^\/img\/pics\//);
+    expect(sent[0]!.get("authorization")).toBe(`Bearer ${TOKEN}`);
+    expect(fs.readdirSync(path.join(dir, "public", "img", "pics"))).toHaveLength(1);
+  });
+
+  it("takes the same client upload same-origin, as the local studio sends it", async () => {
+    const api = createTyprenApi(studioSiteConfig(manifest, { authorize: async () => true }), { basePath: "/api/typren" });
+    const client = createTyprenClient({
+      baseUrl: "http://127.0.0.1:4400/api/typren",
+      fetch: ((input: RequestInfo | URL, init?: RequestInit) => api.handler(new Request(String(input), init))) as typeof fetch,
+    });
+    expect((await client.uploadMedia(png())).url).toMatch(/^\/img\//);
   });
 
   it("refuses everything else: no Origin, another origin, or no token", async () => {
