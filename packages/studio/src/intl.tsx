@@ -6,10 +6,10 @@ import { defaultMessages } from "@typren/core/ui/messages";
 
 const Ctx = createContext<{ messages: Messages }>({ messages: defaultMessages });
 
-/** Provides editor-UI strings. Mount once around the editor (its layout/shell).
+/** Provides studio UI strings. Mount once around the studio (its layout/shell).
  *  `messages` are host overrides deep-merged onto the package's English
  *  defaults. Content locale and UI locale are independent: an English-speaking
- *  editor can edit `es` content. */
+ *  studio can edit `es` content. */
 export function CmsIntlProvider({
   messages,
   children,
