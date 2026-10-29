@@ -1,6 +1,6 @@
 {
   "name": "@typren/studio",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "Typren Studio: the pluggable React UI for pages, blocks and fields, hosted locally by `typren studio` or by the cloud dashboard.",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,

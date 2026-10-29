@@ -1,5 +1,12 @@
 # @typren/adapter-cloudfront
 
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [c1dbf54]
+  - @typren/core@0.6.0
+
 ## 0.4.1
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@typren/adapter-cloudfront",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "CloudFront host adapter for typren: the canonical viewer-request function (directory-index rewrite + bare→slash canonicalization + KVS-backed redirect lookup, fail-open) and a `typren-cloudfront sync-redirects` CLI that diff-syncs @typren/core's redirects() into a CloudFront KeyValueStore. Not IaC: it never creates a bucket or distribution.",
   "keywords": [
     "cms",
@@ -38,7 +38,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@typren/core": "^0.5.4"
+    "@typren/core": "^0.6.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
