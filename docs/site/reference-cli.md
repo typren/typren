@@ -16,7 +16,7 @@ npx typren review [slug] [--base <ref>] [--json] [--pr]
 npx typren review --update-pr <number> --body-file <path>
 npx typren telemetry [on|off]
 npx typren migrate [--from <ver>] [--to <ver>] [--json] [--remote] [--cwd <dir>]
-npx typren studio [--local] [--port <n>] [--preview-port <n>] [--site-url <url>]
+npx typren studio [--local] [--cloud-url <url>] [--port <n>] [--preview-port <n>] [--site-url <url>]
 npx typren --version
 npx typren --help
 ```
@@ -28,7 +28,7 @@ npx typren --help
 | `review [slug]` | `--base <ref>`, `--json`, `--pr`, `--update-pr <n>`, `--body-file <path>` | Deterministic content-review brief (SEO title/description length, canonical consistency, alt text, `llms.txt` reachability, …). No slug: one brief per content file changed vs `--base` (default `origin/main`, working tree included). A slug: that page only. |
 | `telemetry [on\|off]` | none | Prints the current state with no argument; otherwise sets it. Also disabled by `DO_NOT_TRACK=1`, `TYPREN_TELEMETRY=0`, or `CI` being set. |
 | `migrate` | `--from <ver>`, `--to <ver>`, `--json`, `--remote`, `--cwd <dir>` | See [`typren migrate`](#typren-migrate) below. |
-| `studio` | `--local`, `--port <n>`, `--preview-port <n>`, `--site-url <url>` | Starts the studio on `127.0.0.1:4400` and a preview copy of the site's dev command (`TYPREN_PREVIEW=1`) on the next port, and stops both on exit. The preview command comes from `typren.config.json`'s `studio.previewCommand`, else the `dev` script with Next.js port flags. `--site-url` frames a running site instead. Needs `@typren/studio-local`. `--local` asks for this local studio explicitly; in 0.6 it is the default, and in 0.7 the cloud studio becomes the default (see [Studio](./studio.md)). Without `--local` it prints a one-line heads-up on stderr. |
+| `studio` | `--local`, `--cloud-url <url>`, `--port <n>`, `--preview-port <n>`, `--site-url <url>` | Starts a preview copy of the site's dev command (`TYPREN_PREVIEW=1`) on the port after `--port`, and stops it on exit. By default it serves the content API on `127.0.0.1:4400` for the cloud studio only (pairing token in the link's fragment) and opens `<cloud>/connect`; `--local` runs the studio UI on `127.0.0.1:4400` instead. The preview command comes from `typren.config.json`'s `studio.previewCommand`, else the `dev` script with Next.js port flags. `--site-url` frames a running site instead. `--local` needs `@typren/studio-local`. See [Studio](./studio.md). |
 | `--version` / `-v` | | Prints the installed CLI version. |
 | `--help` / `-h` | | Prints the full command list. |
 
@@ -163,7 +163,7 @@ Checks a project against the migration notes bundled with the installed `@typren
 | `migrate(opts?)` | `(opts?: MigrateOptions) => Promise<MigrateResult>` | Core of `migrate`. `MigrateOptions` is `{ cwd?: string; from?: string; to?: string; remote?: boolean; fetchImpl?: typeof fetch }`. |
 | `fromVersionFromGit(cwd)` | `(cwd: string) => string \| null` | Resolves the `@typren/core` range at `HEAD`'s `package.json`. |
 | `envWithoutGit()` | `() => NodeJS.ProcessEnv` | `process.env` minus `GIT_*` vars, passed to every git child process this CLI spawns. |
-| `parseStudioArgs(args)` | `(args: string[]) => StudioArgs \| { error: string }` | `studio`'s flags. `StudioArgs` is `{ port: number; previewPort: number; siteUrl?: string; local?: true }`. |
+| `parseStudioArgs(args, env?)` | `(args: string[], env?) => StudioArgs \| { error: string }` | `studio`'s flags. `StudioArgs` is `{ port: number; previewPort: number; siteUrl?: string; cloudUrl?: string }`; `cloudUrl` is unset with `--local`. |
 | `buildStudioManifest(cwd, contentDir, siteUrl)` | `(...) => Promise<StudioManifest \| { error: string }>` | Reads `slices/defaults.ts` and `slices/field-schema.ts` beside the content dir; the result is what the studio receives in `TYPREN_STUDIO`. |
 | `resolveStudioDir(cwd, from?)` | `(cwd: string, from?: string) => string \| null` | The installed `@typren/studio-local`: the site's own dependency first, then the one beside the CLI. |
 | `studioCommand(studioDir, manifest, port)` | `(...) => Command` | `next dev -H 127.0.0.1 -p <port>` in the studio app, with the manifest in its environment. |
