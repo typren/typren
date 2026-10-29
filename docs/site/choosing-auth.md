@@ -25,7 +25,7 @@ it, and pass it as `auth` to `makeActions`/`CmsConfig`.
 "Allowlist" means `allowedEmails` and/or `allowedRoles` (Clerk also accepts
 `allowedUserIds`). Every mapping throws at construction if you pass none of
 these, because a signed-in session with no allowlist would authorize anyone
-who can sign in — almost never the intended policy for a public editor.
+who can sign in — almost never the intended policy for a public studio.
 `cfAccessAuthAdapter` is the one exception: Access already gated the request
 against its own per-application policy before issuing the token.
 

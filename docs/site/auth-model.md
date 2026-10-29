@@ -38,7 +38,10 @@ per slug, per collection, or per locale:
   authorized twice, once for the source slug and once for the destination,
   and `duplicatePage` the same way (as `"createPage"`), with the derived
   copy slug checked before anything is written. A policy that reserves a
-  slug can't be bypassed by renaming or duplicating onto it.
+  slug can't be bypassed by renaming or duplicating onto it. Duplicating a
+  page or seeding a translation of it also needs `"read"` on the source.
+- Moving an asset or renaming a media folder rewrites the live pages that
+  use it, so it needs `"publish"` as well as both media actions.
 
 **`"saveDraft"` is not always a lesser tier than `"publish"`.** An adapter
 with no separate draft storage (the Notion adapter) writes a draft straight
@@ -68,7 +71,7 @@ site.
 
 With neither `allowedEmails` nor `allowedRoles` set, a mapping would
 authorize *any* resolved identity — almost never the right policy for a
-public editor. Every mapping throws at construction if you pass none of
+public studio. Every mapping throws at construction if you pass none of
 these:
 
 - **`nextAuthAdapter`** (`@typren/core/auth/next-auth`)

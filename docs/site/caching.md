@@ -34,11 +34,11 @@ For per-path invalidation granularity instead of one site-wide tag, use the
 readInit: (relPath) => ({ next: { tags: [`typren-content:${relPath}`] } }),
 ```
 
-> **Never set `readInit` on the editor's own adapter instance.** Draft reads
+> **Never set `readInit` on the studio's own adapter instance.** Draft reads
 > must always be fresh — a cached draft read would show a stale version of
 > exactly the content someone is actively editing. Build two adapter
 > instances when a host needs both: one for site rendering (with
-> `readInit`), one for the editor (without).
+> `readInit`), one for the studio (without).
 
 ## Invalidating on push: the GitHub webhook
 
@@ -83,7 +83,7 @@ invalidate.
 
 ## What never gets cached
 
-- **The editor's adapter instance** (see above) — draft reads must be live.
+- **The studio's adapter instance** (see above) — draft reads must be live.
 - **Any `/api/*` route in `@typren/core/api`** — every request re-resolves
   auth and re-reads current state; these are mutation/admin surfaces, not
   cacheable content.

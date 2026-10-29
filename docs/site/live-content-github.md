@@ -15,7 +15,7 @@ see.
 ## Two adapter instances
 
 Use a separate `createGithubAdapter` instance for the site-render path and
-for the editor. Only the site-render instance sets `readInit`.
+for the studio. Only the site-render instance sets `readInit`.
 
 ```ts
 import { createGithubAdapter } from "@typren/core";
@@ -108,7 +108,7 @@ branch.
 > per-branch previews, Cloudflare Pages' branch deploys) must tell it to skip
 > `typren-drafts`, or every draft save triggers a wasted deploy. See
 > [Deploy to Vercel](./deploy-vercel.md#skip-builds-for-the-drafts-branch) for
-> the Ignored Build Step snippet. Never set `readInit` on the editor's own
+> the Ignored Build Step snippet. Never set `readInit` on the studio's own
 > adapter instance — a cached draft read would show a stale version of
 > exactly the content someone is actively editing.
 

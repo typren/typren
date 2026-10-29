@@ -1,4 +1,4 @@
-# @typren/editor
+# @typren/studio
 
 ## 0.5.4
 

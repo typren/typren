@@ -46,6 +46,8 @@ Core type definitions shared across the package. No runtime exports; this is whe
 | `writeDraftRaw(slug, raw, locale?, opts?)` | `Promise<void>` | Same `expectedVersion` CAS option as `writeRaw`. |
 | `deleteDraft(slug, locale?)` | `Promise<void>` | |
 | `hasDraft(slug, locale?)` | `Promise<boolean>` | |
+| `listDraftSlugs?(locale?)` | `Promise<string[]>` | Optional. Slugs with a draft, published or not. Without it, a draft-only page is left out of `listPages`. |
+| `listFolders?(locale?)` / `createFolder?(folder, locale?)` / `deleteFolder?(folder, locale?)` | | Optional together. Page folders kept with no page in them, validated like a slug; `deleteFolder` rejects unless the folder is empty. The markdown adapter keeps one as a `.typren-folder` marker file. |
 | `draftsWriteThrough?` | `boolean` | `true` when `writeDraftRaw` writes live content (Notion). `makeActions` then authorizes draft writes as `"publish"`. |
 | `parse(raw)` | `PageContent` | Sync, pure, no I/O. |
 | `serialize(page)` | `string` | Sync, pure, no I/O. |
@@ -60,7 +62,7 @@ Core type definitions shared across the package. No runtime exports; this is whe
 | `defaults` | `Record<string, Record<string, unknown>>` | required | Starter props inserted when a slice is added. |
 | `fieldSchema` | `Record<string, SliceSchema>` | none | Per-slice field hints. |
 | `adapter` | `ContentAdapter` | required | |
-| `previewPath` | `string` | required | Route the editor iframes for live preview. |
+| `previewPath` | `string` | required | Route the studio iframes for live preview. |
 | `auth` | `AuthAdapter` | none | Preferred over `authorize`. |
 | `authorize` | `() => boolean \| Promise<boolean>` | none | Deprecated; legacy zero-arg gate. A config must set `auth` or this. |
 | `i18n` | `I18nConfig` | single implicit locale | |
@@ -110,7 +112,7 @@ Neither function throws; they are pure transforms.
 
 #### Errors
 
-- Throws `typren: unsafe slug "<slug>"` when `slug` fails the safe-slug allowlist check.
+- Throws `typren: unsafe slug "<slug>"` when `slug` fails the safe-slug allowlist check: letters, digits and `-` per segment, segments joined by `/` (`event/1` is stored at `event/1.md`), and a nested slug's first segment may not be a locale or draft directory.
 - Throws `typren: unknown locale "<locale>"` when `locale` isn't in the configured `locales`.
 
 ### notion-adapter.js
@@ -193,7 +195,7 @@ None of these functions throw; malformed input degrades gracefully (treated as p
 | `defaultLocale` | `string` | `"en"` | |
 | `draftSubdir` | `string` | `"_drafts"` | Deliberately distinct from `markdown-adapter`'s `.drafts`: this adapter's write-path allowlist rejects dotfile/dot-dir path segments, so a dot-prefixed default would make every draft write reject itself. |
 | `fetchImpl` | `typeof fetch` | global `fetch` | Injectable for tests. |
-| `readInit` | `(relPath: string) => RequestInit \| undefined` | none | Merged into every GET's `RequestInit` (reads only, never writes), e.g. Next's `{ next: { tags: [...] } }`. Never set this on the editor's own adapter instance: draft reads must always be fresh. |
+| `readInit` | `(relPath: string) => RequestInit \| undefined` | none | Merged into every GET's `RequestInit` (reads only, never writes), e.g. Next's `{ next: { tags: [...] } }`. Never set this on the studio's own adapter instance: draft reads must always be fresh. |
 
 Writes (`writeRaw`, `writeDraftRaw`, `deletePublished`, `deleteDraft`) are serialized per adapter instance: every write runs through one chain, one at a time, so two concurrent writes (e.g. `deletePage`'s per-locale deletes) can't race against the same cached sha. Reads stay parallel.
 
@@ -235,11 +237,11 @@ Writes (`writeRaw`, `writeDraftRaw`, `deletePublished`, `deleteDraft`) are seria
 | `exists(slug, locale?)` | `Promise<boolean>` | Cheap existence check, unlike `listPages`'s full fan-out. |
 | `getPublished(slug, locale?)` | `Promise<LocalizedPage>` | Default-locale fallback applied. |
 | `getDraft(slug, locale?)` | `Promise<PageContent \| null>` | |
-| `currentVersion(slug, locale?)` | `Promise<string \| null>` | Version of what the editor would load: draft if present, else published, else `null`. |
+| `currentVersion(slug, locale?)` | `Promise<string \| null>` | Version of what the studio would load: draft if present, else published, else `null`. |
 | `saveDraft(slug, page, baseVersion?, locale?)` | `Promise<string>` | Throws `ConflictError` if `baseVersion` is given and the current version has moved. Returns the new version. |
 | `discardDraft(slug, locale?)` | `Promise<void>` | |
 | `publish(slug, baseVersion?, locale?)` | `Promise<void>` | Throws `ConflictError` if `baseVersion` is given and the draft moved since. |
-| `createPage(slug, page, locale?)` | `Promise<void>` | Throws if the page already exists. |
+| `createPage(slug, page, locale?, opts?)` | `Promise<void>` | Throws if the slug already has published content or a draft. `opts.draft` writes only a draft; the page then lists with `published: false`. |
 | `createTranslation(slug, fromLocale, toLocale)` | `Promise<void>` | No-op if `toLocale` already has content or a draft. |
 | `deletePage(slug)` | `Promise<void>` | Deletes in ALL locales plus their drafts. |
 | `deleteTranslation(slug, locale)` | `Promise<void>` | |
@@ -268,16 +270,16 @@ Operations that fan out over every slug in the store (`listPages`, and anything 
 | `saveDraft(slug, page, baseVersion?, locale?)` | `Promise<SaveResult>` | `SaveResult` is `{ ok: true; version: string } \| { ok: false; code: "conflict"; currentVersion: string \| null }`, a **returned** union, not a thrown error: Next redacts thrown messages in production. |
 | `discardDraft(slug, locale?)` | `Promise<void>` | |
 | `publish(slug, baseVersion?, locale?)` | `Promise<SaveResult>` | |
-| `createPage(title, locale?)` | `Promise<string>` | Returns the normalized slug. |
+| `createPage(title, locale?, opts?)` | `Promise<string>` | Returns the slug: `opts.slug` as given (the adapter validates it), else one derived from `title`. `opts.draft` creates a draft-only page. |
 | `renamePage(slug, newSlug)` | `Promise<RenameResult>` | `RenameResult` is `{ ok: true; slug: string } \| { ok: false; code: "conflict" }` (no `currentVersion`: a rename conflict is a destination-slug collision, not a version race). |
-| `duplicatePage(slug, locale?)` | `Promise<string>` | Gated as a `"createPage"` action. |
-| `createTranslation(slug, toLocale)` | `Promise<void>` | Gated as a draft write. |
-| `deletePage(slug)` | `Promise<void>` | |
+| `duplicatePage(slug, locale?)` | `Promise<string>` | Gated as a `"read"` of the source and a `"createPage"` action. |
+| `createTranslation(slug, toLocale)` | `Promise<void>` | Gated as a `"read"` of the default-locale source and a draft write. |
+| `deletePage(slug)` | `Promise<void>` | Refuses the home page (not a collection record slugged the same) and a slug with no page (`ActionRefusedError`). Drops menu links to it. |
 | `deleteTranslation(slug, locale)` | `Promise<void>` | |
 | `listMedia()` | `Promise<MediaAsset[]>` | |
-| `deleteMedia(id)` | `Promise<void>` | |
+| `deleteMedia(id, opts?)` | `Promise<void>` | Refuses an asset content still uses (`ActionRefusedError`, naming the pages) unless `opts.force`. |
 
-`PageActions` is `Omit<CmsActions, "listMedia" | "deleteMedia" | "renamePage" | "duplicatePage">`: the subset the editor UI shells actually call.
+`PageActions` is `Omit<CmsActions, "listMedia" | "deleteMedia" | "renamePage" | "duplicatePage">`: the subset the studio UI shells actually call.
 
 #### Errors
 
@@ -483,9 +485,10 @@ Edge-safe locale rewrite, same `node:fs`-free constraint as `./i18n`.
 
 | Export | Signature | Notes |
 |---|---|---|
-| `currentAdminRoute(file?)` | `(file?: string) => string` | Current `adminRoute` from `typren.config.json`, mtime-cached so a steady file costs one `statSync` per request. Missing file or missing/invalid field falls back to `"editor"`. |
+| `currentAdminRoute(file?)` | `(file?: string) => string` | Current `adminRoute` from `typren.config.json`, mtime-cached so a steady file costs one `statSync` per request. Missing file or missing/invalid field falls back to `"studio"`. |
 | `previewPathFor(adminRoute)` | `(adminRoute: string) => string` | Derived from the live admin route so it can never drift from `currentAdminRoute`. |
-| `typrenProxyRewrite(url, opts?)` | `(url: URL \| string, opts?: { configFile?: string }) => string \| null` | Maps `/<adminRoute>/**` to `/editor/**`; returns `null` when no rewrite applies, so a host's proxy can fall through to its own logic. Accepts `URL \| string` so it works unchanged on both the Node.js and edge convention. |
+| `typrenProxyRewrite(url, opts?)` | `(url: URL \| string, opts?: { configFile?: string }) => string \| null` | Maps `/<adminRoute>/**` to `/studio/**`; returns `null` when no rewrite applies, so a host's proxy can fall through to its own logic. Accepts `URL \| string` so it works unchanged on both the Node.js and edge convention. |
+| `typrenBlocksDirectStudioAccess(url, opts?)` | `(url: URL \| string, opts?: { configFile?: string }) => boolean` | True when `url` hits `/studio/**` directly while `adminRoute` is renamed; a proxy returns a 404 for it ahead of `typrenProxyRewrite`. Was `typrenBlocksDirectEditorAccess` before 0.6.0; see [the 0.6.0 migration note](https://github.com/typren/typren/blob/main/docs/migrations/core-0.6.0.md). |
 
 ### Errors
 
@@ -514,7 +517,7 @@ Request routing for a fully static export (no server at request time): redirect/
 
 ## "./api"
 
-A WHATWG `Request` to `Response` handler for the editor's HTTP API, framework-agnostic (Next Route Handler, Hono, `Bun.serve`, Deno all work unchanged). Re-exports `createTyprenApi`, `TyprenApiOptions`, `CmsConfigFactory` from `routes.js`, and `createTyprenClient`, `TyprenApiError`, `TyprenClient`, `TyprenClientOptions` from `client.js`.
+A WHATWG `Request` to `Response` handler for the studio's HTTP API, framework-agnostic (Next Route Handler, Hono, `Bun.serve`, Deno all work unchanged). Re-exports `createTyprenApi`, `TyprenApiOptions`, `CmsConfigFactory` from `routes.js`, and `createTyprenClient`, `TyprenApiError`, `TyprenClient`, `TyprenClientOptions` from `client.js`.
 
 | Export | Signature | Notes |
 |---|---|---|
@@ -727,9 +730,8 @@ Verification requires `exp` and `sub` claims (`requiredClaims: ["exp", "sub"]`) 
 
 | Export | Signature | Notes |
 |---|---|---|
-| `TYPREN_REWRITE_MARKER` | `"typren:admin-route-rewrite"` | |
 | `TYPREN_BOOTSTRAP_MARKER` | `"typren:bootstrap-wired"` | |
-| `buildTemplates(contentDirLiteral)` | `(contentDirLiteral: string) => Record<string, string>` | Every file `typren init` scaffolds, keyed by path relative to the detected project base dir. A key starting with `/` is project-root-relative regardless of base dir (`next.config.ts`, `typren.config.json`). |
+| `buildTemplates(contentDirLiteral)` | `(contentDirLiteral: string) => Record<string, string>` | Every file `typren init` scaffolds, keyed by path relative to the detected project base dir. A key starting with `/` is project-root-relative regardless of base dir (`typren.config.json`). |
 
 ### Errors
 
@@ -764,19 +766,19 @@ The handler streams the request body with a 5MB cap (`MAX_BODY_BYTES`), bailing 
 
 ## "./theme.css"
 
-The `--typren-*` CSS variable contract editor UI reads. Not a JS/TS export; import it for its side effect (`import "@typren/core/theme.css"`) wherever the editor UI is rendered.
+The `--typren-*` CSS variable contract the studio UI reads. Not a JS/TS export; import it for its side effect (`import "@typren/core/theme.css"`) wherever the studio UI is rendered.
 
 ## "./ui/*"
 
-Vanilla (non-React) editor-UI helpers, used by `@typren/editor` and by any host rendering the preview bridge or i18n strings outside React.
+Vanilla (non-React) studio UI helpers, used by `@typren/studio` and by any host rendering the preview bridge or i18n strings outside React.
 
 | Export | Signature | Notes |
 |---|---|---|
-| `createT(messages?)` | `(messages?: Partial<Messages>) => (key: string, vars?: Record<string, string \| number>) => string` | Vanilla counterpart to `@typren/editor`'s `useT`: key to host-override to English-default to literal-key fallback, with `{var}` interpolation. A non-React consumer calls `createT(messages)` itself; no shared provider involved. |
-| `defaultMessages` | `Messages` | English editor-UI strings shipped by the package, flat dot-namespaced keys. A host overrides any subset via `CmsConfig.i18n.messages[uiLocale]`. |
-| `initPreviewBridge(allowedOrigin?)` | `(allowedOrigin?: string) => () => void` | Attaches the preview bridge's listeners and injects its stylesheet into `document.head` (once). Returns a cleanup function. Runs inside the preview iframe's own document, never the editor's shadow tree. |
+| `createT(messages?)` | `(messages?: Partial<Messages>) => (key: string, vars?: Record<string, string \| number>) => string` | Vanilla counterpart to `@typren/studio`'s `useT`: key to host-override to English-default to literal-key fallback, with `{var}` interpolation. A non-React consumer calls `createT(messages)` itself; no shared provider involved. |
+| `defaultMessages` | `Messages` | English studio UI strings shipped by the package, flat dot-namespaced keys. A host overrides any subset via `CmsConfig.i18n.messages[uiLocale]`. |
+| `initPreviewBridge(allowedOrigin?)` | `(allowedOrigin?: string) => () => void` | Attaches the preview bridge's listeners and injects its stylesheet into `document.head` (once). Returns a cleanup function. Runs inside the preview iframe's own document, never the studio's shadow tree. |
 
-> **Security:** `initPreviewBridge`'s `allowedOrigin` is the one origin the bridge will post to and accept messages from. Omitted, it defaults to `window.location.origin` (same-origin only, for local/self-host setups). A hosted dashboard framing a customer's site is cross-origin by definition and must pass its own origin explicitly; this is never `"*"`, the channel always compares against one explicit value.
+> **Security:** `initPreviewBridge`'s `allowedOrigin` is the one origin the bridge will post to and accept messages from. Omitted, it defaults to `window.location.origin` (same-origin only, for local/self-host setups). A hosted dashboard framing a customer's site is cross-origin by definition and must pass its own origin explicitly; this is never `"*"`, the channel always compares against one explicit value. A value that is not a bare http(s) origin (`"*"`, `"null"`, an empty string, a URL with a path) leaves the bridge inert: no listeners, no messages.
 
 ### Errors
 

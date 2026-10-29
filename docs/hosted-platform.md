@@ -10,7 +10,7 @@ throughout; the rename is the last section.
 > lives here. Since then: the rename shipped (`@typren/core` + `typren` CLI on
 > npm at 0.1.2; symbols are `createTyprenApi`/`createTyprenClient`), the CLA +
 > `cla-signatures` infrastructure is live, and dual licensing is in place — the
-> AGPL/CLA section below is handled. `@typren/editor` remains private and
+> AGPL/CLA section below is handled. `@typren/studio` remains private and
 > unpublished. The pre-work checklist at the end is still fully open (verified
 > against core 0.1.2). **Part II** below extends the plan with the platform
 > scope agreed 2026-08-25.
@@ -506,7 +506,7 @@ ephemeral build sandbox ever runs it.
 
 ## Slices editor, marketplace, and the token contract
 
-The slices editor is `@typren/editor` — React, private today. The hosted
+The slices editor is `@typren/studio` — React, private today. The hosted
 dashboard is its first cross-origin consumer, which forces the
 publish-or-keep-proprietary decision that has so far been deferred; it sits on
 the critical path for both this section and conniechau's parked admin.
@@ -624,7 +624,7 @@ grows the primitives.
    carry `accountId`).
 2. Accounts, OAuth signup, multi-site dashboard.
 3. Agent on `ModelProvider` with BYOK — needs only the write path.
-4. `@typren/editor` decision, token contract, marketplace skeleton.
+4. `@typren/studio` decision, token contract, marketplace skeleton.
 5. Typren Git `RepoProvider`.
 6. Commerce and scheduling blocks — need the marketplace.
 7. Domains.
