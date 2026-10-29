@@ -31,7 +31,7 @@ export type TyprenEditorSettingsActions = {
 /**
  * Everything host-specific the editor needs, in one injected object: the
  * seam that lets `apps/studio` and a future hosted console mount the exact
- * same `@typren/editor` without drifting. Nothing in this package reaches
+ * same `@typren/studio` without drifting. Nothing in this package reaches
  * outside of `host` for a host-owned concern (auth, storage, the slice
  * registry).
  *
@@ -67,7 +67,7 @@ export interface TyprenEditorHost {
   /** Host-injected chrome (account switcher, marketplace link, agent-panel
    *  trigger, …), rendered at the right of the shell's header. The only
    *  extension seam this package has, no plugin framework, the host renders
-   *  whatever it wants and @typren/editor just gives it a mount point. Only
+   *  whatever it wants and @typren/studio just gives it a mount point. Only
    *  shown while a page is open (the picker screen has no header yet). */
   topBarSlot?: ReactNode;
   /** SDUI section config, core's `resolveSections()`-compatible list (Pages/

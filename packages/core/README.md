@@ -13,7 +13,7 @@ ContentStore      draft/publish, locale fallback, version-checked writes
 makeActions()     auth-gated handlers, called from your Server Actions
 ```
 
-`@typren/editor` (the React UI that calls these actions) is not published yet.
+`@typren/studio` (the React UI that calls these actions) is not published yet.
 This package is useful on its own if you're building your own admin UI, or
 scripting content some other way.
 

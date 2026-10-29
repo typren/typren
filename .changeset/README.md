@@ -12,8 +12,8 @@ changelog. Skip it only when nothing published changes, such as docs, tests or C
 ## Why the published packages share a version
 
 `config.json` sets `fixed` across `@typren/core`, `typren` and
-`@typren/editor`, so they always release together on one version number.
-(`@typren/editor` is still `private: true` while it is being finished, so it
+`@typren/studio`, so they always release together on one version number.
+(`@typren/studio` is still `private: true` while it is being finished, so it
 gets the version bumps but does not publish yet.)
 
 They're tightly coupled pre-1.0 and released as a set, so independent versions

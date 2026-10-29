@@ -1,7 +1,7 @@
 {
-  "name": "@typren/studio",
+  "name": "@typren/studio-local",
   "version": "0.1.0",
-  "description": "STUB. Will be the thin Next.js host that mounts @typren/editor.",
+  "description": "STUB. Will be the thin Next.js host that mounts @typren/studio.",
   "license": "SEE LICENSE IN LICENSE",
   "private": true
 }

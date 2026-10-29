@@ -1,4 +1,4 @@
-// @typren/editor: the editor UI layer of the seam documented in the root
+// @typren/studio: the editor UI layer of the seam documented in the root
 // README: ContentAdapter -> ContentStore -> makeActions(config) -> editor UI
 // (here). `TyprenEditorHost.sections` grows it from the v1 Pages-only loop
 // into the SDUI admin shell (Media/Collections/Settings) core's `sections.ts`

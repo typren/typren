@@ -41,7 +41,7 @@ export default defineConfig({
         // The ported editor UI has no tests yet, and apps/studio is an empty
         // stub. Excluded so the ratchet measures tested code; remove the
         // editor line when its tests land, and re-seed the thresholds then.
-        "packages/editor/**",
+        "packages/studio/**",
         "apps/studio/**",
         // Thin `aws` CLI glue (parse `--output json`, done), exercising it
         // for real needs a live AWS account. The actual logic it's glue for

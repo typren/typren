@@ -1,11 +1,11 @@
-# @typren/editor
+# @typren/studio
 
 The editor UI layer of the seam described in the root README's Architecture
 section:
 
 ```
 ContentAdapter  ->  ContentStore  ->  makeActions(config)  ->  editor UI
-   (@typren/core)     (@typren/core)      (@typren/core)         (@typren/editor, here)
+   (@typren/core)     (@typren/core)      (@typren/core)         (@typren/studio, here)
 ```
 
 It depends on `@typren/core` for everything below that seam (adapters, the
@@ -21,12 +21,12 @@ the rest of the package has none yet.
 
 ## Install
 
-Not yet published; install from the workspace (`"@typren/editor": "workspace:*"`).
+Not yet published; install from the workspace (`"@typren/studio": "workspace:*"`).
 
 ## Quickstart
 
 ```tsx
-import { TyprenEditor } from "@typren/editor";
+import { TyprenEditor } from "@typren/studio";
 
 <TyprenEditor
   host={{ actions, sliceNames, defaults, previewPath: "/editor/preview" }}

@@ -1,7 +1,7 @@
 {
-  "name": "@typren/editor",
+  "name": "@typren/studio",
   "version": "0.5.4",
-  "description": "Typren's editor UI: the pluggable React admin shell for pages, blocks and fields.",
+  "description": "Typren Studio: the pluggable React UI for pages, blocks and fields.",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,
   "type": "module",
@@ -52,7 +52,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/typren/typren.git",
-    "directory": "packages/editor"
+    "directory": "packages/studio"
   },
   "bugs": {
     "url": "https://github.com/typren/typren/issues"

@@ -155,7 +155,7 @@ export function SectionShell({
       // sections ship code"), say so loudly rather than paint an empty pane.
       region = (
         <div className="flex min-w-0 flex-1 items-center justify-center p-8 text-center text-sm text-[var(--typren-muted-fg)]">
-          &ldquo;{active.label}&rdquo; is a custom section. @typren/editor has no plugin runtime to render it — the
+          &ldquo;{active.label}&rdquo; is a custom section. @typren/studio has no plugin runtime to render it — the
           host is responsible for its own routing/UI around this section.
         </div>
       );

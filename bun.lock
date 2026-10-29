@@ -27,7 +27,7 @@
       },
     },
     "apps/studio": {
-      "name": "@typren/studio",
+      "name": "@typren/studio-local",
       "version": "0.1.0",
     },
     "packages/adapter-cloudflare": {
@@ -140,31 +140,6 @@
         "react-dom",
       ],
     },
-    "packages/editor": {
-      "name": "@typren/editor",
-      "version": "0.5.4",
-      "dependencies": {
-        "@typren/core": "workspace:*",
-        "class-variance-authority": "^0.7.1",
-        "clsx": "^2.1.1",
-        "js-yaml": "^5.5.0",
-        "lucide-react": "^1.64.0",
-        "tailwind-merge": "^3.7.0",
-      },
-      "devDependencies": {
-        "@testing-library/react": "^16.3.3",
-        "@testing-library/user-event": "^14.6.8",
-        "@types/react": "^19.3.0",
-        "@types/react-dom": "^19.3.0",
-        "react": "^19.3.1",
-        "react-dom": "^19.3.1",
-        "typescript": "^6.0.3",
-      },
-      "peerDependencies": {
-        "react": ">=19",
-        "react-dom": ">=19",
-      },
-    },
     "packages/forms": {
       "name": "@typren/forms",
       "version": "0.2.2",
@@ -196,6 +171,31 @@
       "optionalPeers": [
         "vue",
       ],
+    },
+    "packages/studio": {
+      "name": "@typren/studio",
+      "version": "0.5.4",
+      "dependencies": {
+        "@typren/core": "workspace:*",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
+        "js-yaml": "^5.5.0",
+        "lucide-react": "^1.64.0",
+        "tailwind-merge": "^3.7.0",
+      },
+      "devDependencies": {
+        "@testing-library/react": "^16.3.3",
+        "@testing-library/user-event": "^14.6.8",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "react": "^19.3.1",
+        "react-dom": "^19.3.1",
+        "typescript": "^6.0.3",
+      },
+      "peerDependencies": {
+        "react": ">=19",
+        "react-dom": ">=19",
+      },
     },
   },
   "packages": {
@@ -561,13 +561,13 @@
 
     "@typren/core": ["@typren/core@workspace:packages/core"],
 
-    "@typren/editor": ["@typren/editor@workspace:packages/editor"],
-
     "@typren/forms": ["@typren/forms@workspace:packages/forms"],
 
     "@typren/locale": ["@typren/locale@workspace:packages/locale"],
 
-    "@typren/studio": ["@typren/studio@workspace:apps/studio"],
+    "@typren/studio": ["@typren/studio@workspace:packages/studio"],
+
+    "@typren/studio-local": ["@typren/studio-local@workspace:apps/studio"],
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@6.1.2", "", { "dependencies": { "@rolldown/pluginutils": "^1.0.1" }, "peerDependencies": { "@rolldown/plugin-babel": "^0.1.7 || ^0.2.0", "babel-plugin-react-compiler": "^1.0.0", "oxc-transform-react": "^0.152.0", "vite": "^8.0.0" }, "optionalPeers": ["@rolldown/plugin-babel", "babel-plugin-react-compiler", "oxc-transform-react"] }, "sha512-fhJNGUdscQa4HkI0xFxwonWyhnVReCPDbXI7FH7jmzpnVCrFQI7PRrhWecO263610vOrs9tr2Y4xcf8uAdFxbw=="],
 
