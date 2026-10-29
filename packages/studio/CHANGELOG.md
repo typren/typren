@@ -1,12 +1,5 @@
 # @typren/studio
 
-## 0.7.0
-
-### Patch Changes
-
-- Updated dependencies [ac50d55]
-  - @typren/core@0.7.0
-
 ## 0.6.0
 
 ### Minor Changes
@@ -21,7 +14,7 @@
 
 ### Patch Changes
 
-- Updated dependencies [c1dbf54]
+- Updated dependencies [c1dbf54, ac50d55]
   - @typren/core@0.6.0
 
 ## 0.5.4
