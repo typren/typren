@@ -11,7 +11,13 @@ export type StudioArgs = {
   previewPort: number;
   /** Set by `--site-url`: frame this origin and spawn nothing. */
   siteUrl?: string;
+  /** `--local`: the local studio UI, asked for explicitly. The default in
+   *  0.6; the cloud studio becomes the default in 0.7. */
+  local?: true;
 };
+
+/** Printed when `--local` is not passed, ahead of 0.7's default change. */
+export const CLOUD_DEFAULT_NOTICE = "Heads up: in 0.7 `typren studio` opens the cloud studio by default. Pass --local to keep the local studio.";
 
 function parsePort(flag: string, value: string): number | { error: string } {
   const n = Number(value);
@@ -24,8 +30,10 @@ export function parseStudioArgs(args: string[]): StudioArgs | { error: string } 
   let port = "4400";
   let previewPort: string | undefined;
   let siteUrl: string | undefined;
+  let local = false;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--port") port = args[++i] ?? "";
+    if (args[i] === "--local") local = true;
+    else if (args[i] === "--port") port = args[++i] ?? "";
     else if (args[i] === "--preview-port") previewPort = args[++i] ?? "";
     else if (args[i] === "--site-url") siteUrl = args[++i] ?? "";
   }
@@ -33,7 +41,8 @@ export function parseStudioArgs(args: string[]): StudioArgs | { error: string } 
   if (typeof studio !== "number") return studio;
   const preview = parsePort("--preview-port", previewPort ?? String(studio + 1));
   if (typeof preview !== "number") return preview;
-  if (siteUrl === undefined) return { port: studio, previewPort: preview };
+  const flags = local ? { local: true as const } : {};
+  if (siteUrl === undefined) return { port: studio, previewPort: preview, ...flags };
   let url: URL;
   try {
     url = new URL(siteUrl);
@@ -41,7 +50,7 @@ export function parseStudioArgs(args: string[]): StudioArgs | { error: string } 
     return { error: `--site-url must be an absolute URL, got "${siteUrl}"` };
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return { error: `--site-url must be http(s), got "${siteUrl}"` };
-  return { port: studio, previewPort: preview, siteUrl: url.origin };
+  return { port: studio, previewPort: preview, siteUrl: url.origin, ...flags };
 }
 
 /** Mirrors apps/studio's `StudioManifest`: the site's facts plus the data

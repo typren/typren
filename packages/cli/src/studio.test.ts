@@ -41,6 +41,11 @@ describe("parseStudioArgs", () => {
     });
   });
 
+  it("accepts --local, which runs the same local studio", () => {
+    expect(parseStudioArgs(["studio", "--local"])).toEqual({ port: 4400, previewPort: 4401, local: true });
+    expect(parseStudioArgs(["studio", "--local", "--site-url", "http://127.0.0.1:3000"])).toMatchObject({ local: true, siteUrl: "http://127.0.0.1:3000" });
+  });
+
   it.each([["0"], ["70000"], ["abc"], [""]])("rejects port %j", (port) => {
     expect(parseStudioArgs(["studio", "--port", port])).toEqual({ error: expect.stringContaining("--port") });
     expect(parseStudioArgs(["studio", "--preview-port", port])).toEqual({ error: expect.stringContaining("--preview-port") });
