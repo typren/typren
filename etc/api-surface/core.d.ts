@@ -400,6 +400,7 @@ import type { CmsConfig } from "../types.js";
  * POST   /library[/templates]/folders         create a folder  { folder }
  * POST   /library[/templates]/folders/rename  rename a folder  { folder, to }
  * DELETE /library[/templates]/folders?folder= delete an empty folder (422 while it holds anything)
+ * GET    /studio                             the studio's initial props (only with `options.studio`; ?slug=)
  * GET    /git                                commits a push would send (only with `config.git`)
  * POST   /git/push                           push to the upstream (publish) -> 502 { error } on rejection;
  *                                             with { paths } only those files' saved changes; { slugs }
@@ -430,6 +431,19 @@ export interface TyprenApiOptions {
      *  requests with no `Origin` header (server-to-server, curl) are allowed
      *  because CSRF needs a browser to attach credentials. */
     allowedOrigins?: string[];
+    /** One foreign origin allowed to call this API from a browser, reads
+     *  included, when it also sends `Authorization: Bearer <token>`: the
+     *  connected studio (`typren studio --cloud`), whose UI is served by the
+     *  cloud while the API stays on this machine. Anything else from that
+     *  origin is refused, so the token is the whole credential. Never `*`. */
+    allowOrigin?: {
+        origin: string;
+        token: string;
+    };
+    /** Serves `GET /studio`: the studio's initial props for a UI that cannot
+     *  render them on this host's server (the connected studio). Gated by the
+     *  `read` action like every other read. */
+    studio?: (request: Request) => unknown;
 }
 /** Resolves a `CmsConfig` fresh per request (session -> user -> account ->
  *  membership -> site, per docs/hosted-platform.md), for a host serving more
@@ -465,6 +479,7 @@ export declare function createTyprenApi(config: CmsConfig | CmsConfigFactory, op
     PUT: (request: Request) => Promise<Response>;
     PATCH: (request: Request) => Promise<Response>;
     DELETE: (request: Request) => Promise<Response>;
+    OPTIONS: (request: Request) => Promise<Response>;
 };
 
 // ---- dist/auth-adapter.d.ts ----
@@ -1290,6 +1305,7 @@ export { createNotionAdapter, createFetchNotionClient, type NotionAdapterOptions
 export { blocksToMarkdown, blocksToSegments, pageRecordFrom, richTextToMarkdown, type NotionBlock, type NotionSegment, type ProseSegment, type ComponentSegment, } from "./notion-blocks.js";
 export { createFsMediaAdapter, type FsMediaAdapterOptions } from "./fs-media-adapter.js";
 export { createLocalSiteConfig, rewriteSiteFiles, type LocalSite } from "./local-site.js";
+export { loadStudio, loadStudioProps, previewBase, sectionRouteUrl, siteTrailingSlash, studioSiteConfig, type StudioData, type StudioManifest, type StudioProps, type StudioSiteProps, } from "./studio-site.js";
 export { createGithubAdapter, isAllowedRepoPath, type GithubAdapterOptions } from "./github-adapter.js";
 export { processUpload, handleMediaUpload, MAX_UPLOAD_BYTES } from "./media.js";
 export { createStore, slugify, type ContentStore } from "./store.js";
@@ -2663,6 +2679,97 @@ export declare function createStore(adapter: ContentAdapter, opts?: {
     /** Default locale for fallback. Defaults to the adapter's. */
     defaultLocale?: string;
 }): ContentStore;
+
+// ---- dist/studio-site.d.ts ----
+import { type LocalSite } from "./local-site.js";
+import { type SiteSettings } from "./settings.js";
+import type { AuthAdapter } from "./auth-adapter.js";
+import type { Section } from "./sections.js";
+import type { StyleMap } from "./style.js";
+import type { CmsConfig, PageContent, PageInfo, SliceSchema } from "./types.js";
+/** What `typren studio` hands its front end (the local studio app's
+ *  `TYPREN_STUDIO` env var, or its own API server): the site's facts (see
+ *  `LocalSite`) plus the data parts of its cms.config, never the module.
+ *  ponytail: the site's cms.config.ts imports React components through the
+ *  site's own path aliases, so the studio can't import it. The CLI reads
+ *  slice defaults and field hints instead, and core rebuilds the rest from
+ *  the site's scaffold conventions (markdown content dir, public/img media,
+ *  typren.config.json). A site with a custom adapter, auth or media store
+ *  needs a studio config entry point of its own. */
+export type StudioManifest = LocalSite & {
+    /** Origin of the site's dev server, e.g. "http://127.0.0.1:3000". */
+    siteUrl: string;
+    defaults: Record<string, Record<string, unknown>>;
+    fieldSchema?: Record<string, SliceSchema>;
+    /** The rest of the `studio` block, validated by the CLI; each key falls
+     *  back to the scaffold's convention. */
+    sections?: Section[];
+    /** Route prefix page previews live at, e.g. "/draft". Default none. */
+    previewPath?: string;
+    /** Path of the one-slice route, or `false` for none. Default "/typren/section". */
+    sectionRoute?: string | false;
+    /** Page path prefixes under a nested layout, previewed on their real route
+     *  rather than the page canvas. Default none. */
+    nestedLayouts?: string[];
+};
+/** What a site-backed studio knows about the site beyond its content. */
+export type StudioSiteProps = {
+    sliceNames: string[];
+    defaults: Record<string, Record<string, unknown>>;
+    fieldSchema?: Record<string, SliceSchema>;
+    /** Site origin plus the preview route prefix, no trailing slash. */
+    previewPath: string;
+    /** The site's one-slice route, no trailing slash; undefined for a site without one. */
+    sectionRouteUrl?: string;
+    /** Page paths framed on their real route (`studio.nestedLayouts`). */
+    nestedLayouts?: string[];
+    homeSlug: string;
+    /** The site's rail; the studio's default when omitted. */
+    sections?: Section[];
+    /** The Settings panel may write bootstrap keys (typren.config.json exists). */
+    writeBootstrap?: boolean;
+    /** The site serves pages at "/<slug>/" (see `siteTrailingSlash`). */
+    trailingSlash: boolean;
+    /** The site is a git checkout, so Review pushes drafts as commits. */
+    git: boolean;
+    styleMap?: StyleMap;
+};
+/** The studio's initial data, read through core's actions. */
+export type StudioData = {
+    pages: PageInfo[];
+    /** Page folders kept without pages (see `ContentAdapter.listFolders`). */
+    folders: string[];
+    slug: string | null;
+    page?: PageContent;
+    version: string | null;
+    settings: SiteSettings;
+    settingsVersion: string | null;
+    /** The settings doc has a draft not published (pushed) yet. */
+    settingsHasDraft: boolean;
+};
+/** Everything a studio needs to open: `GET /studio`'s body, and the local
+ *  studio app's server-rendered props. */
+export type StudioProps = StudioData & StudioSiteProps;
+/** Where page previews are framed: the site origin plus the manifest's
+ *  `previewPath` prefix, without a trailing slash. */
+export declare function previewBase(manifest: StudioManifest): string;
+/** The one-slice route's URL without a trailing slash, or undefined for a
+ *  site with none. */
+export declare function sectionRouteUrl(manifest: StudioManifest): string | undefined;
+/** The studio's `CmsConfig` for the site: one config path for every studio
+ *  front end, each bringing the auth that fits how it is reached. */
+export declare function studioSiteConfig(manifest: StudioManifest, auth: AuthAdapter): CmsConfig;
+/** The studio's initial data. Returns null when `read` is denied, the same
+ *  gate the HTTP API applies to its GETs. */
+export declare function loadStudio(config: CmsConfig, slug: string | null): Promise<StudioData | null>;
+/** Whether the site serves pages at "/<slug>/", read off how it redirects a
+ *  page URL. The preview frame is sandboxed and doesn't reliably follow that
+ *  redirect, so the studio links the final URL directly. Cached once the
+ *  site answers; while its dev server is still starting, assumes no slash. */
+export declare function siteTrailingSlash(siteUrl: string, slug: string | undefined): Promise<boolean>;
+/** `loadStudio` plus the site facts from the manifest: what a studio opens
+ *  with, `slug` (default the home page) open. Null when `read` is denied. */
+export declare function loadStudioProps(config: CmsConfig, manifest: StudioManifest, slug?: string | null): Promise<StudioProps | null>;
 
 // ---- dist/style.d.ts ----
 /** The site's visual tokens as an editable `--typren-*` set. Stored on
