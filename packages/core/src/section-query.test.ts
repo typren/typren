@@ -65,12 +65,15 @@ describe("parseSectionQuery", () => {
 
 describe("parseSectionMap", () => {
   it("keeps the entries that are valid slices, cleaned like one slice", () => {
-    const raw = JSON.stringify({
-      a: { slice: "hero", heading: "Hi", href: "javascript:alert(1)", body: { dangerouslySetInnerHTML: { __html: "x" } } },
-      b: { slice: "nope" },
-      c: "hero",
-      d: { slice: "prose" },
-    }).replace("{", '{"__proto__":{"slice":"hero"},');
+    // A literal "__proto__" key, which an object literal can't express.
+    const raw =
+      '{"__proto__":{"slice":"hero"},' +
+      JSON.stringify({
+        a: { slice: "hero", heading: "Hi", href: "javascript:alert(1)", body: { dangerouslySetInnerHTML: { __html: "x" } } },
+        b: { slice: "nope" },
+        c: "hero",
+        d: { slice: "prose" },
+      }).slice(1);
     expect(parseSectionMap(raw, keys)).toEqual({ a: { slice: "hero", heading: "Hi", body: {} }, d: { slice: "prose" } });
   });
 

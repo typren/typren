@@ -67,7 +67,11 @@ export function readMenu(meta: Record<string, unknown>): { nav: NavItem[]; cta?:
  *  no query, fragment or trailing slash. Null for an external or "#" link. */
 function navTarget(item: Pick<NavItem, "href" | "external">): string | null {
   if (item.external === true || typeof item.href !== "string" || !/^\/(?!\/)/.test(item.href)) return null;
-  return item.href.split(/[?#]/)[0]!.replace(/(.)\/+$/, "$1");
+  const path = item.href.split(/[?#]/)[0]!;
+  // A loop, not /(.)\/+$/: that regex backtracks quadratically on long runs of "/".
+  let end = path.length;
+  while (end > 1 && path[end - 1] === "/") end--;
+  return path.slice(0, end);
 }
 
 /** Whether any menu item, submenus included, links to `path`. */

@@ -55,6 +55,9 @@ describe("readMenu, linksTo and unlink", () => {
     expect(linksTo(nav, "/about")).toBe(true);
     expect(linksTo(nav, "/about/team")).toBe(true);
     expect(linksTo(nav, "/docs")).toBe(false);
+    expect(linksTo([{ label: "A", href: "/a///?q#f" }], "/a")).toBe(true);
+    expect(linksTo([{ label: "Home", href: "/" }], "/")).toBe(true);
+    expect(linksTo([{ label: "Slow", href: "/a" + "/".repeat(50_000) + "x" }], "/a")).toBe(false);
   });
 
   it("drops the items linking to a page, moving their submenu up", () => {
