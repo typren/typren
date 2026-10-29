@@ -114,7 +114,7 @@ function fromBootstrapSlice(
     ? (flat.locales as unknown[]).map(String)
     : undefined;
   return {
-    adminRoute: String(flat.adminRoute ?? "editor"),
+    adminRoute: String(flat.adminRoute ?? "studio"),
     ...(locales ? { locales } : {}),
     defaultLocale: String(flat.defaultLocale ?? "en"),
     routing:
@@ -134,7 +134,7 @@ function validateAdminRoute(route: string): string | null {
 
 const EMPTY_RT: SiteSettingsRuntime = { brand: { name: "" }, seo: {} };
 const EMPTY_BS: SiteSettingsBootstrap = {
-  adminRoute: "editor",
+  adminRoute: "studio",
   locales: ["en"],
   defaultLocale: "en",
   routing: "prefix-except-default",

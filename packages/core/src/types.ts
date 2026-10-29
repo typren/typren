@@ -230,7 +230,7 @@ export interface CmsConfig {
    *  without an entry auto-detect their control. Keyed by slice name. */
   fieldSchema?: Record<string, SliceSchema>;
   adapter: ContentAdapter;
-  /** Route the editor iframes for live preview, e.g. "/editor/preview". */
+  /** Route the editor iframes for live preview, e.g. "/studio/preview". */
   previewPath: string;
   /** Slug of the page the site serves at "/". It keeps its slug: a rename
    *  refuses it. Default "home". */

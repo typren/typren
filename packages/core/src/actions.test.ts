@@ -22,7 +22,7 @@ function makeConfig(adapter?: ContentAdapter): CmsConfig {
     adapter:
       adapter ??
       createMarkdownAdapter({ contentDir: dir, draftDir: path.join(dir, ".drafts"), locales: ["en", "de"], defaultLocale: "en" }),
-    previewPath: "/editor/preview",
+    previewPath: "/studio/preview",
     // The fixture's "home" is renamed below like any page.
     homeSlug: "index",
     auth: {

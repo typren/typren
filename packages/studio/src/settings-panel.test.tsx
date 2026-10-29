@@ -19,7 +19,7 @@ const editName = (value: string) => fireEvent.change(screen.getByDisplayValue("A
 const snapshot: SiteSettings = {
   brand: { name: "Acme" },
   seo: { description: "Acme site" },
-  bootstrap: { adminRoute: "editor", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: true },
+  bootstrap: { adminRoute: "studio", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: true },
 };
 
 function makeSettings(): TyprenStudioSettingsActions {
@@ -49,7 +49,7 @@ describe("SettingsPanel", () => {
     render(<SettingsPanel settings={settings} snapshot={snapshot} onReload={() => {}} />);
 
     await user.click(screen.getByRole("button", { name: /Advanced/ }));
-    const routeField = screen.getByDisplayValue("editor");
+    const routeField = screen.getByDisplayValue("studio");
     await user.clear(routeField);
     await user.type(routeField, "admin");
     await user.click(screen.getByRole("button", { name: "Save advanced settings" }));

@@ -25,7 +25,7 @@ function makeConfig(): CmsConfig {
     registry: {},
     defaults: {},
     adapter: createMarkdownAdapter({ contentDir: dir, draftDir: path.join(dir, ".drafts") }),
-    previewPath: "/editor/preview",
+    previewPath: "/studio/preview",
     auth: openAuth,
   };
 }

@@ -23,7 +23,7 @@ function makeConfig(sections: Section[] = []): CmsConfig {
     registry: {},
     defaults: {},
     adapter: createMarkdownAdapter({ contentDir: pagesContentDir }),
-    previewPath: "/editor/preview",
+    previewPath: "/studio/preview",
     auth: { authorize: async () => true },
     sections,
   };

@@ -25,7 +25,7 @@ const snapshot: SiteSettings = {
   brand: { name: "Acme" },
   seo: {},
   style: { "--typren-primary": "#112233" },
-  bootstrap: { adminRoute: "editor", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: true },
+  bootstrap: { adminRoute: "studio", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: true },
 };
 
 function makeSettings(over: Partial<TyprenStudioSettingsActions> = {}): TyprenStudioSettingsActions {

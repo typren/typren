@@ -27,7 +27,7 @@ export interface SiteSettingsRuntime {
 /** NOT locale-scoped, NOT adapter-managed. Small root JSON, read at server
  *  start (cms.config.ts), by the CLI, and optionally by proxy.ts (Wave 5). */
 export interface SiteSettingsBootstrap {
-  adminRoute: string; // default "editor"
+  adminRoute: string; // default "studio"
   locales: string[];
   defaultLocale: string;
   routing: RoutingMode;
@@ -96,7 +96,7 @@ export function validateBootstrap(bs: SiteSettingsBootstrap): string | null {
  *  reader ever observes a half-written config that gates server boot. */
 export function createFsSettingsAdapter(opts: { file: string }): SettingsAdapter {
   const DEFAULTS: SiteSettingsBootstrap = {
-    adminRoute: "editor",
+    adminRoute: "studio",
     locales: ["en"],
     defaultLocale: "en",
     routing: "prefix-except-default",

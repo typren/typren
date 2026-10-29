@@ -25,7 +25,7 @@ function makeConfig(): CmsConfig {
     registry: {},
     defaults: {},
     adapter: createMarkdownAdapter({ contentDir: dir, draftDir: path.join(dir, ".drafts") }),
-    previewPath: "/editor/preview",
+    previewPath: "/studio/preview",
     // The fixture's "home" is renamed below like any page.
     homeSlug: "index",
     auth: openAuth(),
@@ -254,7 +254,7 @@ describe("config factory (per-request resolution)", () => {
         registry: {},
         defaults: {},
         adapter: createMarkdownAdapter({ contentDir: tenant === "a" ? dirA : dirB }),
-        previewPath: "/editor/preview",
+        previewPath: "/studio/preview",
         siteId: tenant,
         // Required alongside siteId: the default bootstrap adapter is one
         // process-wide file, which would collide across tenants.
@@ -564,7 +564,7 @@ describe("settings resource", () => {
   it("reads runtime + bootstrap + version, defaulting to empty runtime settings", async () => {
     const res = await createTyprenApi(settingsConfig(), { basePath: BASE }).handler(req("GET", "/settings"));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ brand: { name: "" }, bootstrap: { adminRoute: "editor" } });
+    expect(await res.json()).toMatchObject({ brand: { name: "" }, bootstrap: { adminRoute: "studio" } });
   });
 
   it("returns only the editable bootstrap keys, never the CLI's studio block", async () => {

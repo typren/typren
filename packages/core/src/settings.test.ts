@@ -28,7 +28,7 @@ function makeConfig(auth: AuthAdapter = alwaysAllow): CmsConfig {
     registry: {},
     defaults: {},
     adapter: createMarkdownAdapter({ contentDir }),
-    previewPath: "/editor/preview",
+    previewPath: "/studio/preview",
     auth,
   };
 }
@@ -38,7 +38,7 @@ describe("createFsSettingsAdapter", () => {
     const file = path.join(dir, "typren.config.json");
     const adapter = createFsSettingsAdapter({ file });
 
-    expect(adapter.readBootstrap()).toMatchObject({ adminRoute: "editor", onboarded: false });
+    expect(adapter.readBootstrap()).toMatchObject({ adminRoute: "studio", onboarded: false });
 
     adapter.writeBootstrap({ adminRoute: "backoffice", onboarded: true });
 
@@ -100,7 +100,7 @@ describe("createSettingsStore", () => {
       registry: {},
       defaults: {},
       adapter: createMarkdownAdapter({ contentDir, locales: ["en", "fr"], defaultLocale: "en" }),
-      previewPath: "/editor/preview",
+      previewPath: "/studio/preview",
       auth: alwaysAllow,
     };
     const store = createSettingsStore(config);
@@ -118,7 +118,7 @@ describe("createSettingsStore", () => {
       registry: {},
       defaults: {},
       adapter: noRootAdapter,
-      previewPath: "/editor/preview",
+      previewPath: "/studio/preview",
       auth: alwaysAllow,
     };
     expect(() => createSettingsStore(config)).toThrow(/settingsContentAdapter/);
@@ -133,7 +133,7 @@ describe("createSettingsStore", () => {
       registry: {},
       defaults: {},
       adapter: noRootAdapter,
-      previewPath: "/editor/preview",
+      previewPath: "/studio/preview",
       auth: alwaysAllow,
       settingsContentAdapter: createMarkdownAdapter({ contentDir: settingsDir }),
     };
@@ -150,7 +150,7 @@ describe("createSettingsStore", () => {
       registry: {},
       defaults: {},
       adapter: sharedAdapter,
-      previewPath: "/editor/preview",
+      previewPath: "/studio/preview",
       auth: alwaysAllow,
       settingsContentAdapter: sharedAdapter,
     };
@@ -162,7 +162,7 @@ describe("createSettingsStore", () => {
       registry: {},
       defaults: {},
       adapter: createMarkdownAdapter({ contentDir }),
-      previewPath: "/editor/preview",
+      previewPath: "/studio/preview",
       auth: alwaysAllow,
       settingsContentAdapter: createMarkdownAdapter({ contentDir }), // a second instance, same dir
     };
@@ -176,7 +176,7 @@ describe("createSettingsStore", () => {
       registry: {},
       defaults: {},
       adapter: createMarkdownAdapter({ contentDir }),
-      previewPath: "/editor/preview",
+      previewPath: "/studio/preview",
       auth: alwaysAllow,
       settingsContentAdapter: createMarkdownAdapter({ contentDir: nestedDir }),
     };
@@ -190,7 +190,7 @@ describe("createSettingsStore", () => {
       registry: {},
       defaults: {},
       adapter: createMarkdownAdapter({ contentDir }),
-      previewPath: "/editor/preview",
+      previewPath: "/studio/preview",
       auth: alwaysAllow,
       settingsContentAdapter: createMarkdownAdapter({ contentDir: settingsDir }),
     };
@@ -345,7 +345,7 @@ describe("writeBootstrap", () => {
 
 describe("validateBootstrap", () => {
   const valid: SiteSettingsBootstrap = {
-    adminRoute: "editor",
+    adminRoute: "studio",
     locales: ["en"],
     defaultLocale: "en",
     routing: "prefix-except-default",

@@ -535,7 +535,7 @@ describe("settings and style in Review", () => {
   const snap: SiteSettings = {
     brand: { name: "Acme" },
     seo: {},
-    bootstrap: { adminRoute: "editor", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: true },
+    bootstrap: { adminRoute: "studio", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: true },
   };
   const setup = (hasDraft: boolean) => {
     const settings = {

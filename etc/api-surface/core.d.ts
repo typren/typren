@@ -1861,14 +1861,14 @@ export declare function pageRecordFrom(segments: NotionSegment[], opts?: {
 // ---- dist/proxy.d.ts ----
 /** Current `adminRoute` from `typren.config.json`, mtime-cached so a steady
  *  file only costs one `statSync` per request, not a `readFileSync` too.
- *  Missing file (`throwIfNoEntry: false`) or missing/invalid field -> "editor". */
+ *  Missing file (`throwIfNoEntry: false`) or missing/invalid field -> "studio". */
 export declare function currentAdminRoute(file?: string): string;
 /** `previewPath` derived from the live admin route, so it can never drift
  *  from whatever `currentAdminRoute` reports. */
 export declare function previewPathFor(adminRoute: string): string;
 /**
- * Maps `/<adminRoute>/**` -> `/editor/**`; returns null when no rewrite
- * applies (adminRoute is still the default "editor", or the path isn't under
+ * Maps `/<adminRoute>/**` -> `/studio/**`; returns null when no rewrite
+ * applies (adminRoute is still the default "studio", or the path isn't under
  * the admin route at all) so a host's proxy can fall through to its own logic.
  * Accepts `URL | string` (matches `request.nextUrl` or a plain path) rather
  * than a `NextRequest`, so this stays testable without a `next/server` import
@@ -1878,13 +1878,13 @@ export declare function typrenProxyRewrite(url: URL | string, opts?: {
     configFile?: string;
 }): string | null;
 /**
- * True when `url` hits `/editor/**` directly while a renamed `adminRoute`
+ * True when `url` hits `/studio/**` directly while a renamed `adminRoute`
  * means that's no longer the live admin path. A host wires this ahead of
  * `typrenProxyRewrite` (see the module doc comment) to 404 it: without this,
  * renaming the admin route for URL hygiene was purely cosmetic -- the OLD
- * path kept serving the editor side by side with the new one, forever.
+ * path kept serving the studio side by side with the new one, forever.
  */
-export declare function typrenBlocksDirectEditorAccess(url: URL | string, opts?: {
+export declare function typrenBlocksDirectStudioAccess(url: URL | string, opts?: {
     configFile?: string;
 }): boolean;
 
@@ -2067,7 +2067,7 @@ export type FieldFormMedia = {
  *  this (see the switch convention in the spec). */
 export declare const SECTION_API_VERSION: 1;
 interface SectionBase {
-    /** Stable identity for nav highlighting + the `/editor/<id>` route segment.
+    /** Stable identity for nav highlighting + the `/studio/<id>` route segment.
      *  Defaults: built-in singletons use `kind`; collection/custom fall back to
      *  slug(label) but SHOULD be set so renaming `label` never breaks a link. */
     id?: string;
@@ -2167,7 +2167,7 @@ export interface SectionCtx {
     readonly locale: string;
     readonly locales: string[];
     readonly defaultLocale: string;
-    /** Navigate to another section (full navigation to `/editor/<id>`). */
+    /** Navigate to another section (full navigation to `/studio/<id>`). */
     navigate(sectionId: string): void;
     /** Contribute a top-bar right-slot action (e.g. collection "+ New").
      *  Optional; a section that never calls it puts nothing there. Returns an
@@ -2949,7 +2949,7 @@ export interface CmsConfig {
      *  without an entry auto-detect their control. Keyed by slice name. */
     fieldSchema?: Record<string, SliceSchema>;
     adapter: ContentAdapter;
-    /** Route the editor iframes for live preview, e.g. "/editor/preview". */
+    /** Route the editor iframes for live preview, e.g. "/studio/preview". */
     previewPath: string;
     /** Slug of the page the site serves at "/". It keeps its slug: a rename
      *  refuses it. Default "home". */

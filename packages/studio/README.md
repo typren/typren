@@ -30,12 +30,12 @@ import { TyprenStudio } from "@typren/studio";
 // The studio fills its parent, so give the mount point a height.
 <div style={{ height: "100dvh" }}>
   <TyprenStudio
-    host={{ actions, sliceNames, defaults, previewPath: "/editor/preview" }}
+    host={{ actions, sliceNames, defaults, previewPath: "/studio/preview" }}
     pages={pages}
     slug={slug}
     page={page}
     version={version}
-    onNavigate={(slug) => router.push(slug ? `/editor/${slug}` : "/editor")}
+    onNavigate={(slug) => router.push(slug ? `/studio/${slug}` : "/studio")}
     onReload={() => router.refresh()}
   />
 </div>;

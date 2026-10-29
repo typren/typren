@@ -36,7 +36,7 @@ const actions = makeActions({
   auth: localAuth(), // dev-only by default; see @typren/core/auth/* for production
   registry: {},      // slice name -> component, owned by your app
   defaults: {},       // starter props inserted when a slice is added
-  previewPath: "/editor/preview",
+  previewPath: "/studio/preview",
 });
 
 // In a Next.js Server Action, or anywhere else you can call an async function:

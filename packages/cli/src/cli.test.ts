@@ -323,7 +323,7 @@ describe("applySettings", () => {
     fs.writeFileSync(
       path.join(dir, "typren.config.json"),
       JSON.stringify(
-        { adminRoute: "editor", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: false, ...overrides },
+        { adminRoute: "studio", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: false, ...overrides },
         null,
         2
       )
@@ -728,7 +728,7 @@ describe("main", () => {
     function writeBootstrap(overrides: Record<string, unknown> = {}) {
       fs.writeFileSync(
         path.join(dir, "typren.config.json"),
-        JSON.stringify({ adminRoute: "editor", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: false, ...overrides })
+        JSON.stringify({ adminRoute: "studio", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: false, ...overrides })
       );
     }
 

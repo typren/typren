@@ -40,7 +40,7 @@ export type FieldFormMedia = {
 export const SECTION_API_VERSION = 1 as const;
 
 interface SectionBase {
-  /** Stable identity for nav highlighting + the `/editor/<id>` route segment.
+  /** Stable identity for nav highlighting + the `/studio/<id>` route segment.
    *  Defaults: built-in singletons use `kind`; collection/custom fall back to
    *  slug(label) but SHOULD be set so renaming `label` never breaks a link. */
   id?: string;
@@ -145,7 +145,7 @@ export interface SectionCtx {
   readonly locale: string;
   readonly locales: string[];
   readonly defaultLocale: string;
-  /** Navigate to another section (full navigation to `/editor/<id>`). */
+  /** Navigate to another section (full navigation to `/studio/<id>`). */
   navigate(sectionId: string): void;
   /** Contribute a top-bar right-slot action (e.g. collection "+ New").
    *  Optional; a section that never calls it puts nothing there. Returns an

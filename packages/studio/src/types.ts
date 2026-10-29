@@ -70,7 +70,7 @@ export interface TyprenStudioHost {
   defaults: Record<string, Record<string, unknown>>;
   /** Optional per-slice field hints (dropdowns for enum props, etc.). */
   fieldSchema?: Record<string, SliceSchema>;
-  /** Route the studio iframes for live preview, e.g. "/editor/preview".
+  /** Route the studio iframes for live preview, e.g. "/studio/preview".
    *  The frame loads `${previewPath}/${slug}` unless `previewUrl` is set. */
   previewPath: string;
   /** Preview URL for a page, overriding `previewPath`. May be absolute and
