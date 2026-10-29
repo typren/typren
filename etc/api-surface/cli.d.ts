@@ -295,12 +295,7 @@ export type StudioArgs = {
     previewPort: number;
     /** Set by `--site-url`: frame this origin and spawn nothing. */
     siteUrl?: string;
-    /** `--local`: the local studio UI, asked for explicitly. The default in
-     *  0.6; the cloud studio becomes the default in 0.7. */
-    local?: true;
 };
-/** Printed when `--local` is not passed, ahead of 0.7's default change. */
-export declare const CLOUD_DEFAULT_NOTICE = "Heads up: in 0.7 `typren studio` opens the cloud studio by default. Pass --local to keep the local studio.";
 /** Same hand-rolled argv style as the rest of the CLI. `--site-url` is
  *  reduced to its origin: the editor appends "/<slug>" to it. */
 export declare function parseStudioArgs(args: string[]): StudioArgs | {
