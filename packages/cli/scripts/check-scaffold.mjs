@@ -23,7 +23,7 @@ const sandbox = path.join(repo, ".tmp-scaffold-check");
 // the sandbox can't reach them by walking up. Symlinking them into a
 // sandbox-local node_modules reproduces the flat layout a real consumer
 // install would give the scaffolded app. All from core: the scaffold no
-// longer emits anything that imports @typren/editor, so the sandbox has no
+// longer emits anything that imports @typren/studio, so the sandbox has no
 // need to reach into the editor package's node_modules.
 const LINKS = {
   react: "core/node_modules/react",
@@ -50,6 +50,7 @@ const TSCONFIG = {
       "@/*": ["./src/*"],
       "@typren/core": ["../../core/src/index.ts"],
       "@typren/core/auth/local": ["../../core/src/auth/local.ts"],
+      "@typren/core/ui/preview-bridge.vanilla": ["../../core/src/ui/preview-bridge.vanilla.ts"],
     },
   },
   include: ["src/**/*.ts", "src/**/*.tsx"],

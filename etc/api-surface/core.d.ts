@@ -2714,15 +2714,14 @@ export declare function styleVars(style: Record<string, string> | undefined, map
 export declare function styleCss(style: Record<string, string> | undefined, map?: StyleMap): string;
 
 // ---- dist/templates/init.d.ts ----
-export declare const TYPREN_REWRITE_MARKER = "typren:admin-route-rewrite";
 export declare const TYPREN_BOOTSTRAP_MARKER = "typren:bootstrap-wired";
 /** Every file \`typren init\` scaffolds, keyed by path relative to the
  *  detected project base dir ("src" when the project has \`src/app\`, "."
  *  when it has a root-level \`app\`). \`contentDirLiteral\` is the same base
  *  dir joined with "content" (e.g. "src/content" or "content"). A key
  *  starting with "/" is project-ROOT-relative regardless of baseDir (see
- *  ../cli.ts's \`scaffold\`), used for next.config.ts/typren.config.json,
- *  which can never live under src/. */
+ *  ../cli.ts's \`scaffold\`), used for typren.config.json, which can never
+ *  live under src/. */
 export declare function buildTemplates(contentDirLiteral: string): Record<string, string>;
 
 // ---- dist/types.d.ts ----

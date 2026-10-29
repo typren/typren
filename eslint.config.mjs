@@ -47,6 +47,9 @@ export default tseslint.config(
     "**/coverage/**",
     "**/node_modules/**",
     "**/.tmp-scaffold-check/**",
+    "**/.tmp-studio-*/**",
+    "**/.next/**",
+    "**/next-env.d.ts",
     ".claude/**",
     // Generated snapshot of compiled .d.ts output (scripts/gen-api-surface.mjs),
     // not source, same reasoning as ignoring dist/ above.

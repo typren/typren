@@ -2,13 +2,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { buildTemplates, TYPREN_BOOTSTRAP_MARKER, TYPREN_REWRITE_MARKER } from "@typren/core/templates/init";
+import { buildTemplates, TYPREN_BOOTSTRAP_MARKER } from "@typren/core/templates/init";
 import { createFsSettingsAdapter, validateBootstrap, type SiteSettingsBootstrap, type Slice } from "@typren/core";
 import { firstRunNotice, isEnabled, readCliVersion, record, setEnabled } from "./telemetry";
 import { parseMatter } from "./safe-matter";
 import { envWithoutGit, migrate, printMigrateReport, parseMigrateArgs } from "./migrate";
+import { CONTENT_COMMANDS, readStdin, runContent } from "./content";
+import { buildStudioManifest, parseStudioArgs, previewCommand, resolveStudioDir, runStudio, studioCommand } from "./studio";
 
 /** `fs.existsSync` follows symlinks, so a dangling symlink at a scaffold
  *  target reads as "doesn't exist" and `writeFileSync` then creates a file at
@@ -80,7 +82,7 @@ export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldR
   const skipped: string[] = [];
 
   for (const [relPath, content] of Object.entries(templates)) {
-    // A "/"-prefixed key (next.config.ts, typren.config.json) always lands at
+    // A "/"-prefixed key (typren.config.json) always lands at
     // the project root, never under baseDir. See buildTemplates' doc comment.
     const abs = relPath.startsWith("/") ? path.join(cwd, relPath.slice(1)) : path.join(cwd, baseDir, relPath);
     const rel = path.relative(cwd, abs);
@@ -109,9 +111,9 @@ export function scaffold(cwd: string, opts: { force?: boolean } = {}): ScaffoldR
  *  non-loopback `-H`), so the user has to bind it themselves. */
 export type DevScriptStatus = "bound" | "already-bound" | "custom" | "no-package-json";
 
-/** localAuth refuses every request unless the Next server is bound to
- *  127.0.0.1 (see @typren/core's auth/local.ts), and `next dev`
- *  listens on all interfaces by default, so the scaffold has to own this.
+/** The dev server renders drafts while `typren studio` previews it, and
+ *  `next dev` listens on all interfaces by default, so the scaffold binds it
+ *  to 127.0.0.1, the origin the studio frames by default.
  *  ponytail: a regex over the script string, not a shell parser. Anything
  *  past "add -H to a plain `next dev`" is reported as "custom" instead of
  *  guessed at. */
@@ -132,32 +134,19 @@ function bindDevScriptToLoopback(cwd: string): DevScriptStatus {
   return "bound";
 }
 
-const NEXT_CONFIG_CANDIDATES = ["next.config.ts", "next.config.mjs", "next.config.js"];
 const CMS_CONFIG_CANDIDATES = ["cms.config.ts", "src/cms.config.ts", "cms.config.js", "src/cms.config.js"];
 
-/** "created" only when no next.config.* existed yet (nothing to corrupt, so
- *  it's safe to write ours). An existing file is only ever READ. */
-type NextConfigStatus = "created" | "already-wired" | "needs-manual-update";
 type CmsConfigStatus = "already-wired" | "needs-manual-update" | "not-found";
 
 export type ApplySettingsResult =
-  | { ok: true; bootstrap: SiteSettingsBootstrap; nextConfig: NextConfigStatus; cmsConfig: CmsConfigStatus; notes: string[] }
+  | { ok: true; bootstrap: SiteSettingsBootstrap; cmsConfig: CmsConfigStatus; notes: string[] }
   | { ok: false; error: string };
 
 /**
- * Core of `typren apply-settings`: reconciles the host's next.config /
- * cms.config with typren.config.json's bootstrap tier (spec §5's "Admin-route
- * mechanism"). Validates first, so it never writes anything on a bad config.
- *
- * Ladder-preferred mechanism: next.config.ts is plain code that runs at
- * config-eval time, so the generated template just `import`s
- * typren.config.json and reads `bootstrap.adminRoute` directly: no codegen,
- * no regex-patching of the user's rewrite array. When a next.config.* already
- * exists, this function only ever READS it (grepping for the marker comment
- * the template embeds). Auto-patching an arbitrary existing rewrites() body
- * is the unsafe case the spec calls out, so that path prints exact
- * instructions instead of guessing at an edit. Idempotent: a file that's
- * already wired (or a config that's still invalid) makes no writes on rerun.
+ * Core of `typren apply-settings`: validates typren.config.json's bootstrap
+ * tier and checks the host's cms.config reads it. Never writes: an existing
+ * cms.config is only grepped for the marker comment the template embeds, and
+ * a missing wire-up prints exact instructions instead of guessing at an edit.
  */
 export function applySettings(cwd: string): ApplySettingsResult {
   const bootstrapFile = path.join(cwd, "typren.config.json");
@@ -167,23 +156,6 @@ export function applySettings(cwd: string): ApplySettingsResult {
   if (error) return { ok: false, error: `invalid typren.config.json: ${error}` };
 
   const notes: string[] = [];
-
-  let nextConfig: NextConfigStatus;
-  const foundNextConfig = NEXT_CONFIG_CANDIDATES.map((f) => path.join(cwd, f)).find(fs.existsSync);
-  if (!foundNextConfig) {
-    fs.writeFileSync(path.join(cwd, "next.config.ts"), buildTemplates("content")["/next.config.ts"]);
-    nextConfig = "created";
-  } else if (fs.readFileSync(foundNextConfig, "utf8").includes(TYPREN_REWRITE_MARKER)) {
-    nextConfig = "already-wired";
-  } else {
-    nextConfig = "needs-manual-update";
-    notes.push(
-      `${path.relative(cwd, foundNextConfig)} doesn't read typren.config.json yet. Add:\n\n` +
-        `    import bootstrap from "./typren.config.json";\n` +
-        "    // inside rewrites():\n" +
-        '    { source: `/${bootstrap.adminRoute}/:path*`, destination: "/editor/:path*" }\n'
-    );
-  }
 
   let cmsConfig: CmsConfigStatus;
   const foundCmsConfig = CMS_CONFIG_CANDIDATES.map((f) => path.join(cwd, f)).find(fs.existsSync);
@@ -203,7 +175,7 @@ export function applySettings(cwd: string): ApplySettingsResult {
   }
 
   notes.push("Restart your dev server (or redeploy in production) for the change to take effect.");
-  return { ok: true, bootstrap, nextConfig, cmsConfig, notes };
+  return { ok: true, bootstrap, cmsConfig, notes };
 }
 
 // ---------------------------------------------------------------------------
@@ -891,41 +863,28 @@ function printReviewReport(result: ReviewResult, opts: { json?: boolean } = {}):
 }
 
 /** Split from `printNextSteps` so the text is assertable without capturing
- *  stdout, matching how the rest of this file keeps its logic pure.
- *
- *  No Tailwind/theme step here: @typren/core/theme.css's tokens are read
- *  ONLY by @typren/editor's own UI (see that file's own doc comment), and
- *  this scaffold no longer emits an editor route at all, so importing it
- *  would wire up styling for a component that isn't there. Nothing below
- *  tells the user to open /editor either, for the same reason: that route
- *  doesn't exist in this scaffold's output. */
+ *  stdout, matching how the rest of this file keeps its logic pure. */
 export function nextSteps(baseDir: string): string {
   const appDir = baseDir === "." ? "app" : `${baseDir}/app`;
   return `
-Note: @typren/editor, typren's visual editor UI, is a separate package and is
-not published to npm yet. This scaffold only wires the content layer (no
-editor route, nothing to style), so nothing here depends on it. cms-actions.ts
-and the slices under slices/ already work standalone; install @typren/editor
-later if and when you want a UI on top of them.
-
 Next steps:
 
 1. Make sure your tsconfig.json has a "@/*" path alias:
 
      "@/*": ["./${baseDir === "." ? "" : baseDir + "/"}*"]
 
-2. Render your content: import \`cmsStore\` from "@/cms.config" and
+2. Render your content: import \`getPage\` from "@/cms.config" and
    \`SliceZone\` from "@/slices/slice-zone" into a page under ${appDir}/, e.g.:
 
-     const page = await cmsStore.getPublished("home");
+     const page = await getPage("home");
      return <SliceZone slices={page.slices} />;
 
-3. Start your dev server bound to loopback. \`localAuth\` refuses every write
-   unless Next listens on 127.0.0.1 (the default \`next dev\` listens on all
-   interfaces, and \`-H localhost\` can't be told apart from that), so keep
-   the flag \`typren init\` added to your \`dev\` script:
+3. Edit in the studio. It starts its own preview copy of your dev server
+   (TYPREN_PREVIEW=1, on the studio port + 1), so your \`npm run dev\` stays
+   as it is. To run both at once, give the preview its own build dir in
+   next.config: distDir: process.env.TYPREN_PREVIEW === "1" ? ".next-preview" : ".next"
 
-     next dev -H 127.0.0.1
+     npx typren studio
 
 4. After upgrading any @typren package, run \`npx typren migrate\` and follow
    it until it exits 0.
@@ -946,15 +905,18 @@ Usage:
   npx typren review --update-pr <number> --body-file <path>
   npx typren telemetry [on|off]
   npx typren migrate [--from <ver>] [--to <ver>] [--json] [--remote] [--cwd <dir>]
+  npx typren studio [--port <n>] [--preview-port <n>] [--site-url <url>]
+  npx typren page|template|section|media|settings|style|nav ...   (content commands, below)
+  npx typren save [slug...] | publish | status
   npx typren --version
 
-  init             Scaffold typren's content layer into the current project
-                   (default command). Never overwrites an existing file
-                   unless --force is given.
+  init             Scaffold typren's site side into the current project
+                   (default command): content, cms.config, slices and the
+                   dev-only studio preview hooks. Edit with \`typren studio\`.
+                   Never overwrites an existing file unless --force is given.
 
-  apply-settings   Reconcile the host's next.config/cms.config with
-                   typren.config.json's adminRoute/locales/defaultLocale
-                   (spec §5). Safe to run repeatedly.
+  apply-settings   Validate typren.config.json and check that cms.config
+                   reads its locales/defaultLocale. Writes nothing.
 
   review           Deterministic content-review brief for the project's
                    content directory (auto-detected: src/content when src/
@@ -988,6 +950,46 @@ Usage:
                      --cwd <dir>    Run against a project at this path
                                     (default: current directory).
 
+  studio           Start the editor studio for the site in the current
+                   directory, on 127.0.0.1. Also starts the site's own dev
+                   command in preview mode (TYPREN_PREVIEW=1) on a side port
+                   and frames it; your normal dev server is left alone.
+                   Override the command with typren.config.json's
+                   "studio": { "previewCommand": "... {port} ..." }.
+                     --port <n>          Studio port (default 4400).
+                     --preview-port <n>  Preview dev server port (default --port + 1).
+                     --site-url <url>    Frame this running site instead of
+                                         starting one.
+
+  Content commands: every studio action, from the terminal. Each takes
+  --cwd <dir>, --locale <l> and --json ({"ok":true,...} or
+  {"ok":false,"code","error"}); none prompts. Exit 0 done, 1 error, 2 version
+  conflict. Page content comes from --file <path.json|.md>, or - for stdin.
+  --base-version <v> (--base-saved-at for templates and sections) opts a
+  write into strict conflict checking.
+    page list | get <slug>
+    page create <title> [--slug a/b] [--template <id>] [--sections <file>] [--folder] [--draft]
+    page save <slug> --file <f> [--base-version <v>]
+    page discard|publish|delete|duplicate <slug>
+    page rename <slug> <new-slug>
+    page set <slug> [--title t] [--nav|--no-nav] [--noindex|--no-noindex] [--description d]
+    page add-section <slug> --file slice.json [--at <n>]
+    page translate <slug> --to <locale> | page untranslate <slug> --locale <l>
+    template list | save <name> --file slices.json | update <id> --file <f> [--base-saved-at <t>] [--name n] | delete <id>
+    section list | save <name> --file slice.json | update <id> --file <f> [--base-saved-at <t>] | delete <id>
+    media list | usage | upload <file> [--folder f] | move <id> <folder> [--name n] | delete <id>
+    media folder create|delete <folder> | rename <folder> <to>
+    settings get | set <dot.key> <value> | publish | bootstrap set <key> <value>
+    style get | set <token> <value> | unset <token> | publish
+    nav get | set --file nav.json | publish
+    save [slug...]   Publish pending page drafts (a commit each in a git checkout).
+    publish          Push the commits (git), else publish every draft.
+    status           Branch, outgoing commits and pending drafts.
+    changes list | push <page|path...> | discard <path...> | log <page>
+                     Page drafts and saved files not pushed yet: push only
+                     some (one commit per page), undo files in a new commit,
+                     or read a page's version history (git).
+
   --force          Overwrite files that already exist (init only).
   --help           Show this help.
   --version, -v    Print the installed typren version.
@@ -1001,9 +1003,8 @@ function printApplySettingsReport(result: ApplySettingsResult): void {
     return;
   }
   console.log(
-    `typren apply-settings: bootstrap OK (adminRoute="${result.bootstrap.adminRoute}", ` +
+    `typren apply-settings: bootstrap OK (` +
       `locales=[${result.bootstrap.locales.join(", ")}], defaultLocale="${result.bootstrap.defaultLocale}").\n` +
-      `  next.config: ${result.nextConfig}\n` +
       `  cms.config:  ${result.cmsConfig}`
   );
   if (result.notes.length) {
@@ -1118,7 +1119,42 @@ function runTelemetryCommand(args: string[]): void {
 // neither ever reaching the telemetry notice/record calls: those aren't
 // usage signals, and --version's own error path shouldn't announce telemetry
 // on its way out.
-const KNOWN_COMMANDS = new Set(["init", "apply-settings", "review", "telemetry", "migrate"]);
+const KNOWN_COMMANDS = new Set(["init", "apply-settings", "review", "telemetry", "migrate", "studio", ...CONTENT_COMMANDS]);
+
+/** Resolves everything up front so a misconfigured site fails with a message
+ *  instead of a Next stack trace, then runs the session (see `runStudio`). */
+async function runStudioCommand(args: string[]): Promise<boolean> {
+  const fail = (msg: string) => {
+    console.error(`typren studio: ${msg}`);
+    process.exitCode = 1;
+    return false;
+  };
+  const opts = parseStudioArgs(args);
+  if ("error" in opts) return fail(opts.error);
+  const cwd = process.cwd();
+  const studioUrl = `http://127.0.0.1:${opts.port}`;
+  const siteUrl = opts.siteUrl ?? `http://127.0.0.1:${opts.previewPort}`;
+  const manifest = await buildStudioManifest(cwd, siteUrl);
+  if ("error" in manifest) return fail(manifest.error);
+  const studioDir = resolveStudioDir(cwd);
+  if (!studioDir) return fail("@typren/studio-local is not installed. Add it as a dev dependency of this site.");
+  process.exitCode = await runStudio(
+    {
+      studio: studioCommand(studioDir, manifest, opts.port),
+      studioUrl,
+      siteUrl,
+      preview: opts.siteUrl ? undefined : previewCommand(cwd, opts.previewPort, studioUrl),
+    },
+    {
+      spawn,
+      fetch: globalThis.fetch,
+      log: console.log,
+      error: (msg) => console.error(`typren studio: ${msg}`),
+      signals: process,
+    }
+  );
+  return true;
+}
 
 async function runMigrateCommand(args: string[]): Promise<boolean> {
   const opts = parseMigrateArgs(args);
@@ -1158,7 +1194,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const command = args.find((a) => !a.startsWith("-")) ?? "init";
   if (!KNOWN_COMMANDS.has(command)) {
     console.error(
-      `typren: unknown command "${command}" (only "init", "apply-settings", "review", "telemetry", and "migrate" are supported)`
+      `typren: unknown command "${command}" (run "typren --help" for the commands)`
     );
     process.exitCode = 1;
     return;
@@ -1168,8 +1204,21 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   // contract) so a long `review` report can't push it off screen. Only
   // reached for a recognized command, matching record() below: --help,
   // --version, and an unknown command never see this either.
-  const notice = firstRunNotice();
+  // A content command under --json owns stdout: the notice would corrupt it.
+  const notice = CONTENT_COMMANDS.includes(command) && args.includes("--json") ? null : firstRunNotice();
   if (notice) console.log(notice);
+
+  if (CONTENT_COMMANDS.includes(command)) {
+    const code = await runContent(args.slice(args.indexOf(command)), {
+      cwd: process.cwd(),
+      stdin: readStdin,
+      log: console.log,
+      error: console.error,
+    });
+    if (code) process.exitCode = code;
+    else record(command);
+    return;
+  }
 
   if (command === "telemetry") {
     runTelemetryCommand(args);
@@ -1190,6 +1239,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 
   if (command === "migrate") {
     if (await runMigrateCommand(args)) record("migrate");
+    return;
+  }
+
+  if (command === "studio") {
+    if (await runStudioCommand(args)) record("studio");
     return;
   }
 
@@ -1215,8 +1269,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   if (devScript === "bound") console.log('\nUpdated package.json: "dev" now runs `next dev -H 127.0.0.1`.');
   if (devScript === "custom" || devScript === "no-package-json") {
     console.warn(
-      "\nWarning: couldn't bind your dev script to loopback automatically. localAuth denies every write\n" +
-        "until Next is started with `-H 127.0.0.1`; add it to your dev command."
+      "\nWarning: couldn't bind your dev script to loopback automatically. Add `-H 127.0.0.1` to your\n" +
+        "dev command: it renders drafts while the studio previews it."
     );
   }
   printNextSteps(baseDir);
