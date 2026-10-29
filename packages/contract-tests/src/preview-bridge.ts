@@ -7,15 +7,21 @@ import { describe, expect, it, vi } from "vitest";
  * side sandboxes the frame without allow-same-origin, so it sees origin
  * "null" and checks `event.source` against the frame's window instead, and
  * posts to the frame with target origin "*" (index and theme only, nothing
- * sensitive). The message shapes are unchanged. Mirrors the four message
- * shapes the bridge and packages/editor/src/{editor-shell,device-preview}.tsx
- * actually send today.
+ * sensitive). Mirrors the message shapes the bridge and
+ * packages/studio/src/page-editor.tsx actually send today; `rects` and
+ * `hover` flow iframe to editor only and feed the canvas overlay.
  */
 export type BridgeMessage =
   | { __typren: true; type: "select"; index: number | null }
   | { __typren: true; type: "edit"; index: number; before: string; after: string }
   | { __typren: true; type: "theme"; theme: "dark" | "light" }
-  | { __typren: true; type: "scrollTo"; index: number; reveal?: boolean };
+  | { __typren: true; type: "scrollTo"; index: number; reveal?: boolean }
+  | {
+      __typren: true;
+      type: "rects";
+      rects: { index: number; top: number; left: number; width: number; height: number }[];
+    }
+  | { __typren: true; type: "hover"; index: number | null };
 
 export const BRIDGE_MESSAGE_FIXTURES: BridgeMessage[] = [
   { __typren: true, type: "select", index: 2 },
@@ -23,6 +29,8 @@ export const BRIDGE_MESSAGE_FIXTURES: BridgeMessage[] = [
   { __typren: true, type: "edit", index: 1, before: "Old copy", after: "New copy" },
   { __typren: true, type: "theme", theme: "dark" },
   { __typren: true, type: "scrollTo", index: 3, reveal: false },
+  { __typren: true, type: "rects", rects: [{ index: 0, top: 0, left: 0, width: 390, height: 640 }] },
+  { __typren: true, type: "hover", index: null },
 ];
 
 /** What `initPreviewBridge` (packages/core/src/ui/preview-bridge.vanilla.ts)
@@ -39,7 +47,7 @@ export type InitPreviewBridge = () => () => void;
  *
  * Does not cover the editor-shell (dashboard) side of the protocol, that
  * half has no vanilla, framework-free entry point to call the same way, and
- * duplicating packages/editor/src/editor-shell.tsx's own logic here would be
+ * duplicating packages/studio/src/editor-shell.tsx's own logic here would be
  * speculative rather than a contract check.
  */
 export function createPreviewBridgeContractSuite(initPreviewBridge: InitPreviewBridge) {
