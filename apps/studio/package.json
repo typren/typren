@@ -1,6 +1,6 @@
 {
   "name": "@typren/studio-local",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Studio local: the thin Next.js host that runs @typren/studio beside a site. Started by `typren studio`.",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,
