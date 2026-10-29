@@ -703,6 +703,7 @@ describe("main", () => {
         vi.mocked(spawn).mockReturnValueOnce(child);
         process.chdir(site);
 
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
         // --site-url: frame a running site, so the studio is the only child.
         const run = main(["studio", "--port", "4500", "--site-url", "http://127.0.0.1:3000"]);
         await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
@@ -716,6 +717,20 @@ describe("main", () => {
         await run;
         expect(process.exitCode).toBe(3);
         expect(telemetry.record).toHaveBeenCalledWith("studio");
+        // No flag: one line ahead of 0.7's default change.
+        expect(error.mock.calls.filter(([m]) => String(m).includes("in 0.7"))).toHaveLength(1);
+
+        // --local runs the same studio, without the notice.
+        error.mockClear();
+        vi.mocked(spawn).mockClear();
+        const local = Object.assign(new EventEmitter(), { kill: vi.fn() }) as unknown as ChildProcess;
+        vi.mocked(spawn).mockReturnValueOnce(local);
+        const again = main(["studio", "--local", "--port", "4500", "--site-url", "http://127.0.0.1:3000"]);
+        await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
+        expect(vi.mocked(spawn).mock.calls[0][1]).toEqual(expect.arrayContaining(["dev", "-H", "127.0.0.1", "-p", "4500"]));
+        local.emit("exit", 0);
+        await again;
+        expect(error.mock.calls.some(([m]) => String(m).includes("in 0.7"))).toBe(false);
       } finally {
         vi.unstubAllGlobals();
         process.chdir(originalCwd);

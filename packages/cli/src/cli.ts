@@ -10,7 +10,7 @@ import { firstRunNotice, isEnabled, readCliVersion, record, setEnabled } from ".
 import { parseMatter } from "./safe-matter";
 import { envWithoutGit, migrate, printMigrateReport, parseMigrateArgs } from "./migrate";
 import { CONTENT_COMMANDS, readStdin, runContent } from "./content";
-import { buildStudioManifest, parseStudioArgs, previewCommand, resolveStudioDir, runStudio, studioCommand } from "./studio";
+import { buildStudioManifest, CLOUD_DEFAULT_NOTICE, parseStudioArgs, previewCommand, resolveStudioDir, runStudio, studioCommand } from "./studio";
 
 /** `fs.existsSync` follows symlinks, so a dangling symlink at a scaffold
  *  target reads as "doesn't exist" and `writeFileSync` then creates a file at
@@ -905,7 +905,7 @@ Usage:
   npx typren review --update-pr <number> --body-file <path>
   npx typren telemetry [on|off]
   npx typren migrate [--from <ver>] [--to <ver>] [--json] [--remote] [--cwd <dir>]
-  npx typren studio [--port <n>] [--preview-port <n>] [--site-url <url>]
+  npx typren studio [--local] [--port <n>] [--preview-port <n>] [--site-url <url>]
   npx typren page|template|section|media|settings|style|nav ...   (content commands, below)
   npx typren save [slug...] | publish | status
   npx typren --version
@@ -956,6 +956,9 @@ Usage:
                    and frames it; your normal dev server is left alone.
                    Override the command with typren.config.json's
                    "studio": { "previewCommand": "... {port} ..." }.
+                     --local             Run the local studio UI (today's
+                                         default; changing in 0.7, when the
+                                         cloud studio becomes the default).
                      --port <n>          Studio port (default 4400).
                      --preview-port <n>  Preview dev server port (default --port + 1).
                      --site-url <url>    Frame this running site instead of
@@ -1131,6 +1134,7 @@ async function runStudioCommand(args: string[]): Promise<boolean> {
   };
   const opts = parseStudioArgs(args);
   if ("error" in opts) return fail(opts.error);
+  if (!opts.local) console.error(CLOUD_DEFAULT_NOTICE);
   const cwd = process.cwd();
   const studioUrl = `http://127.0.0.1:${opts.port}`;
   const siteUrl = opts.siteUrl ?? `http://127.0.0.1:${opts.previewPort}`;
