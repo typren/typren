@@ -24,9 +24,16 @@ npx typren studio
 
 | Flag | Default | |
 |---|---|---|
+| `--local` | on in 0.6 | Run the studio UI on this machine, as described here. |
 | `--port <n>` | `4400` | The studio's port. |
 | `--preview-port <n>` | studio port + 1 | The preview copy's port. |
 | `--site-url <url>` | none | Frame a site that is already running at this URL instead of starting one. |
+
+> **Changing in 0.7:** `typren studio` will open the cloud studio by default,
+> with only the content API and the preview running on your machine. Pass
+> `--local` to keep the local studio UI described on this page; in 0.6 it
+> behaves exactly like no flag, and without it the command prints a one-line
+> heads-up on stderr.
 
 `typren studio` needs `@typren/studio-local` installed in the site
 (`npm install --save-dev @typren/studio-local`).
