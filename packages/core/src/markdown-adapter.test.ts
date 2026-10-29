@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createContentAdapterContractSuite } from "@typren/contract-tests";
-import { createMarkdownAdapter } from "./markdown-adapter";
+import { createMarkdownAdapter, FOLDER_MARKER } from "./markdown-adapter";
 
 // parse/serialize are pure string transforms (no fs touched), so a throwaway
 // contentDir (never read) is enough to construct the adapter.
@@ -83,6 +83,112 @@ describe("markdown-adapter listSlugs", () => {
     // record, so it hits the same guard on a different path.
     const collection = createMarkdownAdapter({ contentDir: dir, requireSliceArray: false });
     expect(await collection.listSlugs()).toEqual(["about"]);
+  });
+});
+
+describe("markdown-adapter nested slugs", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-md-nested-"));
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const page = "---\nslices: []\n---\n";
+
+  it("reads, writes and lists a nested slug as a path under the content dir", async () => {
+    const md = createMarkdownAdapter({ contentDir: dir, locales: ["en", "es"] });
+    await md.writeRaw("event/1", page);
+    await md.writeRaw("event/2", page);
+    await md.writeRaw("about", page);
+    expect(fs.existsSync(path.join(dir, "event", "1.md"))).toBe(true);
+    expect(await md.readRaw("event/1")).toBe(page);
+    // `event` has no page of its own: a folder implied by its children.
+    expect(await md.listSlugs()).toEqual(["about", "event/1", "event/2"]);
+    expect(await md.exists("event")).toBe(false);
+    // A page and its folder coexist.
+    await md.writeRaw("event", page);
+    expect(await md.listSlugs()).toEqual(["about", "event", "event/1", "event/2"]);
+  });
+
+  it("keeps locale and draft directories out of the default locale's slugs", async () => {
+    const md = createMarkdownAdapter({ contentDir: dir, locales: ["en", "es"], draftSubdir: "drafts" });
+    await md.writeRaw("about", page, "es");
+    await md.writeDraftRaw("event/1", page);
+    fs.mkdirSync(path.join(dir, "Bad Dir"));
+    fs.writeFileSync(path.join(dir, "Bad Dir", "x.md"), page);
+    expect(await md.listSlugs()).toEqual([]);
+    expect(await md.listSlugs("es")).toEqual(["about"]);
+    for (const slug of ["es/about", "ES/about", "drafts/x", "event//1", "event/", "/event", "event/../x"])
+      await expect(md.readRaw(slug)).rejects.toThrow(/unsafe slug/);
+    // A single segment named like a locale is an ordinary page beside its directory.
+    await md.writeRaw("es", page);
+    expect(await md.listSlugs()).toEqual(["es"]);
+  });
+
+  it("does not follow a symlinked folder", async () => {
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "typren-md-elsewhere-"));
+    fs.writeFileSync(path.join(elsewhere, "secret.md"), page);
+    fs.symlinkSync(elsewhere, path.join(dir, "linked"));
+    const md = createMarkdownAdapter({ contentDir: dir });
+    expect(await md.listSlugs()).toEqual([]);
+    await expect(md.readRaw("linked/secret")).rejects.toThrow(/symlinked/);
+    fs.rmSync(elsewhere, { recursive: true, force: true });
+  });
+
+  it("lists draft slugs, nested ones included, published or not", async () => {
+    const md = createMarkdownAdapter({ contentDir: dir, locales: ["en", "es"] });
+    expect(await md.listDraftSlugs!()).toEqual([]);
+    await md.writeRaw("about", page);
+    await md.writeDraftRaw("about", page);
+    await md.writeDraftRaw("event/1", page);
+    await md.writeDraftRaw("hola", page, "es");
+    expect(await md.listDraftSlugs!()).toEqual(["about", "event/1"]);
+    expect(await md.listDraftSlugs!("es")).toEqual(["hola"]);
+    // Drafts never count as published pages.
+    expect(await md.listSlugs()).toEqual(["about"]);
+  });
+});
+
+describe("markdown-adapter page folders", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-md-folders-"));
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("keeps an empty folder as a marker file that never lists as a page", async () => {
+    const md = createMarkdownAdapter({ contentDir: dir, locales: ["en", "es"] });
+    expect(await md.listFolders()).toEqual([]);
+    await md.createFolder!("event");
+    await md.createFolder!("docs/guides");
+    await md.createFolder!("event"); // idempotent
+    expect(fs.existsSync(path.join(dir, "event", FOLDER_MARKER))).toBe(true);
+    expect(md.folderFile("event")).toBe(path.join(dir, "event", FOLDER_MARKER));
+    expect(await md.listFolders()).toEqual(["docs/guides", "event"]);
+    expect(await md.listSlugs()).toEqual([]);
+    expect(await md.listFolders("es")).toEqual([]);
+  });
+
+  it("validates the folder path like a slug, reserving locale and draft directories even at the top", async () => {
+    const md = createMarkdownAdapter({ contentDir: dir, locales: ["en", "es"] });
+    for (const bad of ["es", "ES/x", ".drafts", "../x", "a//b", ""])
+      await expect(md.createFolder!(bad)).rejects.toThrow(/unsafe slug/);
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "typren-md-elsewhere-"));
+    fs.symlinkSync(elsewhere, path.join(dir, "linked"));
+    await expect(md.createFolder!("linked")).rejects.toThrow(/symlinked/);
+    expect(fs.readdirSync(elsewhere)).toEqual([]);
+    fs.rmSync(elsewhere, { recursive: true, force: true });
+  });
+
+  it("deletes only an empty folder", async () => {
+    const md = createMarkdownAdapter({ contentDir: dir });
+    await md.deleteFolder!("missing");
+    await md.createFolder!("event");
+    await md.writeRaw("event/1", "---\nslices: []\n---\n");
+    await expect(md.deleteFolder!("event")).rejects.toThrow(/not empty/);
+    await md.deletePublished("event/1");
+    await md.deleteFolder!("event");
+    expect(fs.existsSync(path.join(dir, "event"))).toBe(false);
+    expect(await md.listFolders()).toEqual([]);
   });
 });
 

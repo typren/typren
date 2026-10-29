@@ -186,4 +186,13 @@ describe("listCollectionRecords", () => {
     const section = { ...authorsSection, dir: path.join(dir, "authors") };
     expect(await listCollectionRecords(config, section)).toEqual([]);
   });
+
+  it("treats a record slugged like the site's home page as an ordinary record", async () => {
+    const section = { ...authorsSection, dir: path.join(dir, "authors") };
+    const actions = makeCollectionActions(makeConfig(), section);
+    await actions.saveDraft("home", { meta: { name: "H" }, slices: [], body: "" });
+    await actions.publish("home");
+    await actions.deletePage("home");
+    expect(fs.existsSync(path.join(dir, "authors", "home.md"))).toBe(false);
+  });
 });

@@ -2,12 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { createMarkdownAdapter } from "./markdown-adapter";
 import { makeActions } from "./actions";
+import { commitOrRestore } from "./git";
 import { createStore } from "./store";
 import { resolveAuth } from "./auth-adapter";
 import { resolveI18n } from "./i18n";
-import type { CmsConfig, MediaAsset } from "./types";
+import type { CmsConfig, ContentAdapter, MediaAsset } from "./types";
 import type { RoutingMode } from "./i18n";
 import type { SaveResult } from "./actions";
+import type { GitLogEntry } from "./git";
 
 /** Content-shaped, locale-aware, hot-editable: a reserved-slug PageContent in
  *  a PRIVATE dir (never the Pages dir). */
@@ -18,6 +20,8 @@ export interface SiteSettingsRuntime {
   brand: { name: string; logo?: MediaAsset; logoDark?: MediaAsset };
   seo: { titleTemplate?: string; description?: string; ogImage?: MediaAsset };
   theme?: { preset?: "shadcn" | "neutral" };
+  /** The site's `--typren-*` style tokens (custom property to value); see `styleCss`. */
+  style?: Record<string, string>;
 }
 
 /** NOT locale-scoped, NOT adapter-managed. Small root JSON, read at server
@@ -51,9 +55,9 @@ const RESERVED_ADMIN_ROUTES = new Set(["api", "_next"]);
 // uses the same shape for the same reason).
 const BCP47_LOCALE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
 const ROUTING_MODES: RoutingMode[] = ["prefix-except-default", "prefix-all"];
-/** Keys `PUT /settings/bootstrap` may patch (see api/routes.ts settingsRoutes).
- *  Anything else in the patch is rejected before it ever reaches
- *  `writeBootstrap`, since that adapter has no key allowlist of its own. */
+/** Keys `SettingsStore.writeBootstrap` (and so `PUT /settings/bootstrap`)
+ *  may patch. Anything else in the patch is rejected before it ever reaches
+ *  the adapter's `writeBootstrap`, which has no key allowlist of its own. */
 export const BOOTSTRAP_KEYS: ReadonlySet<string> = new Set([
   "adminRoute",
   "locales",
@@ -65,8 +69,8 @@ export const BOOTSTRAP_KEYS: ReadonlySet<string> = new Set([
 /**
  * Validates a FULL bootstrap (not a partial patch): the one check shared by
  * the Settings "Advanced" panel, the onboarding wizard's admin-route step,
- * `typren apply-settings` (packages/cli/src/cli.ts), and the settings API's
- * bootstrap write (api/routes.ts), so a config that passes one passes all
+ * `typren apply-settings` (packages/cli/src/cli.ts), and the settings store's
+ * bootstrap write (`SettingsStore.writeBootstrap`), so a config that passes one passes all
  * four. Returns an error string, or null when valid. Reuses `resolveI18n`'s
  * own defaultLocale-in-locales check rather than re-deriving it.
  */
@@ -128,9 +132,43 @@ export interface SettingsStore {
    *  version to check" and writes unconditionally, silently overwriting whatever
    *  another session had just saved. */
   currentVersion(locale?: string): Promise<string | null>;
+  /** What the editor shows: the draft when there is one, else the published
+   *  doc, with the version to save against. Read tier, as a page's draft is. */
+  open(locale?: string): Promise<{ settings: SiteSettingsRuntime; version: string | null; hasDraft: boolean }>;
   saveDraft(next: SiteSettingsRuntime, baseVersion?: string, locale?: string): Promise<SaveResult>;
   publish(baseVersion?: string, locale?: string): Promise<SaveResult>;
+  /** Drops the draft, so the published doc shows again. */
+  discardDraft(locale?: string): Promise<void>;
+  /** The settings doc's commits in a local git checkout, newest first; empty
+   *  without git or a file-backed doc. */
+  history(locale?: string, limit?: number): Promise<GitLogEntry[]>;
+  /** Patches the bootstrap file, as admin: only `BOOTSTRAP_KEYS`, and only
+   *  when the merged result passes `validateBootstrap`. A refused patch is
+   *  data, its `error` written for the person changing it. */
+  writeBootstrap(patch: Partial<SiteSettingsBootstrap>): Promise<{ ok: true } | { ok: false; error: string }>;
   bootstrap: SettingsAdapter;
+}
+
+/** The private content adapter beside the Pages one: settings and the saved
+ *  slice library (see library.ts) live there as reserved-slug docs. */
+export function privateContentAdapter(config: CmsConfig): ContentAdapter {
+  // Existing fs sites keep today's location exactly (sibling of the Pages
+  // content dir): only a markdown Pages adapter carries `root` (see
+  // markdown-adapter.ts's `MarkdownAdapter` type), so that's the detection.
+  // A non-fs Pages adapter (GitHub, Notion) has no root to site a sibling
+  // dir next to, so it must bring its own settings-content adapter.
+  return "root" in config.adapter
+    ? createMarkdownAdapter({
+        contentDir: path.join(path.dirname((config.adapter as { root: string }).root), ".typren"),
+        locales: config.adapter.locales,
+        defaultLocale: config.adapter.defaultLocale,
+      })
+    : (config.settingsContentAdapter ??
+        (() => {
+          throw new Error(
+            "typren: config.adapter has no filesystem root (e.g. a GitHub or Notion adapter), so settings need an explicit config.settingsContentAdapter"
+          );
+        })());
 }
 
 export function createSettingsStore(config: CmsConfig): SettingsStore {
@@ -171,32 +209,47 @@ export function createSettingsStore(config: CmsConfig): SettingsStore {
     }
   }
 
-  // Existing fs sites keep today's location exactly (sibling of the Pages
-  // content dir): only a markdown Pages adapter carries `root` (see
-  // markdown-adapter.ts's `MarkdownAdapter` type), so that's the detection.
-  // A non-fs Pages adapter (GitHub, Notion) has no root to site a sibling
-  // dir next to, so it must bring its own settings-content adapter.
-  const adapter =
-    "root" in config.adapter
-      ? createMarkdownAdapter({
-          contentDir: path.join(path.dirname((config.adapter as { root: string }).root), ".typren"),
-          locales: config.adapter.locales,
-          defaultLocale: config.adapter.defaultLocale,
-        })
-      : (config.settingsContentAdapter ??
-        (() => {
-          throw new Error(
-            "typren: config.adapter has no filesystem root (e.g. a GitHub or Notion adapter), so settings need an explicit config.settingsContentAdapter"
-          );
-        })());
-  const actions = makeActions({ ...config, adapter, onPublish: undefined, onSaveDraft: undefined });
+  const base = privateContentAdapter(config);
+  // The published file's bytes before its latest write, so a failed commit can
+  // put it back (or remove it when the publish created it).
+  const before = new Map<string, Buffer | null>();
+  const adapter: ContentAdapter = {
+    ...base,
+    async writeRaw(slug, raw, locale, opts) {
+      const file = pageFile?.(slug, locale);
+      if (file) before.set(file, fs.existsSync(file) ? fs.readFileSync(file) : null);
+      await base.writeRaw(slug, raw, locale, opts);
+    },
+  };
+  // A file-backed doc in a local git checkout commits on publish, the way a
+  // page Save does; makeActions refuses a detached HEAD before the publish.
+  const pageFile = "pageFile" in adapter ? (adapter.pageFile as (slug: string, locale?: string) => string) : undefined;
+  const git = pageFile && config.git;
+  const onPublish =
+    git &&
+    (async (slug: string, locale: string) => {
+      const where = locale === adapter.defaultLocale ? "" : ` (${locale})`;
+      // The publish already wrote the doc; a failed commit puts its draft
+      // back, so Publish stays pending and a retry after the fix commits it.
+      const file = pageFile!(slug, locale);
+      const prior = before.get(file);
+      const restore = async () => {
+        await adapter.writeDraftRaw(slug, await adapter.readRaw(slug, locale), locale);
+        if (prior) fs.writeFileSync(file, prior);
+        else if (prior === null) fs.rmSync(file, { force: true });
+      };
+      await commitOrRestore(git, [file], `content: update settings${where}`, restore, async () => {});
+    });
+  const actions = makeActions({ ...config, adapter, onPublish, onSaveDraft: undefined, withCommit: undefined });
   const store = createStore(adapter);
   const auth = resolveAuth(config);
-  const guardAdmin = async (locale?: string) => {
-    if (!(await auth.authorize({ action: "admin", locale, siteId: config.siteId, accountId: config.accountId })))
-      throw new Error("typren: unauthorized");
+  const guardAs = async (action: "admin" | "read", locale?: string) => {
+    if (!(await auth.authorize({ action, locale, siteId: config.siteId, accountId: config.accountId }))) throw new Error("typren: unauthorized");
   };
+  const guardAdmin = (locale?: string) => guardAs("admin", locale);
   const EMPTY: SiteSettingsRuntime = { brand: { name: "" }, seo: {} };
+  const bootstrap =
+    config.settingsAdapter ?? createFsSettingsAdapter({ file: path.join(process.cwd(), "typren.config.json") });
   return {
     // Existence is checked against the DEFAULT locale: getPublished always
     // reads the default-locale doc as its base, and a locale with no
@@ -212,6 +265,21 @@ export function createSettingsStore(config: CmsConfig): SettingsStore {
     // draft-only doc, reopening the silent-first-save-overwrite hole this
     // method exists to close.
     currentVersion: (locale) => store.currentVersion(SETTINGS_SLUG, locale),
+    async open(locale) {
+      await guardAs("read", locale);
+      const [draft, version] = await Promise.all([store.getDraft(SETTINGS_SLUG, locale), store.currentVersion(SETTINGS_SLUG, locale)]);
+      const settings = draft ? (draft.meta as unknown as SiteSettingsRuntime) : await this.get(locale);
+      return { settings, version, hasDraft: Boolean(draft) };
+    },
+    async discardDraft(locale) {
+      await guardAdmin(locale);
+      await actions.discardDraft(SETTINGS_SLUG, locale);
+    },
+    async history(locale, limit) {
+      await guardAs("read", locale);
+      if (!git) return [];
+      return git.history(pageFile!(SETTINGS_SLUG, locale ?? adapter.defaultLocale), limit);
+    },
     async saveDraft(next, baseVersion, locale) {
       await guardAdmin(locale);
       return actions.saveDraft(
@@ -225,6 +293,18 @@ export function createSettingsStore(config: CmsConfig): SettingsStore {
       await guardAdmin(locale);
       return actions.publish(SETTINGS_SLUG, baseVersion, locale);
     },
-    bootstrap: config.settingsAdapter ?? createFsSettingsAdapter({ file: path.join(process.cwd(), "typren.config.json") }),
+    async writeBootstrap(patch) {
+      await guardAdmin();
+      const unknownKey = Object.keys(patch).find((k) => !BOOTSTRAP_KEYS.has(k));
+      if (unknownKey) return { ok: false, error: `unknown bootstrap key "${unknownKey}"` };
+      // Validate the MERGED result, not just the patch: a patch that only
+      // touches `locales` must still leave defaultLocale/routing consistent,
+      // and writeBootstrap merges the same way (see createFsSettingsAdapter).
+      const error = validateBootstrap({ ...bootstrap.readBootstrap(), ...patch });
+      if (error) return { ok: false, error };
+      bootstrap.writeBootstrap(patch);
+      return { ok: true };
+    },
+    bootstrap,
   };
 }

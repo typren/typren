@@ -1,4 +1,4 @@
-// Server-safe core. Client editor UI lives in the separate @typren/editor package.
+// Server-safe core. Client editor UI lives in the separate @typren/studio package.
 export type {
   Slice,
   PageContent,
@@ -10,6 +10,8 @@ export type {
   FieldDef,
   SliceSchema,
   MediaAsset,
+  MediaMove,
+  MediaUse,
   MediaAdapter,
   PreparedFile,
 } from "./types";
@@ -28,6 +30,21 @@ export {
 } from "./i18n";
 export { mergeLocalized, localeSubdir } from "./localize";
 export { createMarkdownAdapter, type MarkdownAdapterOptions } from "./markdown-adapter";
+export {
+  STYLE_MAP_DEFAULT,
+  STYLE_TOKENS,
+  mappedName,
+  sanitizeStyle,
+  styleCss,
+  styleMapError,
+  styleVars,
+  type StyleMap,
+  type StyleToken,
+  type StyleTokenGroup,
+  type StyleTokenKind,
+} from "./style";
+export { GitError, GIT_NO_BRANCH } from "./git-error";
+export { commitOrRestore, createGitRepo, explainGitError, type GitRepo, type GitCommit, type GitOutgoing, type GitPendingChange, type GitPushResult, type GitLogEntry } from "./git";
 export {
   createNotionAdapter,
   createFetchNotionClient,
@@ -48,10 +65,27 @@ export {
   type ComponentSegment,
 } from "./notion-blocks";
 export { createFsMediaAdapter, type FsMediaAdapterOptions } from "./fs-media-adapter";
+export { createLocalSiteConfig, rewriteSiteFiles, type LocalSite } from "./local-site";
 export { createGithubAdapter, isAllowedRepoPath, type GithubAdapterOptions } from "./github-adapter";
 export { processUpload, handleMediaUpload, MAX_UPLOAD_BYTES } from "./media";
-export { createStore, type ContentStore } from "./store";
-export { makeActions, type CmsActions, type PageActions, type SaveResult } from "./actions";
+export { createStore, slugify, type ContentStore } from "./store";
+export { SITE_SLUG, assertSafeNav, linksTo, navHrefError, readMenu, unlink, type NavItem } from "./nav";
+export { nameError, slugError, libraryFolderError, BUILT_IN_FOLDER } from "./names";
+export {
+  findMediaRefs,
+  makeActions,
+  mediaRefSwapper,
+  rewriteMediaRefs,
+  ActionRefusedError,
+  type CmsActions,
+  type OpenedPage,
+  type PageActions,
+  type PageFlows,
+  type PageMetaPatch,
+  type RenameResult,
+  type SaveResult,
+  type UploadResult,
+} from "./actions";
 export {
   resolveAuth,
   legacyAuthAdapter,
@@ -71,7 +105,7 @@ export {
   type SerializedFieldSchema,
 } from "./field-schema";
 // SDUI admin shell: server-safe helpers (node:fs-backed) + their contracts.
-// The client UI (built fresh in React + Base UI) lives in @typren/editor.
+// The client UI (built fresh in React + Base UI) lives in @typren/studio.
 export {
   resolveSections,
   DEFAULT_SECTIONS,
@@ -85,6 +119,7 @@ export {
   type SettingsSection,
   type CollectionSection,
   type CustomSection,
+  type LibrarySection,
   type FieldFormMedia,
 } from "./sections";
 export {
@@ -98,6 +133,17 @@ export {
   type SettingsAdapter,
   type SettingsStore,
 } from "./settings";
+export {
+  createSliceLibrary,
+  type FolderedLibrary,
+  type LibraryFolders,
+  type LibraryUpdateResult,
+  type PageTemplate,
+  type PageTemplateLibrary,
+  type SavedSlice,
+  type SliceLibrary,
+  type TemplateUpdateResult,
+} from "./library";
 export { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection";
 export { buildRedirects, type RedirectEntry, type BuildRedirectsOptions, type PageRedirectMeta } from "./redirects";
 export {

@@ -1,11 +1,14 @@
-import { makeActions } from "../actions";
+import { ActionRefusedError, makeActions } from "../actions";
 import { resolveAuth } from "../auth-adapter";
+import { GitError } from "../git";
 import { buildCollectionActions, listCollectionRecords, makeCollectionAdapter } from "../collection";
+import { createSliceLibrary, type FolderedLibrary } from "../library";
 import { handleMediaUpload, sameOrigin } from "../media";
 import { resolveSections, type CollectionSection } from "../sections";
-import { BOOTSTRAP_KEYS, createSettingsStore, validateBootstrap } from "../settings";
+import { BOOTSTRAP_KEYS, createSettingsStore } from "../settings";
 import { createStore, type ContentStore } from "../store";
-import type { CmsConfig, ContentAdapter, PageContent } from "../types";
+import type { CmsConfig, ContentAdapter, PageContent, Slice } from "../types";
+import type { PageMetaPatch } from "../actions";
 import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
 
 /**
@@ -24,16 +27,24 @@ import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
  * ## Resources
  * ```
  * GET    /pages                              list (?locale=)
- * POST   /pages                              create           (?locale=) { title } -> { slug }
+ * POST   /pages                              create           (?locale=) { title, slug?, draft? } -> { slug }
+ *        With `slices` it is createPageFrom: a draft at `slug` holding them ({ title, slug, slices }).
+ * POST   /pages/publish-all                  publish every draft (?locale=) -> { slugs }
  * GET    /pages/:slug                        draft ?? published (?locale=)
  * PUT    /pages/:slug/draft                  save draft       (?locale=) { page, baseVersion? }
  * DELETE /pages/:slug/draft                  discard draft    (?locale=)
  * POST   /pages/:slug/publish                publish          (?locale=) { baseVersion? }
+ * POST   /pages/:slug/commit                 save then publish (?locale=) { page?, baseVersion? }
+ * POST   /pages/:slug/sections               insert a section (?locale=) { slice, at, baseVersion? }
+ * PUT    /pages/:slug/meta                   title, nav, noindex, description (?locale=) { patch, baseVersion? }
  * POST   /pages/:slug/rename                 rename slug      { newSlug } -> SaveResult-shaped (409 on collision)
  * POST   /pages/:slug/duplicate              duplicate        (?locale=) -> { slug }
  * DELETE /pages/:slug                        delete page
  * POST   /pages/:slug/translations           create           { toLocale }
  * DELETE /pages/:slug/translations/:locale   delete translation
+ * GET    /folders                            page folders     (?locale=) -> { folders: string[] }
+ * POST   /folders                            keep a folder    (?locale=) { path }
+ * DELETE /folders/:path                      delete an empty folder (?locale=; 409 when it holds pages)
  * GET    /collections/:id                    list records     (?locale=) -> { records: CollectionRecordInfo[] }
  * GET    /collections/:id/:slug              draft ?? published (?locale=)
  * POST   /collections/:id                    create           (?locale=) { title } -> { slug }
@@ -43,11 +54,41 @@ import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
  * DELETE /collections/:id/:slug              delete record
  * GET    /media                              list
  * POST   /media                              upload (multipart/form-data, field "file")
- * DELETE /media/:id                          delete
- * GET    /settings                           runtime + bootstrap snapshot + version
+ * DELETE /media/:id[?force=1]                delete (an id may hold "/" folders; 422 while in use unless force)
+ * GET    /media/folders                      list folders
+ * POST   /media/folders                      create folder {folder}
+ * DELETE /media/folders?folder=               delete an empty folder
+ * POST   /media/folders/rename               rename/move a folder {folder, to}
+ * GET    /media/usage                        where each asset URL is referenced
+ * POST   /media/move                         move/rename {id, folder, name?}; rewrites references
+ * GET    /settings                           runtime (its draft when there is one) + bootstrap + version + hasDraft
  * PUT    /settings/draft                     save draft       (?locale=) { settings, baseVersion? }
+ * DELETE /settings/draft                     discard draft    (?locale=)
  * POST   /settings/publish                   publish          (?locale=) { baseVersion? }
+ * GET    /settings/history?limit=            the settings doc's commits, newest first
  * PUT    /settings/bootstrap                 write bootstrap  (admin)   { patch }
+ * GET    /library                            saved sections   -> { saved: SavedSlice[] }
+ * POST   /library                            save a section   { name, slice } -> SavedSlice
+ * PUT    /library/:id                        update a section { slice, baseSavedAt, name? } -> LibraryUpdateResult (409 conflict, 404 gone)
+ * DELETE /library/:id                        delete a saved section
+ * GET    /library/templates                  page templates   -> { templates: PageTemplate[] }
+ * POST   /library/templates                  save a template  { name, slices } -> PageTemplate
+ * PUT    /library/templates/:id              update a template { slices, baseSavedAt, name? } -> TemplateUpdateResult (409 conflict, 404 gone)
+ * DELETE /library/templates/:id              delete a template
+ * POST   /library[/templates]/:id/move        move an entry    { folder, baseSavedAt? } -> result (409 conflict, 404 gone)
+ * GET    /library[/templates]/folders         folders          -> { folders: string[] }
+ * POST   /library[/templates]/folders         create a folder  { folder }
+ * POST   /library[/templates]/folders/rename  rename a folder  { folder, to }
+ * DELETE /library[/templates]/folders?folder= delete an empty folder (422 while it holds anything)
+ * GET    /git                                commits a push would send (only with `config.git`)
+ * POST   /git/push                           push to the upstream (publish) -> 502 { error } on rejection;
+ *                                             with { paths } only those files' saved changes; { slugs }
+ *                                             and { settings: true } publish those drafts first
+ * GET    /git/pending                        files with saved changes the upstream lacks
+ * GET    /git/history?slug=&limit=           a page's commits, newest first
+ * POST   /git/discard                        undo files' saved changes in a new commit { paths }
+ *        A failed git commit on publish, or a refused flow (a locked rename, a stale section insert),
+ *        answers 422 { error } with a plain-language reason.
  * ```
  *
  * ## Security
@@ -58,7 +99,8 @@ import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
  *  - **Origin checking** on unsafe methods, so a cookie-authenticated editor
  *    can't be driven cross-site (CSRF). Same-origin by default; a host with a
  *    split origin passes `allowedOrigins`.
- *  - **Read gating**, since a bare GET never reaches an action guard.
+ *  - **Read gating** for the GETs no action serves (collections, settings,
+ *    git); page and folder reads go through `makeActions`' own read guard.
  */
 export interface TyprenApiOptions {
   /** Path prefix to strip before matching, e.g. "/api/typren". Inferred from
@@ -76,7 +118,7 @@ export interface TyprenApiOptions {
  *  the request yourself here -- resolve them server-side same as identity. */
 export type CmsConfigFactory = (request: Request) => CmsConfig | Promise<CmsConfig>;
 
-const RESOURCES = ["pages", "media", "settings", "collections"] as const;
+const RESOURCES = ["pages", "media", "settings", "collections", "git", "library", "folders"] as const;
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 function json(body: unknown, status = 200): Response {
@@ -117,21 +159,20 @@ async function body<T>(request: Request): Promise<T> {
   }
 }
 
-/** Everything derived from a single `CmsConfig`: actions/store/settings/auth
+/** Everything derived from a single `CmsConfig`: actions/settings/auth
  *  plus the per-collection registry. Pure function of `config` -- called once
  *  at construction for a plain-config call, or fresh per request for a
  *  factory (see `createTyprenApi`), so it must never read or mutate anything
  *  outside its argument. */
 function build(config: CmsConfig) {
   const actions = makeActions(config);
-  const store = createStore(config.adapter, { onPublish: config.onPublish });
   const settings = createSettingsStore(config);
+  const library = createSliceLibrary(config);
   const auth = resolveAuth(config);
 
   // One PageActions per collection (writes) plus this route layer's own
-  // adapter/store per collection (reads), the same actions/store split the
-  // Pages resource makes above, since PageActions has no read method (see
-  // actions.ts) any more than makeActions' internal store is exposed for Pages.
+  // adapter/store per collection (reads): PageActions has no read method
+  // (see actions.ts), unlike the Pages resource's full makeActions.
   const collectionSections = new Map<string, CollectionSection>(
     resolveSections(config)
       .filter((s) => s.kind === "collection")
@@ -149,8 +190,8 @@ function build(config: CmsConfig) {
   return {
     config,
     actions,
-    store,
     settings,
+    library,
     auth,
     collectionSections,
     collectionActions,
@@ -212,9 +253,15 @@ export function createTyprenApi(config: CmsConfig | CmsConfigFactory, options: T
       if (resource === "media") return await media(built, request, method, rest, allowed);
       if (resource === "settings") return await settingsRoutes(built, request, method, rest, locale);
       if (resource === "collections") return await collections(built, request, method, rest, locale);
+      if (resource === "git") return await gitRoutes(built, request, method, rest);
+      if (resource === "folders") return await folderRoutes(built, request, method, rest, locale);
+      if (resource === "library") return await libraryRoutes(built, request, method, rest);
       return json({ error: "Not found" }, 404);
     } catch (e) {
       if (isUnauthorized(e)) return json({ error: "Unauthorized" }, 403);
+      // Written for the person saving (see explainGitError), so it is shown.
+      if (e instanceof GitError) return json({ error: e.message }, 422);
+      if (e instanceof ActionRefusedError) return json({ error: e.message }, 422);
       // Never echo e.message to the client: an adapter/filesystem error can carry
       // absolute paths, slugs, or other internals a public API response shouldn't
       // leak. Full detail still reaches the server's own logs.
@@ -250,37 +297,31 @@ async function pages(
   rest: string[],
   locale?: string
 ): Promise<Response> {
-  const { config, actions, store } = built;
-  const [slug, sub, subId] = rest;
+  const { actions } = built;
+  const [encoded, sub, subId] = rest;
+  if (encoded === "publish-all" && !sub && method === "POST") return json({ slugs: await actions.publishAll(locale) });
+  // A nested slug (`event/1`) arrives as one encoded segment; the adapter's
+  // slug guard still judges the decoded value.
+  const slug = encoded && decodeURIComponent(encoded);
 
   if (!slug) {
-    if (method === "GET") {
-      const denied = await requireRead(built, { locale });
-      return denied ?? jsonNoStore({ pages: await store.listPages(locale) });
-    }
+    if (method === "GET") return jsonNoStore({ pages: await actions.listPages(locale) });
     if (method === "POST") {
-      const { title } = await body<{ title?: string }>(request);
+      const { title, slug: at, draft, slices } = await body<{ title?: string; slug?: string; draft?: boolean; slices?: Slice[] }>(request);
       if (!title) return json({ error: "title is required" }, 400);
-      return json({ slug: await actions.createPage(title, locale) }, 201);
+      if (slices) {
+        if (!at) return json({ error: "slug is required" }, 400);
+        return json({ slug: await actions.createPageFrom(title, at, slices, locale) }, 201);
+      }
+      return json({ slug: await actions.createPage(title, locale, { slug: at, draft: draft === true }) }, 201);
     }
     return json({ error: "Method not allowed" }, 405);
   }
 
   if (!sub) {
     if (method === "GET") {
-      const denied = await requireRead(built, { slug, locale });
-      if (denied) return denied;
-      if (!(await config.adapter.exists(slug, config.adapter.defaultLocale))) return json({ error: "Not found" }, 404);
-      const [draft, published, version] = await Promise.all([
-        store.getDraft(slug, locale),
-        store.getPublished(slug, locale),
-        store.currentVersion(slug, locale),
-      ]);
-      return jsonNoStore({
-        page: draft ?? published,
-        version,
-        hasDraft: Boolean(draft),
-      });
+      const opened = await actions.getPage(slug, locale);
+      return opened ? jsonNoStore(opened) : json({ error: "Not found" }, 404);
     }
     if (method === "DELETE") {
       await actions.deletePage(slug);
@@ -305,6 +346,23 @@ async function pages(
   if (sub === "publish" && method === "POST") {
     const { baseVersion } = await body<{ baseVersion?: string }>(request);
     return saveResult(await actions.publish(slug, baseVersion, locale));
+  }
+
+  if (sub === "commit" && method === "POST") {
+    const { page, baseVersion } = await body<{ page?: PageContent; baseVersion?: string }>(request);
+    return saveResult(await actions.commitPage(slug, page, baseVersion, locale));
+  }
+
+  if (sub === "sections" && method === "POST") {
+    const { slice, at, baseVersion } = await body<{ slice?: Slice; at?: number | "end"; baseVersion?: string }>(request);
+    if (!slice) return json({ error: "slice is required" }, 400);
+    return saveResult(await actions.insertSection(slug, slice, at ?? "end", baseVersion, locale));
+  }
+
+  if (sub === "meta" && method === "PUT") {
+    const { patch, baseVersion } = await body<{ patch?: PageMetaPatch; baseVersion?: string }>(request);
+    if (!patch) return json({ error: "patch is required" }, 400);
+    return saveResult(await actions.updatePageMeta(slug, patch, baseVersion, locale));
   }
 
   if (sub === "rename" && method === "POST") {
@@ -419,15 +477,38 @@ async function media(
   allowed: string[]
 ): Promise<Response> {
   const { config, actions } = built;
-  const [id] = rest;
+  const id = rest.join("/");
+  if (id === "folders") {
+    if (method === "GET") return jsonNoStore({ folders: await actions.listMediaFolders() });
+    if (method === "POST") {
+      await actions.createMediaFolder((await body<{ folder: string }>(request)).folder);
+      return json({ ok: true });
+    }
+    if (method === "DELETE") {
+      await actions.deleteMediaFolder(new URL(request.url).searchParams.get("folder") ?? "");
+      return json({ ok: true });
+    }
+    return json({ error: "Method not allowed" }, 405);
+  }
+  if (id === "folders/rename" && method === "POST") {
+    const { folder, to } = await body<{ folder: string; to: string }>(request);
+    await actions.renameMediaFolder(folder, to);
+    return json({ ok: true });
+  }
+  if (id === "usage" && method === "GET") return jsonNoStore({ usage: await actions.mediaUsage() });
+  if (id === "move" && method === "POST") {
+    const { id: asset, folder, name } = await body<{ id: string; folder: string; name?: string }>(request);
+    return json(await actions.moveMedia(asset, folder, name));
+  }
   if (!id) {
     if (method === "GET") return jsonNoStore({ media: await actions.listMedia() });
-    // Delegated: upload owns its own validation, conversion and auth action.
+    // Delegated: the HTTP checks before the body is read live there.
     if (method === "POST") return handleMediaUpload(config, request, allowed);
     return json({ error: "Method not allowed" }, 405);
   }
   if (method === "DELETE") {
-    await actions.deleteMedia(decodeURIComponent(id));
+    const force = new URL(request.url).searchParams.get("force") === "1";
+    await actions.deleteMedia(rest.map(decodeURIComponent).join("/"), { force });
     return json({ ok: true });
   }
   return json({ error: "Method not allowed" }, 405);
@@ -440,7 +521,7 @@ async function settingsRoutes(
   rest: string[],
   locale?: string
 ): Promise<Response> {
-  const { config, auth, settings } = built;
+  const { settings } = built;
   const [sub] = rest;
 
   if (!sub && method === "GET") {
@@ -448,8 +529,12 @@ async function settingsRoutes(
     // `version` completes the optimistic-lock loop: a client had no way to read
     // it, so its first save sent no baseVersion and could not conflict-detect.
     if (denied) return denied;
-    const [current, version] = await Promise.all([settings.get(locale), settings.currentVersion(locale)]);
-    return jsonNoStore({ ...current, bootstrap: settings.bootstrap.readBootstrap(), version });
+    // The draft when there is one: this is the editor's read, as a page's is.
+    const { settings: current, version, hasDraft } = await settings.open(locale);
+    // Only the keys the editor edits: the rest of typren.config.json (the CLI's
+    // `studio` block with its preview command and paths) is not the read tier's.
+    const bootstrap = Object.fromEntries(Object.entries(settings.bootstrap.readBootstrap()).filter(([k]) => BOOTSTRAP_KEYS.has(k)));
+    return jsonNoStore({ ...current, bootstrap, version, hasDraft });
   }
   if (sub === "draft" && method === "PUT") {
     const { settings: next, baseVersion } = await body<{
@@ -463,24 +548,183 @@ async function settingsRoutes(
     const { baseVersion } = await body<{ baseVersion?: string }>(request);
     return saveResult(await settings.publish(baseVersion, locale));
   }
-  if (sub === "bootstrap" && method === "PUT") {
-    // Bootstrap writes reparameterize what the next boot trusts, and
-    // SettingsAdapter has no gate of its own, so it's checked here.
-    if (!(await auth.authorize({ action: "admin", siteId: config.siteId, accountId: config.accountId })))
-      return json({ error: "Unauthorized" }, 403);
-    const { patch } = await body<{ patch?: Partial<SiteSettingsBootstrap> }>(request);
-    if (!patch) return json({ error: "patch is required" }, 400);
-    const unknownKey = Object.keys(patch).find((k) => !BOOTSTRAP_KEYS.has(k));
-    if (unknownKey) return json({ error: `unknown bootstrap key "${unknownKey}"` }, 400);
-    // Validate the MERGED result, not just the patch: a patch that only
-    // touches `locales` must still leave defaultLocale/routing consistent,
-    // and writeBootstrap merges the same way (see createFsSettingsAdapter).
-    const merged = { ...settings.bootstrap.readBootstrap(), ...patch };
-    const error = validateBootstrap(merged);
-    if (error) return json({ error }, 400);
-    settings.bootstrap.writeBootstrap(patch);
+  if (sub === "draft" && method === "DELETE") {
+    await settings.discardDraft(locale);
     return json({ ok: true });
+  }
+  if (sub === "history" && method === "GET") {
+    const denied = await requireRead(built, { locale });
+    return denied ?? jsonNoStore(await settings.history(locale, Number(new URL(request.url).searchParams.get("limit") ?? 20)));
+  }
+  if (sub === "bootstrap" && method === "PUT") {
+    const { patch } = await body<{ patch?: Partial<SiteSettingsBootstrap> }>(request);
+    if (!patch || typeof patch !== "object") return json({ error: "patch is required" }, 400);
+    const result = await settings.writeBootstrap(patch);
+    return result.ok ? json(result) : json(result, 400);
   }
 
   return json({ error: "Not found" }, 404);
+}
+
+/** The library guards itself (see createSliceLibrary), like the actions.
+ *  Sections and page templates share the move and folder routes. */
+async function libraryRoutes(built: Built, request: Request, method: string, rest: string[]): Promise<Response> {
+  const { library } = built;
+  const [id] = rest;
+  if (id === "templates") return templateRoutes(library.templates, request, method, rest.slice(1));
+  const shared = await entryFolderRoutes(library, request, method, rest);
+  if (shared) return shared;
+  if (!id && method === "GET") return jsonNoStore({ saved: await library.list() });
+  if (!id && method === "POST") {
+    const { name, slice } = await body<{ name?: string; slice?: Slice }>(request);
+    if (!slice || typeof slice.slice !== "string") return json({ error: "slice is required" }, 400);
+    return json(await library.save(name ?? "", slice));
+  }
+  if (id && method === "PUT") {
+    const { slice, baseSavedAt, name } = await body<{ slice?: Slice; baseSavedAt?: string; name?: unknown }>(request);
+    if (!slice || typeof slice.slice !== "string" || typeof baseSavedAt !== "string")
+      return json({ error: "slice and baseSavedAt are required" }, 400);
+    const result = await library.update(decodeURIComponent(id), slice, baseSavedAt, typeof name === "string" ? name : undefined);
+    return json(result, result.ok ? 200 : result.code === "conflict" ? 409 : 404);
+  }
+  if (id && method === "DELETE") {
+    await library.remove(decodeURIComponent(id));
+    return json({ ok: true });
+  }
+  return json({ error: "Not found" }, 404);
+}
+
+/** `:id/move` and `folders[/rename]` for either list; null when `rest` is neither. */
+async function entryFolderRoutes(
+  lib: Pick<FolderedLibrary | FolderedLibrary["templates"], "folders"> & {
+    move(id: string, folder: string, baseSavedAt?: string): Promise<{ ok: boolean; code?: string }>;
+  },
+  request: Request,
+  method: string,
+  rest: string[]
+): Promise<Response | null> {
+  const [id, sub] = rest;
+  if (id && sub === "move" && method === "POST") {
+    const { folder, baseSavedAt } = await body<{ folder?: unknown; baseSavedAt?: unknown }>(request);
+    if (typeof folder !== "string" || (baseSavedAt !== undefined && typeof baseSavedAt !== "string"))
+      return json({ error: "folder is required" }, 400);
+    const result = await lib.move(decodeURIComponent(id), folder, baseSavedAt);
+    return json(result, result.ok ? 200 : result.code === "conflict" ? 409 : 404);
+  }
+  if (id !== "folders") return null;
+  if (!sub && method === "GET") return jsonNoStore({ folders: await lib.folders.list() });
+  if (!sub && method === "POST") {
+    const { folder } = await body<{ folder?: unknown }>(request);
+    if (typeof folder !== "string") return json({ error: "folder is required" }, 400);
+    await lib.folders.create(folder);
+    return json({ ok: true });
+  }
+  if (!sub && method === "DELETE") {
+    await lib.folders.delete(new URL(request.url).searchParams.get("folder") ?? "");
+    return json({ ok: true });
+  }
+  if (sub === "rename" && method === "POST") {
+    const { folder, to } = await body<{ folder?: unknown; to?: unknown }>(request);
+    if (typeof folder !== "string" || typeof to !== "string") return json({ error: "folder and to are required" }, 400);
+    await lib.folders.rename(folder, to);
+    return json({ ok: true });
+  }
+  return json({ error: "Not found" }, 404);
+}
+
+const isSlices = (v: unknown): v is Slice[] =>
+  Array.isArray(v) && v.every((s) => s && typeof (s as Slice).slice === "string");
+
+async function templateRoutes(
+  templates: FolderedLibrary["templates"],
+  request: Request,
+  method: string,
+  rest: string[]
+): Promise<Response> {
+  const [id] = rest;
+  const shared = await entryFolderRoutes(templates, request, method, rest);
+  if (shared) return shared;
+  if (!id && method === "GET") return jsonNoStore({ templates: await templates.list() });
+  if (!id && method === "POST") {
+    const { name, slices } = await body<{ name?: string; slices?: unknown }>(request);
+    if (!isSlices(slices)) return json({ error: "slices is required" }, 400);
+    return json(await templates.save(name ?? "", slices));
+  }
+  if (id && method === "PUT") {
+    const { slices, baseSavedAt, name } = await body<{ slices?: unknown; baseSavedAt?: string; name?: string }>(request);
+    if (!isSlices(slices) || typeof baseSavedAt !== "string")
+      return json({ error: "slices and baseSavedAt are required" }, 400);
+    const result = await templates.update(decodeURIComponent(id), slices, baseSavedAt, typeof name === "string" ? name : undefined);
+    return json(result, result.ok ? 200 : result.code === "conflict" ? 409 : 404);
+  }
+  if (id && method === "DELETE") {
+    await templates.remove(decodeURIComponent(id));
+    return json({ ok: true });
+  }
+  return json({ error: "Not found" }, 404);
+}
+
+async function gitRoutes(built: Built, request: Request, method: string, rest: string[]): Promise<Response> {
+  const { config, actions } = built;
+  const [sub] = rest;
+  if (!config.git) return json({ error: "Not found" }, 404);
+  if (!sub && method === "GET") return (await requireRead(built)) ?? jsonNoStore(await config.git.outgoing());
+  if (sub === "pending" && method === "GET") return jsonNoStore(await actions.pendingChanges());
+  if (sub === "discard" && method === "POST") {
+    const { paths } = await body<{ paths?: unknown }>(request);
+    if (!isPaths(paths)) return json({ error: "paths is required" }, 400);
+    await actions.discardChanges(paths);
+    return json({ ok: true });
+  }
+  if (sub === "history" && method === "GET") {
+    const q = new URL(request.url).searchParams;
+    const slug = q.get("slug");
+    if (!slug) return json({ error: "slug is required" }, 400);
+    try {
+      return jsonNoStore(await actions.pageHistory(slug, q.get("locale") ?? undefined, Number(q.get("limit") ?? 20)));
+    } catch (e) {
+      // An unsafe slug (the adapter) or a file outside the content (the repo).
+      if (e instanceof GitError || (e instanceof Error && /^typren: (unsafe|unknown locale|refusing)/.test(e.message))) return json({ error: "Not a page of this site" }, 400);
+      throw e;
+    }
+  }
+  if (sub === "push" && method === "POST") {
+    const { paths, slugs, settings } = await body<{ paths?: unknown; slugs?: unknown; settings?: unknown }>(request);
+    // Either list may be empty when the other, or `settings`, carries the push.
+    if (paths !== undefined && !isList(paths)) return json({ error: "paths must be a list of file paths" }, 400);
+    if (slugs !== undefined && !isList(slugs)) return json({ error: "slugs must be a list of page slugs" }, 400);
+    // `settings: true` pushes the settings doc's draft too, as its own commit.
+    const more = settings === true ? [() => built.settings.publish()] : [];
+    const result = await (paths || slugs || more.length ? actions.pushChanges(paths ?? [], slugs ?? [], undefined, more) : actions.push());
+    // The one route that echoes an error: a rejected push's own text
+    // (non-fast-forward, credentials) is what the person pushing must see.
+    return result.ok ? json(result) : json(result, 502);
+  }
+  return json({ error: "Not found" }, 404);
+}
+
+const isList = (v: unknown): v is string[] => Array.isArray(v) && v.every((p) => typeof p === "string");
+const isPaths = (v: unknown): v is string[] => isList(v) && v.length > 0;
+
+/** Page folders kept without pages (see `ContentAdapter.createFolder`). */
+async function folderRoutes(built: Built, request: Request, method: string, rest: string[], locale?: string): Promise<Response> {
+  const { actions } = built;
+  const folder = rest[0] && decodeURIComponent(rest[0]);
+  if (!folder && method === "GET") return jsonNoStore({ folders: await actions.listPageFolders(locale) });
+  if (!folder && method === "POST") {
+    const { path } = await body<{ path?: string }>(request);
+    if (!path) return json({ error: "path is required" }, 400);
+    await actions.createPageFolder(path, locale);
+    return json({ ok: true }, 201);
+  }
+  if (folder && method === "DELETE") {
+    try {
+      await actions.deletePageFolder(folder, locale);
+    } catch (e) {
+      if (e instanceof Error && /is not empty/.test(e.message)) return json({ error: "The folder is not empty" }, 409);
+      throw e;
+    }
+    return json({ ok: true });
+  }
+  return json({ error: "Method not allowed" }, 405);
 }

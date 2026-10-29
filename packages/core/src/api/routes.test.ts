@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTyprenApi } from "./routes";
 import { createTyprenClient } from "./client";
+import { GIT_NO_BRANCH, GitError } from "../git";
 import { createMarkdownAdapter } from "../markdown-adapter";
 import { createFsMediaAdapter } from "../fs-media-adapter";
 import { createFsSettingsAdapter } from "../settings";
@@ -25,6 +26,8 @@ function makeConfig(): CmsConfig {
     defaults: {},
     adapter: createMarkdownAdapter({ contentDir: dir, draftDir: path.join(dir, ".drafts") }),
     previewPath: "/editor/preview",
+    // The fixture's "home" is renamed below like any page.
+    homeSlug: "index",
     auth: openAuth(),
   };
 }
@@ -469,6 +472,80 @@ describe("media resource", () => {
   });
 });
 
+describe("media folders and moves", () => {
+  let mediaDir: string;
+  let mediaApi: ReturnType<typeof createTyprenApi>;
+  let client: ReturnType<typeof createTyprenClient>;
+  let calls: { url: string; init?: RequestInit }[];
+
+  beforeEach(() => {
+    mediaDir = fs.mkdtempSync(path.join(os.tmpdir(), "typren-media-"));
+    mediaApi = createTyprenApi(
+      { ...makeConfig(), mediaAdapter: createFsMediaAdapter({ dir: mediaDir, publicPath: "/img" }) },
+      { basePath: BASE }
+    );
+    calls = [];
+    client = createTyprenClient({
+      baseUrl: `https://example.test${BASE}`,
+      fetch: ((input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({ url: String(input), init });
+        return mediaApi.handler(new Request(input as string, init));
+      }) as typeof globalThis.fetch,
+    });
+  });
+
+  afterEach(() => fs.rmSync(mediaDir, { recursive: true, force: true }));
+
+  it("creates, lists, renames and deletes folders through the client", async () => {
+    await client.createMediaFolder("a");
+    expect(await client.listMediaFolders()).toEqual(["a"]);
+    await client.renameMediaFolder("a", "b");
+    expect(await client.listMediaFolders()).toEqual(["b"]);
+    await client.deleteMediaFolder("b");
+    expect(await client.listMediaFolders()).toEqual([]);
+    expect(calls.find((c) => c.init?.method === "DELETE")?.url).toContain("/media/folders?folder=b");
+  });
+
+  it("moves an asset, rewrites page references, and reports usage", async () => {
+    fs.writeFileSync(path.join(mediaDir, "p.webp"), "x");
+    fs.writeFileSync(path.join(dir, "home.md"), "---\ntitle: Home\nslices: []\n---\n/img/p.webp\n");
+    expect((await client.mediaUsage())["/img/p.webp"]).toEqual([{ slug: "home", locale: "en", count: 1 }]);
+    const moved = await client.moveMedia("p.webp", "dir", "q");
+    expect(moved.id).toBe("dir/q.webp");
+    expect(fs.readFileSync(path.join(dir, "home.md"), "utf8")).toContain("/img/dir/q.webp");
+  });
+
+  it("deletes a nested asset, encoding each segment", async () => {
+    fs.mkdirSync(path.join(mediaDir, "dir"));
+    fs.writeFileSync(path.join(mediaDir, "dir", "p.webp"), "x");
+    await client.deleteMedia("dir/p.webp");
+    expect(calls.at(-1)!.url).toMatch(/\/media\/dir\/p\.webp$/);
+    expect(fs.existsSync(path.join(mediaDir, "dir", "p.webp"))).toBe(false);
+  });
+
+  it("refuses deleting an asset content uses, unless forced", async () => {
+    fs.writeFileSync(path.join(mediaDir, "p.webp"), "x");
+    fs.writeFileSync(path.join(dir, "home.md"), "---\ntitle: Home\nslices: []\n---\n/img/p.webp\n");
+    await expect(client.deleteMedia("p.webp")).rejects.toThrow('"p.webp" is used on home. Remove it there first, or delete it anyway.');
+    expect(fs.existsSync(path.join(mediaDir, "p.webp"))).toBe(true);
+    await client.deleteMedia("p.webp", { force: true });
+    expect(calls.at(-1)!.url).toMatch(/\/media\/p\.webp\?force=1$/);
+    expect(fs.existsSync(path.join(mediaDir, "p.webp"))).toBe(false);
+  });
+
+  it("sends the folder with an upload only when one is given", async () => {
+    const file = new File(["x"], "a.png", { type: "image/png" });
+    await client.uploadMedia(file).catch(() => {});
+    await client.uploadMedia(file, "pics").catch(() => {});
+    const folders = calls.filter((c) => c.init?.method === "POST").map((c) => (c.init!.body as FormData).get("folder"));
+    expect(folders).toEqual([null, "pics"]);
+  });
+
+  it("405s a wrong method on /media/folders", async () => {
+    expect((await mediaApi.handler(req("PATCH", "/media/folders"))).status).toBe(405);
+  });
+});
+
 describe("settings resource", () => {
   // Runtime settings persist next to the adapter's content root (a `.typren`
   // sibling dir, see settings.ts), so a dedicated nested content dir keeps
@@ -488,6 +565,16 @@ describe("settings resource", () => {
     const res = await createTyprenApi(settingsConfig(), { basePath: BASE }).handler(req("GET", "/settings"));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ brand: { name: "" }, bootstrap: { adminRoute: "editor" } });
+  });
+
+  it("returns only the editable bootstrap keys, never the CLI's studio block", async () => {
+    fs.writeFileSync(
+      path.join(dir, "typren.config.json"),
+      JSON.stringify({ adminRoute: "admin", studio: { previewCommand: "npm run dev", contentDir: "content" }, review: {} })
+    );
+    const { bootstrap } = await (await createTyprenApi(settingsConfig(), { basePath: BASE }).handler(req("GET", "/settings"))).json();
+    expect(Object.keys(bootstrap).sort()).toEqual(["adminRoute", "defaultLocale", "locales", "onboarded", "routing"]);
+    expect(bootstrap.adminRoute).toBe("admin");
   });
 
   it("marks the settings read private, no-store", async () => {
@@ -755,6 +842,30 @@ describe("createTyprenClient over the handler", () => {
     const client = clientFor(api);
     expect(await client.createPage("Hello World")).toBe("hello-world");
   });
+
+  it("keeps, lists and deletes page folders, refusing a folder with pages", async () => {
+    const client = clientFor(api);
+    expect(await client.listPageFolders()).toEqual([]);
+    await client.createPageFolder("event");
+    await client.createPageFolder("docs/guides");
+    expect(await client.listPageFolders()).toEqual(["docs/guides", "event"]);
+    await client.createPage("Day one", undefined, { slug: "event/1" });
+    await expect(client.deletePageFolder("event")).rejects.toMatchObject({ status: 409 });
+    await client.deletePageFolder("docs/guides");
+    expect(await client.listPageFolders()).toEqual(["event"]);
+    expect((await api.handler(req("POST", `${BASE}/folders`, { body: "{}" }))).status).toBe(400);
+    expect((await api.handler(req("PUT", `${BASE}/folders`))).status).toBe(405);
+  });
+
+  it("creates a draft-only page at a nested slug and opens it from its draft", async () => {
+    const client = clientFor(api);
+    expect(await client.createPage("Day one", undefined, { slug: "event/1", draft: true })).toBe("event/1");
+    expect((await client.listPages()).find((p) => p.slug === "event/1")).toMatchObject({ published: false, hasDraft: true });
+    const { page, hasDraft } = await client.getPage("event/1");
+    expect(hasDraft).toBe(true);
+    expect(page.meta.title).toBe("Day one");
+    await expect(client.getPage("event/2")).rejects.toMatchObject({ status: 404 });
+  });
 });
 
 // Writes must reach authorize() with the same scope reads do: collectionId,
@@ -811,6 +922,7 @@ describe("AuthContext on every write route", () => {
       ]);
 
       expect(await call(jsonReq("POST", "/pages/home/translations", { toLocale: "de" }))).toEqual([
+        { action: "read", slug: "home", locale: "en", collectionId: undefined },
         { action: "saveDraft", slug: "home", locale: "de", collectionId: undefined },
       ]);
       expect(await call(jsonReq("PUT", "/pages/home/draft?locale=de", page))).toEqual([
@@ -826,6 +938,7 @@ describe("AuthContext on every write route", () => {
         { action: "createPage", slug: "about", locale: "en", collectionId: undefined },
       ]);
       expect(await call(jsonReq("POST", "/pages/about/duplicate?locale=en", {}))).toEqual([
+        { action: "read", slug: "about", locale: "en", collectionId: undefined },
         { action: "createPage", slug: "about", locale: "en", collectionId: undefined },
         { action: "createPage", slug: "about-copy", locale: "en", collectionId: undefined },
       ]);
@@ -836,5 +949,210 @@ describe("AuthContext on every write route", () => {
     } finally {
       fs.rmSync(legalDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("git routes", () => {
+  const outgoing = { branch: "main", upstream: "origin/main", commits: [{ hash: "abc", subject: "content: update home", files: [] }] };
+  let pushed: { ok: true } | { ok: false; error: string };
+  const pending = [{ path: "content/home.md", change: "modified" as const, commits: [{ hash: "abc", subject: "content: update home" }] }];
+  const calls: unknown[] = [];
+  const gitStub = {
+    commit: async () => true,
+    push: async () => pushed,
+    pending: async () => pending,
+    pushPaths: async (paths: string[]) => (calls.push(["push", paths]), pushed),
+    discardPaths: async (paths: string[]) => void calls.push(["discard", paths]),
+    history: async (file: string) => (calls.push(["history", file]), [{ hash: "abc", subject: "content: update home", author: "A", date: "2026-10-01T00:00:00Z" }]),
+  };
+  const gitApi = () =>
+    createTyprenApi(
+      {
+        ...makeConfig(),
+        git: { ...gitStub, outgoing: async () => outgoing },
+      },
+      { basePath: BASE }
+    );
+
+  beforeEach(() => {
+    pushed = { ok: true };
+  });
+
+  it("404s without a git-backed config", async () => {
+    expect((await api.handler(req("GET", "/git"))).status).toBe(404);
+    expect((await api.handler(req("POST", "/git/push"))).status).toBe(404);
+  });
+
+  it("serves the outgoing commits uncached, and pushes", async () => {
+    const res = await gitApi().handler(req("GET", "/git"));
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await res.json()).toEqual(outgoing);
+    expect((await gitApi().handler(req("POST", "/git/push"))).status).toBe(200);
+    expect((await gitApi().handler(req("PUT", "/git/push"))).status).toBe(404);
+  });
+
+  it("lists pending changes, and pushes or discards chosen paths", async () => {
+    calls.length = 0;
+    const client = createTyprenClient({ baseUrl: BASE, fetch: (u, i) => gitApi().handler(new Request(`https://example.test${u}`, i)) });
+    expect(await client.gitPending()).toEqual(pending);
+    await client.gitPush(["content/home.md"]);
+    await client.gitDiscard(["content/home.md"]);
+    await client.gitPush();
+    expect(calls).toEqual([
+      ["push", ["content/home.md"]],
+      ["discard", ["content/home.md"]],
+    ]);
+    calls.length = 0;
+    expect((await client.gitHistory("home"))[0]!.hash).toBe("abc");
+    expect(calls).toEqual([["history", expect.stringMatching(/home\.md$/)]]);
+    const post = (p: string, b: unknown) => gitApi().handler(jsonReq("POST", p, b));
+    expect((await post("/git/discard", {})).status).toBe(400);
+    expect((await post("/git/push", { paths: [1] })).status).toBe(400);
+    pushed = { ok: false, error: "Someone pushed first." };
+    expect((await post("/git/push", { paths: ["content/home.md"] })).status).toBe(502);
+  });
+
+  it("serves a page's history, refusing anything that is not a page", async () => {
+    calls.length = 0;
+    const client = createTyprenClient({ baseUrl: BASE, fetch: (u, i) => gitApi().handler(new Request(`https://example.test${u}`, i)) });
+    expect(await client.gitHistory("home")).toEqual([expect.objectContaining({ hash: "abc" })]);
+    expect(calls).toEqual([["history", path.join(dir, "home.md")]]);
+    const get = (q: string) => gitApi().handler(req("GET", `/git/history${q}`));
+    expect((await get("")).status).toBe(400);
+    for (const bad of ["?slug=..%2F..%2Fetc%2Fpasswd", "?slug=%2Fabs", "?slug=home&locale=..%2Fx"]) expect((await get(bad)).status, bad).toBe(400);
+    const outside = createTyprenApi(
+      { ...makeConfig(), git: { ...gitStub, outgoing: async () => outgoing, history: async () => Promise.reject(new GitError("no")) } },
+      { basePath: BASE }
+    );
+    expect((await outside.handler(req("GET", "/git/history?slug=home"))).status).toBe(400);
+  });
+
+  it("pushes chosen pages' drafts with chosen paths", async () => {
+    calls.length = 0;
+    const res = await gitApi().handler(jsonReq("POST", "/git/push", { slugs: ["nope"] }));
+    expect(res.status).toBe(200);
+    // Drafts alone send an empty path list.
+    expect((await gitApi().handler(jsonReq("POST", "/git/push", { paths: [], slugs: ["nope"] }))).status).toBe(200);
+    expect((await gitApi().handler(jsonReq("POST", "/git/push", { slugs: [2] }))).status).toBe(400);
+  });
+
+  it("publishes the settings draft on a push with settings, and serves, discards and dates it", async () => {
+    calls.length = 0;
+    const api = gitApi();
+    const client = createTyprenClient({ baseUrl: BASE, fetch: (u, i) => api.handler(new Request(`https://example.test${u}`, i)) });
+    await client.saveSettingsDraft({ brand: { name: "Acme" }, seo: {} });
+    expect(await client.getSettings()).toMatchObject({ brand: { name: "Acme" }, hasDraft: true });
+    await client.gitPush([], [], true);
+    expect(await client.getSettings()).toMatchObject({ brand: { name: "Acme" }, hasDraft: false });
+    await client.saveSettingsDraft({ brand: { name: "Acme 2" }, seo: {} });
+    await client.discardSettingsDraft();
+    expect(await client.getSettings()).toMatchObject({ brand: { name: "Acme" }, hasDraft: false });
+    expect(await client.settingsHistory()).toEqual([expect.objectContaining({ hash: "abc" })]);
+    expect(calls.at(-1)).toEqual(["history", expect.stringMatching(/settings\.md$/)]);
+  });
+
+  it("returns a rejected push's error text as a 502", async () => {
+    pushed = { ok: false, error: "! [rejected] main -> main (fetch first)" };
+    const res = await gitApi().handler(req("POST", "/git/push"));
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toMatch(/rejected/);
+  });
+
+  it("answers a git failure on publish with its plain-language reason as a 422", async () => {
+    fs.mkdirSync(path.join(dir, ".drafts"));
+    fs.writeFileSync(path.join(dir, ".drafts", "home.md"), "---\ntitle: Draft\nslices: []\n---\n");
+    const failing = createTyprenApi(
+      {
+        ...makeConfig(),
+        git: { ...gitStub, outgoing: async () => outgoing },
+        onPublish: () => {
+          throw new GitError("A check in your repository stopped the commit: nope");
+        },
+      },
+      { basePath: BASE }
+    );
+    const res = await failing.handler(req("POST", "/pages/home/publish"));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe("A check in your repository stopped the commit: nope");
+  });
+
+  it("refuses a git-backed publish on a detached HEAD without touching the page", async () => {
+    fs.mkdirSync(path.join(dir, ".drafts"));
+    fs.writeFileSync(path.join(dir, ".drafts", "home.md"), "---\ntitle: Draft\nslices: []\n---\n");
+    const detached = createTyprenApi(
+      {
+        ...makeConfig(),
+        git: { ...gitStub, outgoing: async () => ({ ...outgoing, branch: "" }) },
+        onPublish: () => {},
+      },
+      { basePath: BASE }
+    );
+    const res = await detached.handler(req("POST", "/pages/home/publish"));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe(GIT_NO_BRANCH);
+    expect(fs.existsSync(path.join(dir, ".drafts", "home.md"))).toBe(true);
+  });
+
+  it("gates both on auth", async () => {
+    allow = false;
+    expect((await gitApi().handler(req("GET", "/git"))).status).toBe(403);
+    expect((await gitApi().handler(req("POST", "/git/push"))).status).toBe(403);
+  });
+});
+
+describe("page flows", () => {
+  const client = () => createTyprenClient({ baseUrl: BASE, fetch: (u, i) => api.handler(new Request(`https://example.test${u}`, i)) });
+  const draftOf = (slug: string) => fs.readFileSync(path.join(dir, ".drafts", `${slug}.md`), "utf8");
+
+  it("creates a draft page holding sections, and 400s without a slug", async () => {
+    const c = client();
+    expect(await c.createPageFrom("Pricing", "pricing", [{ slice: "hero" }])).toBe("pricing");
+    expect(draftOf("pricing")).toContain("hero");
+    const bare = await api.handler(jsonReq("POST", "/pages", { title: "X", slices: [] }));
+    expect(bare.status).toBe(400);
+  });
+
+  it("inserts a section, refuses a stale one with 409, and 400s without a slice", async () => {
+    const c = client();
+    const first = await c.insertSection("home", { slice: "a" }, "end");
+    expect(first.ok).toBe(true);
+    const stale = await c.insertSection("home", { slice: "b" }, 0, "nope");
+    expect(stale).toMatchObject({ ok: false, code: "conflict" });
+    expect((await api.handler(jsonReq("POST", "/pages/home/sections", {}))).status).toBe(400);
+    expect((await api.handler(jsonReq("POST", "/pages/home/sections", { slice: { slice: "c" } }))).status).toBe(200);
+  });
+
+  it("updates page meta, and 400s without a patch", async () => {
+    const c = client();
+    expect((await c.updatePageMeta("home", { title: "Start", noindex: true })).ok).toBe(true);
+    expect(draftOf("home")).toMatch(/title: Start/);
+    expect(await c.updatePageMeta("home", { title: "Other" }, "nope")).toMatchObject({ ok: false, code: "conflict" });
+    expect((await api.handler(jsonReq("PUT", "/pages/home/meta", {}))).status).toBe(400);
+  });
+
+  it("commits a page, with or without edits", async () => {
+    const c = client();
+    const res = await c.commitPage("home", { meta: { title: "Committed" }, slices: [], body: "" });
+    expect(res.ok).toBe(true);
+    expect(fs.readFileSync(path.join(dir, "home.md"), "utf8")).toContain("Committed");
+    await c.saveDraft("home", { meta: { title: "Again" }, slices: [], body: "" });
+    expect(await c.commitPage("home", undefined, "nope")).toMatchObject({ ok: false, code: "conflict" });
+  });
+
+  it("publishes every draft", async () => {
+    const c = client();
+    await c.createPageFrom("One", "one", []);
+    await c.createPageFrom("Two", "two", []);
+    expect((await c.publishAll()).sort()).toEqual(["one", "two"]);
+    expect(await c.publishAll()).toEqual([]);
+  });
+
+  it("answers a locked rename as a 422 with a plain reason, which the client throws", async () => {
+    const home = createTyprenApi({ ...makeConfig(), homeSlug: "home" }, { basePath: BASE });
+    const res = await home.handler(jsonReq("POST", "/pages/home/rename", { newSlug: "start" }));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe("The home page keeps its slug.");
+    const c = createTyprenClient({ baseUrl: BASE, fetch: (u, i) => home.handler(new Request(`https://example.test${u}`, i)) });
+    await expect(c.renamePage("home", "start")).rejects.toThrow("The home page keeps its slug.");
   });
 });

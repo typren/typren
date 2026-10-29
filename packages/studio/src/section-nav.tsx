@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, type ReactNode } from "react";
-import { Copy, FileText, LayoutGrid, Image as ImageIcon, Moon, Settings, Sun } from "lucide-react";
+import { Copy, FileText, LayoutGrid, Image as ImageIcon, Library, Moon, Settings, Sun } from "lucide-react";
 import type { ResolvedSection, SectionKind } from "@typren/core";
 import { cn } from "./primitives/cn";
 
@@ -11,6 +11,7 @@ const KIND_ICON: Record<SectionKind, typeof FileText> = {
   settings: Settings,
   collection: Copy,
   custom: LayoutGrid,
+  library: Library,
 };
 
 const GROUP_LABEL: Record<string, string> = { content: "Content", other: "Other" };
