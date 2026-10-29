@@ -66,11 +66,13 @@ export default defineConfig({
       thresholds: {
         // Ratchets up as coverage improves, fails a regression below the last
         // seeded value. See package.json's "test:coverage" and the pre-push hook.
-        autoUpdate: true,
-        lines: 97.08,
-        statements: 95.75,
-        functions: 96.08,
-        branches: 90.22,
+        // Floored to one decimal: CI runs on Linux, where a few macOS-only
+        // branches go uncovered, so an exact local ratchet fails CI by ~0.02.
+        autoUpdate: (n: number) => Math.floor(n * 10) / 10,
+        lines: 97,
+        statements: 95.7,
+        functions: 96,
+        branches: 90.2,
       },
     },
   },
