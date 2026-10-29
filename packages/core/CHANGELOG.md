@@ -1,11 +1,5 @@
 # @typren/core
 
-## 0.7.0
-
-### Patch Changes
-
-- ac50d55: The published `dist` now imports `./preview-bridge.vanilla.js` with its extension. The build skipped any specifier whose name contained a dot, so the canvas, studio bridge and multi-section canvas modules failed to resolve under strict ESM resolvers.
-
 ## 0.6.0
 
 ### Minor Changes
@@ -33,6 +27,10 @@
   - **Section canvas and preview bridge.** `@typren/core/ui/section-canvas` renders one slice, many slices, or a whole page in a persistent page mode (`createCanvas`, `createReactRenderer`), also on static exports, with every posted prop treated as untrusted (`parseSectionQuery`, `parseSectionDocument`). The preview bridge signs messages with the studio's session nonce, draws section outlines inside the page, reports navigation and the site's computed style, applies style live, and stays inert on an unsafe origin.
   - **Theme.** `theme.css` is restructured after WinUI 3's Fluent tokens (text, fills, strokes, layers, a coral accent), with concentric squircle corners, hover and selected surfaces, reveal and grain tokens; the shadcn-named tokens alias onto them, so overrides keep working.
   - **Names.** `slugError` and `nameError` word the slug and media-name rules the same way in every front end.
+
+### Patch Changes
+
+- ac50d55: The published `dist` now imports `./preview-bridge.vanilla.js` with its extension. The build skipped any specifier whose name contained a dot, so the canvas, studio bridge and multi-section canvas modules failed to resolve under strict ESM resolvers.
 
 ## 0.5.4
 

@@ -5,8 +5,8 @@
 ### Patch Changes
 
 - Updated dependencies [ac50d55]
-  - @typren/core@0.7.0
-  - @typren/studio@0.7.0
+  - @typren/core@0.6.0
+  - @typren/studio@0.6.0
 
 ## 0.2.0
 

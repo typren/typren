@@ -42,7 +42,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@typren/core": "^0.7.0"
+    "@typren/core": "^0.6.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

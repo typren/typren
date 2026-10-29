@@ -28,7 +28,7 @@
     },
     "apps/studio": {
       "name": "@typren/studio-local",
-      "version": "0.1.0",
+      "version": "0.2.1",
       "dependencies": {
         "@typren/core": "workspace:*",
         "@typren/studio": "workspace:*",
@@ -48,12 +48,12 @@
     },
     "packages/adapter-cloudflare": {
       "name": "@typren/adapter-cloudflare",
-      "version": "0.2.1",
+      "version": "0.2.3",
       "bin": {
         "typren-cloudflare": "./dist/cli.js",
       },
       "dependencies": {
-        "@typren/core": "^0.5.4",
+        "@typren/core": "^0.6.0",
       },
       "devDependencies": {
         "@types/node": "^26.6.6",
@@ -63,12 +63,12 @@
     },
     "packages/adapter-cloudfront": {
       "name": "@typren/adapter-cloudfront",
-      "version": "0.4.1",
+      "version": "0.4.3",
       "bin": {
         "typren-cloudfront": "./dist/cli.js",
       },
       "dependencies": {
-        "@typren/core": "^0.5.4",
+        "@typren/core": "^0.6.0",
       },
       "devDependencies": {
         "@types/node": "^26.6.6",
@@ -78,7 +78,7 @@
     },
     "packages/adapter-media-s3": {
       "name": "@typren/adapter-media-s3",
-      "version": "0.2.1",
+      "version": "0.2.3",
       "dependencies": {
         "aws4fetch": "^1.0.20",
       },
@@ -88,17 +88,17 @@
         "typescript": "^6.0.3",
       },
       "peerDependencies": {
-        "@typren/core": "^0.5.4",
+        "@typren/core": "^0.6.0",
       },
     },
     "packages/cli": {
       "name": "typren",
-      "version": "0.5.4",
+      "version": "0.6.0",
       "bin": {
         "typren": "./dist/cli.js",
       },
       "dependencies": {
-        "@typren/core": "^0.5.4",
+        "@typren/core": "^0.6.0",
         "gray-matter": "^4.0.3",
         "js-yaml": "^5.5.0",
       },
@@ -119,7 +119,7 @@
     },
     "packages/core": {
       "name": "@typren/core",
-      "version": "0.5.4",
+      "version": "0.6.0",
       "dependencies": {
         "dompurify": "^3.4.17",
         "gray-matter": "^4.0.3",
@@ -191,7 +191,7 @@
     },
     "packages/studio": {
       "name": "@typren/studio",
-      "version": "0.5.4",
+      "version": "0.6.0",
       "dependencies": {
         "@base-ui/react": "^1.7.0",
         "@typren/core": "workspace:*",
