@@ -192,8 +192,8 @@ export function createSettingsStore(config: CmsConfig): SettingsStore {
   const actions = makeActions({ ...config, adapter, onPublish: undefined, onSaveDraft: undefined });
   const store = createStore(adapter);
   const auth = resolveAuth(config);
-  const guardAdmin = async () => {
-    if (!(await auth.authorize({ action: "admin", siteId: config.siteId, accountId: config.accountId })))
+  const guardAdmin = async (locale?: string) => {
+    if (!(await auth.authorize({ action: "admin", locale, siteId: config.siteId, accountId: config.accountId })))
       throw new Error("typren: unauthorized");
   };
   const EMPTY: SiteSettingsRuntime = { brand: { name: "" }, seo: {} };
@@ -213,7 +213,7 @@ export function createSettingsStore(config: CmsConfig): SettingsStore {
     // method exists to close.
     currentVersion: (locale) => store.currentVersion(SETTINGS_SLUG, locale),
     async saveDraft(next, baseVersion, locale) {
-      await guardAdmin();
+      await guardAdmin(locale);
       return actions.saveDraft(
         SETTINGS_SLUG,
         { meta: next as unknown as Record<string, unknown>, slices: [], body: "" },
@@ -222,7 +222,7 @@ export function createSettingsStore(config: CmsConfig): SettingsStore {
       );
     },
     async publish(baseVersion, locale) {
-      await guardAdmin();
+      await guardAdmin(locale);
       return actions.publish(SETTINGS_SLUG, baseVersion, locale);
     },
     bootstrap: config.settingsAdapter ?? createFsSettingsAdapter({ file: path.join(process.cwd(), "typren.config.json") }),

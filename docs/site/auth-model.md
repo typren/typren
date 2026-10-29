@@ -31,6 +31,9 @@ per slug, per collection, or per locale:
 - A write carries the `locale` it targets; `createTranslation` carries the
   new `toLocale`, and `deleteTranslation` the locale being deleted.
   `deletePage` and `renamePage` act on every locale, so they pass none.
+- A settings write's `"admin"` check carries the locale being written, the
+  same locale its follow-up content check sees. Bootstrap writes and media
+  upload/delete are site-wide, so they pass no slug, collection or locale.
 - `createPage` carries the slug derived from the title. `renamePage` is
   authorized twice, once for the source slug and once for the destination,
   and `duplicatePage` the same way (as `"createPage"`), with the derived
