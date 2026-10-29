@@ -704,7 +704,7 @@ describe("main", () => {
         process.chdir(site);
 
         // --site-url: frame a running site, so the studio is the only child.
-        const run = main(["studio", "--port", "4500", "--site-url", "http://127.0.0.1:3000"]);
+        const run = main(["studio", "--local", "--port", "4500", "--site-url", "http://127.0.0.1:3000"]);
         await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
         const [, args, options] = vi.mocked(spawn).mock.calls[0];
         expect(args).toEqual(expect.arrayContaining(["dev", "-H", "127.0.0.1", "-p", "4500"]));
@@ -718,6 +718,35 @@ describe("main", () => {
         expect(telemetry.record).toHaveBeenCalledWith("studio");
       } finally {
         vi.unstubAllGlobals();
+        process.chdir(originalCwd);
+        fs.rmSync(site, { recursive: true, force: true });
+      }
+    });
+
+    it("serves only the API by default and opens the cloud's connect link", async () => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const site = fs.mkdtempSync(path.join(import.meta.dirname, "..", ".tmp-studio-"));
+      try {
+        fs.mkdirSync(path.join(site, "slices"));
+        fs.writeFileSync(path.join(site, "slices", "defaults.ts"), "export const defaults = { hero: {} };\n");
+        vi.mocked(spawn).mockClear();
+        const opener = Object.assign(new EventEmitter(), { unref: vi.fn() }) as unknown as ChildProcess;
+        vi.mocked(spawn).mockReturnValueOnce(opener);
+        process.chdir(site);
+
+        const run = main(["studio", "--port", "4590", "--site-url", "http://127.0.0.1:3000", "--cloud-url", "http://127.0.0.1:3300"]);
+        await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1), { timeout: 5000 });
+        const link = vi.mocked(spawn).mock.calls[0][1]!.at(-1)!;
+        expect(link).toMatch(/^http:\/\/127\.0\.0\.1:3300\/connect#port=4590&token=[\w-]{43}$/);
+        // The API answers the paired origin with the token from the link, and nobody else.
+        const token = link.split("token=")[1];
+        const ok = await fetch("http://127.0.0.1:4590/api/typren/pages", { headers: { origin: "http://127.0.0.1:3300", authorization: `Bearer ${token}` } });
+        expect(ok.status).toBe(200);
+        expect((await fetch("http://127.0.0.1:4590/api/typren/pages")).status).toBe(403);
+        process.emit("SIGINT", "SIGINT");
+        await run;
+        expect(process.exitCode).toBe(0);
+      } finally {
         process.chdir(originalCwd);
         fs.rmSync(site, { recursive: true, force: true });
       }
