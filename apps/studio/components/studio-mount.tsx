@@ -2,22 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { PageContent, PageInfo, Section, SiteSettings, SliceSchema, StyleMap } from "@typren/core";
+import type { PageContent, PageInfo, SiteSettings, StudioProps } from "@typren/core";
 import { createTyprenClient } from "@typren/core/api/client";
-import { TyprenStudio } from "@typren/studio";
+import { clientHost, TyprenStudio } from "@typren/studio";
 import { navigatePage, pageAt, pathFor } from "@/lib/navigation";
-
-/** The Website group from docs/editor-v3.md. SEO has no entry of its own:
- *  Settings already holds the title template, description and share image,
- *  and a separate SEO & AIO section kind has not landed. */
-const SECTIONS: Section[] = [
-  { kind: "pages", label: "Pages", group: "website" },
-  { kind: "custom", id: "navigation", label: "Navigation", group: "website", host: true },
-  { kind: "custom", id: "style", label: "Style", group: "website", host: true },
-  { kind: "media", id: "assets", label: "Assets", group: "website" },
-  { kind: "library", id: "templates", label: "Templates", group: "website" },
-  { kind: "settings", label: "Settings", group: "other" },
-];
 
 /**
  * The studio's one client boundary: binds `TyprenStudioHost` to the content
@@ -27,15 +15,6 @@ const SECTIONS: Section[] = [
  */
 export function StudioMount({
   apiBase,
-  sliceNames,
-  defaults,
-  fieldSchema,
-  previewPath,
-  sectionRouteUrl,
-  nestedLayouts,
-  homeSlug,
-  sections,
-  writeBootstrap,
   pages,
   folders,
   slug,
@@ -44,42 +23,11 @@ export function StudioMount({
   settings,
   settingsVersion,
   settingsHasDraft,
-  trailingSlash,
-  git,
-  styleMap,
-}: Readonly<{
+  homeSlug,
+  ...site
+}: Readonly<StudioProps & {
   /** Where `createTyprenApi` is mounted, e.g. "/api/typren". */
   apiBase: string;
-  sliceNames: string[];
-  defaults: Record<string, Record<string, unknown>>;
-  fieldSchema?: Record<string, SliceSchema>;
-  /** Site origin plus the preview route prefix, no trailing slash. */
-  previewPath: string;
-  /** The site's one-slice route, no trailing slash; undefined for a site without one. */
-  sectionRouteUrl?: string;
-  /** The manifest's `studio.nestedLayouts`: page paths framed on their real route. */
-  nestedLayouts?: string[];
-  homeSlug: string;
-  /** The manifest's `studio.sections`; the default rail when omitted. */
-  sections?: Section[];
-  /** The Settings panel may write bootstrap keys (typren.config.json exists). */
-  writeBootstrap?: boolean;
-  pages: PageInfo[];
-  /** Page folders kept without pages. */
-  folders: string[];
-  /** Page slug to open, or `null` for the page picker. */
-  slug: string | null;
-  page?: PageContent;
-  version: string | null;
-  settings: SiteSettings;
-  settingsVersion: string | null;
-  settingsHasDraft: boolean;
-  /** The site serves pages at "/<slug>/" (see `siteTrailingSlash`). */
-  trailingSlash: boolean;
-  /** The site is a git checkout, so Review pushes drafts as commits. */
-  git: boolean;
-  /** The site's `studio.style` map, from the manifest. */
-  styleMap?: StyleMap;
 }>) {
   const router = useRouter();
   // Read on the client: section and folder moves only push history (below),
@@ -91,6 +39,7 @@ export function StudioMount({
   const assetFolder = pathname.startsWith("/assets/") ? decodeURIComponent(pathname.slice("/assets/".length)) : "";
   const templatesView = pathname.split("/")[2] === "pages" ? "pages" : "sections";
   const actions = useMemo(() => createTyprenClient({ baseUrl: apiBase }), [apiBase]);
+  const host = clientHost(actions, { ...site, homeSlug }, `${apiBase}/media`);
   // Picking a listed page or toggling `?edit` only pushes history too (see
   // `navigatePage`), so the page and edit mode follow the URL here and the
   // picked page's content is fetched on the client.
@@ -190,57 +139,7 @@ export function StudioMount({
 
   return (
     <TyprenStudio
-      host={{
-        actions,
-        sliceNames,
-        defaults,
-        fieldSchema,
-        previewPath,
-        sections: sections ?? SECTIONS,
-        homeSlug,
-        library: actions.library,
-        // The site's one-slice route (see docs/site/studio.md); Templates shows sketches without it.
-        sectionPreviewUrl: sectionRouteUrl && `${sectionRouteUrl}${trailingSlash ? "/" : ""}`,
-        nestedLayouts,
-        styleMap,
-        git: git
-          ? {
-              outgoing: () => actions.gitOutgoing(),
-              pending: () => actions.gitPending(),
-              push: (paths, slugs, settings) => actions.gitPush(paths, slugs, settings),
-              history: (s, l) => actions.gitHistory(s, l),
-              discard: (paths) => actions.gitDiscard(paths),
-            }
-          : undefined,
-        settings: {
-          saveDraft: (next, base, locale) => actions.saveSettingsDraft(next, base, locale),
-          publish: (base, locale) => actions.publishSettings(base, locale),
-          discardDraft: (locale) => actions.discardSettingsDraft(locale),
-          hasDraft: (locale) => actions.getSettings(locale).then((s) => Boolean((s as { hasDraft?: boolean }).hasDraft)),
-          history: git ? (locale) => actions.settingsHistory(locale) : undefined,
-          writeBootstrap: writeBootstrap ? (patch) => actions.writeBootstrap(patch) : undefined,
-          hideAdminRoute: true,
-        },
-        // The site serves its home page at "/", not "/home".
-        previewUrl: (s) => (s === homeSlug ? `${previewPath}/` : `${previewPath}/${s}${trailingSlash ? "/" : ""}`),
-        readPage: (s) => actions.getPage(s).then((r) => r.page),
-        getPage: (s) => actions.getPage(s),
-        pageFolders: { create: (f) => actions.createPageFolder(f), delete: (f) => actions.deletePageFolder(f) },
-        renamePage: (s, to) => actions.renamePage(s, to),
-        media: {
-          list: () => actions.listMedia(),
-          delete: (id: string, opts?: { force?: boolean }) => actions.deleteMedia(id, opts),
-          uploadPath: `${apiBase}/media`,
-          usage: () => actions.mediaUsage(),
-          folders: {
-            list: () => actions.listMediaFolders(),
-            create: (f) => actions.createMediaFolder(f),
-            delete: (f) => actions.deleteMediaFolder(f),
-            move: (id, f, name) => actions.moveMedia(id, f, name),
-            rename: (f, to) => actions.renameMediaFolder(f, to),
-          },
-        },
-      }}
+      host={host}
       pages={localized?.pages ?? pages}
       folders={folders}
       slug={current}

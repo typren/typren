@@ -6,6 +6,7 @@
 export { TyprenStudio, type TyprenStudioProps } from "./typren-studio";
 export type { TemplatesView } from "./site-rail";
 export type { TyprenStudioHost, TyprenStudioSettingsActions } from "./types";
+export { clientHost, STUDIO_SECTIONS } from "./client-host";
 
 // The pieces the shell is built from, exported for a host composing its own.
 export { BlockList } from "./block-list";
