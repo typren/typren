@@ -1,5 +1,11 @@
 # @typren/core
 
+## 0.7.0
+
+### Patch Changes
+
+- ac50d55: The published `dist` now imports `./preview-bridge.vanilla.js` with its extension. The build skipped any specifier whose name contained a dot, so the canvas, studio bridge and multi-section canvas modules failed to resolve under strict ESM resolvers.
+
 ## 0.6.0
 
 ### Minor Changes
