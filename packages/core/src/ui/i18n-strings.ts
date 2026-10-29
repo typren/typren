@@ -2,7 +2,7 @@ import type { Messages } from "../i18n";
 import { defaultMessages } from "./messages";
 
 /**
- * Vanilla (non-React) counterpart to @typren/editor's `useT`: same
+ * Vanilla (non-React) counterpart to @typren/studio's `useT`: same
  * key→host-override→English-default→literal-key fallback + `{var}`
  * interpolation, without a context provider. A non-React consumer calls
  * `createT(messages)` itself; `messages` is passed as a plain value, no

@@ -1,7 +1,7 @@
 {
   "name": "@typren/core",
   "version": "0.5.4",
-  "description": "Framework-agnostic core of Typren: content adapters, draft/publish store, auth-gated actions, i18n, media, SEO/AIO. No UI, see @typren/editor.",
+  "description": "Framework-agnostic core of Typren: content adapters, draft/publish store, auth-gated actions, i18n, media, SEO/AIO. No UI, see @typren/studio.",
   "keywords": [
     "cms",
     "markdown",
@@ -108,11 +108,11 @@
   "devDependencies": {
     "@testing-library/react": "^16.3.3",
     "@types/jsdom": "^30.0.0",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@typren/contract-tests": "workspace:*",
-    "jose": "^6.2.13",
+    "jose": "^6.2.14",
     "next": "^16.4.3",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

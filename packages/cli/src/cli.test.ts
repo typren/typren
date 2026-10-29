@@ -1,4 +1,6 @@
-import { execFileSync } from "node:child_process";
+import type * as childProcess from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,6 +18,12 @@ import {
 } from "./cli";
 import { envWithoutGit } from "./migrate";
 import * as telemetry from "./telemetry";
+
+// `typren studio` hands the terminal to `next dev`; its tests stub that spawn.
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof childProcess>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
 
 /** When this suite runs inside a git hook (the repo's own pre-push runs it),
  *  git has exported GIT_DIR and friends, which redirect every git call below
@@ -109,9 +117,8 @@ describe("scaffold", () => {
     expect(result.baseDir).toBe("src");
     expect(result.skipped).toHaveLength(0);
     expect(fs.existsSync(path.join(dir, "src/cms.config.ts"))).toBe(true);
-    expect(fs.existsSync(path.join(dir, "src/cms-actions.ts"))).toBe(true);
-    expect(fs.existsSync(path.join(dir, "src/app/media/upload/route.ts"))).toBe(true);
     expect(fs.existsSync(path.join(dir, "src/slices/registry.ts"))).toBe(true);
+    expect(fs.readFileSync(path.join(dir, "src/app/typren/section/page.tsx"), "utf8")).toContain("createSectionCanvas(cmsConfig.registry)");
     expect(fs.existsSync(path.join(dir, "src/content/home.md"))).toBe(true);
     expect(fs.readFileSync(path.join(dir, "src/cms.config.ts"), "utf8")).toContain('"src/content"');
   });
@@ -123,16 +130,14 @@ describe("scaffold", () => {
     if (!result.ok) return;
     expect(result.baseDir).toBe(".");
     expect(fs.existsSync(path.join(dir, "cms.config.ts"))).toBe(true);
-    expect(fs.existsSync(path.join(dir, "cms-actions.ts"))).toBe(true);
-    expect(fs.existsSync(path.join(dir, "app/media/upload/route.ts"))).toBe(true);
     expect(fs.readFileSync(path.join(dir, "cms.config.ts"), "utf8")).toContain('"content"');
   });
 
-  // The editor was dropped from the scaffold entirely: no editor route, no
-  // @typren/editor import anywhere in the output. This is the regression
-  // that would matter most, so it's asserted directly rather than inferred
-  // from a positive check on unrelated files.
-  it("drops the editor entirely: no editor routes, no @typren/editor import, actions relocated", () => {
+  // The editor runs in `typren studio`, beside the site: the scaffold emits no
+  // editor, preview or API route and no write surface, and imports nothing
+  // from @typren/studio. Asserted directly, since a stray route is the
+  // regression that would matter most.
+  it("scaffolds the site side only: no editor, preview or API routes, no write surface", () => {
     fs.mkdirSync(path.join(dir, "src", "app"), { recursive: true });
     const result = scaffold(dir);
     expect(result.ok).toBe(true);
@@ -148,22 +153,16 @@ describe("scaffold", () => {
       expect(fs.existsSync(path.join(dir, dropped))).toBe(false);
     }
 
-    // Relocated, not dropped: the predecessor's app/editor/actions.ts and
-    // app/editor/media/upload/route.ts now live outside the (removed) editor
-    // route tree.
-    expect(fs.existsSync(path.join(dir, "src/cms-actions.ts"))).toBe(true);
-    expect(fs.existsSync(path.join(dir, "src/app/editor/actions.ts"))).toBe(false);
-    expect(fs.existsSync(path.join(dir, "src/app/media/upload/route.ts"))).toBe(true);
-    expect(fs.existsSync(path.join(dir, "src/app/editor/media/upload/route.ts"))).toBe(false);
+    expect(result.created.filter((f) => f.startsWith("src/app/"))).toEqual(["src/app/typren/section/page.tsx"]);
+    expect(fs.existsSync(path.join(dir, "src/cms-actions.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "next.config.ts"))).toBe(false);
 
-    // A quoted specifier, not a bare substring match: field-schema.ts's own
-    // doc comment mentions @typren/editor by name (it says the field hints
-    // are inert until that package is installed), which is fine. An actual
-    // `from "@typren/editor"` import is the regression this guards against.
+    // A quoted specifier, not a bare substring match: an actual
+    // `from "@typren/studio"` import is the regression this guards against.
     const sources = result.created
       .filter((f) => f.endsWith(".ts") || f.endsWith(".tsx"))
       .map((f) => fs.readFileSync(path.join(dir, f), "utf8"));
-    expect(sources.some((src) => src.includes('"@typren/editor"'))).toBe(false);
+    expect(sources.some((src) => src.includes('"@typren/studio"'))).toBe(false);
   });
 
   it("prefers src/app when both src/app and app exist", () => {
@@ -176,8 +175,8 @@ describe("scaffold", () => {
   });
 
   // Regression: the docs promised a loopback-bound dev script, but init never
-  // wrote one, and `next dev` listens on all interfaces by default. localAuth
-  // denies every request unless the server is bound to loopback.
+  // wrote one, and `next dev` listens on all interfaces by default. In
+  // studio preview mode that dev server renders drafts.
   describe("dev script", () => {
     function scaffoldWith(pkg: object | null) {
       fs.mkdirSync(path.join(dir, "app"), { recursive: true });
@@ -306,15 +305,13 @@ describe("scaffold", () => {
     }
   });
 
-  it("places next.config.ts and typren.config.json at the project root even with a src/ layout", () => {
+  it("places typren.config.json at the project root even with a src/ layout", () => {
     fs.mkdirSync(path.join(dir, "src", "app"), { recursive: true });
     const result = scaffold(dir);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(fs.existsSync(path.join(dir, "next.config.ts"))).toBe(true);
     expect(fs.existsSync(path.join(dir, "typren.config.json"))).toBe(true);
-    expect(fs.existsSync(path.join(dir, "src", "next.config.ts"))).toBe(false);
-    expect(result.created).toContain("next.config.ts");
+    expect(fs.existsSync(path.join(dir, "src", "typren.config.json"))).toBe(false);
     expect(result.created).toContain("typren.config.json");
     // cms.config.ts reads the bootstrap it scaffolds alongside it.
     expect(fs.readFileSync(path.join(dir, "src/cms.config.ts"), "utf8")).toContain("createFsSettingsAdapter");
@@ -326,21 +323,20 @@ describe("applySettings", () => {
     fs.writeFileSync(
       path.join(dir, "typren.config.json"),
       JSON.stringify(
-        { adminRoute: "editor", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: false, ...overrides },
+        { adminRoute: "studio", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: false, ...overrides },
         null,
         2
       )
     );
   }
 
-  it("validates a good config and creates a wired next.config.ts when none exists", () => {
+  it("validates a good config and writes nothing", () => {
     writeBootstrap();
     const result = applySettings(dir);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.nextConfig).toBe("created");
     expect(result.cmsConfig).toBe("not-found");
-    expect(fs.readFileSync(path.join(dir, "next.config.ts"), "utf8")).toContain("typren:admin-route-rewrite");
+    expect(fs.readdirSync(dir)).toEqual(["typren.config.json"]);
   });
 
   it("rejects a bad adminRoute (reserved word)", () => {
@@ -365,19 +361,6 @@ describe("applySettings", () => {
     expect(result.error).toMatch(/defaultLocale/);
   });
 
-  it("is idempotent: a second run reports already-wired and leaves the file untouched", () => {
-    writeBootstrap();
-    const first = applySettings(dir);
-    expect(first.ok).toBe(true);
-    const contentAfterFirst = fs.readFileSync(path.join(dir, "next.config.ts"), "utf8");
-
-    const second = applySettings(dir);
-    expect(second.ok).toBe(true);
-    if (!second.ok) return;
-    expect(second.nextConfig).toBe("already-wired");
-    expect(fs.readFileSync(path.join(dir, "next.config.ts"), "utf8")).toBe(contentAfterFirst);
-  });
-
   it("detects an already-wired cms.config.ts via the marker comment", () => {
     writeBootstrap();
     fs.writeFileSync(path.join(dir, "cms.config.ts"), "// typren:bootstrap-wired\nexport {};\n");
@@ -400,14 +383,14 @@ describe("applySettings", () => {
 });
 
 describe("nextSteps", () => {
-  it("says the editor package is unpublished, without implying an editor route exists", () => {
+  it("points at the studio and the preview build dir it needs beside your own dev server", () => {
     const text = nextSteps("src");
-    expect(text).toContain("not published to npm yet");
-    expect(text).not.toContain("editor route compiles");
+    expect(text).toContain("npx typren studio");
+    expect(text).toContain('distDir: process.env.TYPREN_PREVIEW === "1"');
   });
 
   it("does not point Tailwind at the removed, unpublished editor package", () => {
-    expect(nextSteps("src")).not.toContain("@typren/editor/dist");
+    expect(nextSteps("src")).not.toContain("@typren/studio/dist");
   });
 
   it("does not tell users to open a /editor route, which no longer exists in this scaffold", () => {
@@ -428,11 +411,6 @@ describe("nextSteps", () => {
     expect(nextSteps("src")).toContain("npx typren migrate");
   });
 
-  // The scaffolded localAuth() requires a loopback-bound server (see
-  // auth/local.ts), so the printed steps must say how to start one.
-  it("tells the scaffold to bind its dev server to loopback", () => {
-    expect(nextSteps("src")).toContain("next dev -H 127.0.0.1");
-  });
 });
 
 describe("resolveReviewPaths", () => {
@@ -692,11 +670,65 @@ describe("main", () => {
     });
   });
 
+  describe("studio", () => {
+    it("fails with a message and records nothing when the site has no slice defaults", async () => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      process.chdir(dir);
+
+      await main(["studio"]);
+
+      expect(process.exitCode).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("typren init"));
+      expect(spawn).not.toHaveBeenCalled();
+      expect(telemetry.record).not.toHaveBeenCalled();
+    });
+
+    it("rejects bad flags before touching the site", async () => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      await main(["studio", "--port", "nope"]);
+      expect(process.exitCode).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("--port"));
+    });
+
+    it("runs the studio for the site and passes its exit code through", async () => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null)));
+      // Inside the package: vitest won't import the site's defaults.ts from os.tmpdir().
+      const site = fs.mkdtempSync(path.join(import.meta.dirname, "..", ".tmp-studio-"));
+      try {
+        fs.mkdirSync(path.join(site, "slices"));
+        fs.writeFileSync(path.join(site, "slices", "defaults.ts"), "export const defaults = { hero: {} };\n");
+        vi.mocked(spawn).mockClear();
+        const child = Object.assign(new EventEmitter(), { kill: vi.fn() }) as unknown as ChildProcess;
+        vi.mocked(spawn).mockReturnValueOnce(child);
+        process.chdir(site);
+
+        // --site-url: frame a running site, so the studio is the only child.
+        const run = main(["studio", "--port", "4500", "--site-url", "http://127.0.0.1:3000"]);
+        await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
+        const [, args, options] = vi.mocked(spawn).mock.calls[0];
+        expect(args).toEqual(expect.arrayContaining(["dev", "-H", "127.0.0.1", "-p", "4500"]));
+        expect(JSON.parse((options as { env: Record<string, string> }).env.TYPREN_STUDIO)).toMatchObject({
+          defaults: { hero: {} },
+          siteUrl: "http://127.0.0.1:3000",
+        });
+        child.emit("exit", 3);
+        await run;
+        expect(process.exitCode).toBe(3);
+        expect(telemetry.record).toHaveBeenCalledWith("studio");
+      } finally {
+        vi.unstubAllGlobals();
+        process.chdir(originalCwd);
+        fs.rmSync(site, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("apply-settings", () => {
     function writeBootstrap(overrides: Record<string, unknown> = {}) {
       fs.writeFileSync(
         path.join(dir, "typren.config.json"),
-        JSON.stringify({ adminRoute: "editor", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: false, ...overrides })
+        JSON.stringify({ adminRoute: "studio", locales: ["en"], defaultLocale: "en", routing: "prefix-except-default", onboarded: false, ...overrides })
       );
     }
 

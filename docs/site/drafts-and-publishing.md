@@ -14,7 +14,7 @@ save/publish flow.
 ## Reading
 
 `ContentStore.currentVersion(slug, locale)` returns the version of whatever
-an editor would load: the draft if one exists, else the published content,
+the studio would load: the draft if one exists, else the published content,
 else `null` if the slug has no content at all in that locale. "Version" is a
 content hash (`versionOf`, a truncated SHA-256 of the raw file text) — not a
 counter or a timestamp, so it survives moving the same content between
@@ -82,8 +82,10 @@ call — `saveDraft` does not await it.
 ## Other store operations
 
 - **`discardDraft(slug, locale)`** — deletes the draft, no publish.
-- **`createPage(slug, page, locale)`** — creates new *published* content
-  directly; throws if the slug already exists in that locale.
+- **`createPage(slug, page, locale, opts)`** — creates new *published* content
+  directly, or with `opts.draft` a draft only, which lists with
+  `published: false` until its first publish; throws if the slug already has
+  content or a draft in that locale.
 - **`createTranslation(slug, fromLocale, toLocale)`** — seeds a *draft*
   translation by copying `fromLocale`'s content; no-op if `toLocale` already
   has published content or a draft.

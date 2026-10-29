@@ -1,6 +1,6 @@
 /* typren token contract.
  *
- * The editor UI (see @typren/editor) is styled after shadcn/ui and reads ONLY
+ * The editor UI (see @typren/studio) is styled after shadcn/ui and reads ONLY
  * the variables below. Each falls back to the host's own shadcn token, then
  * to shadcn's default `neutral` value, the same oklch values
  * `npx shadcn init` writes. So:
@@ -13,31 +13,28 @@
  * with fewer surfaces themed.
  *
  * `.dark` mirrors the mapping; the editor scopes `.dark` (and `color-scheme`) to
- * its own subtree so it can theme independently of the site around it. */
+ * its own subtree so it can theme independently of the site around it.
+ *
+ * The editor's own surfaces follow the structure of WinUI 3's Fluent tokens
+ * (Common_themeresources_any.xaml): text-*, control/track/subtle fills,
+ * strokes, a base backdrop, a content layer and an accent. The values are
+ * WinUI's, mostly as translucent fills so a control reads the same on any
+ * layer; the accent is Typren coral and the radii stay Typren's. The older
+ * shadcn-named tokens (fg, muted, border, ...) alias onto these at the end. */
 :root {
   --typren-bg: var(--background, oklch(1 0 0));
-  --typren-fg: var(--foreground, oklch(0.145 0 0));
   --typren-card: var(--card, oklch(1 0 0));
   --typren-card-fg: var(--card-foreground, oklch(0.145 0 0));
   --typren-popover: var(--popover, oklch(1 0 0));
   --typren-popover-fg: var(--popover-foreground, oklch(0.145 0 0));
-  --typren-primary: var(--primary, oklch(0.205 0 0));
-  --typren-primary-fg: var(--primary-foreground, oklch(0.985 0 0));
   --typren-secondary: var(--secondary, oklch(0.97 0 0));
   --typren-secondary-fg: var(--secondary-foreground, oklch(0.205 0 0));
-  --typren-muted: var(--muted, oklch(0.97 0 0));
-  --typren-muted-fg: var(--muted-foreground, oklch(0.556 0 0));
   --typren-accent: var(--accent, oklch(0.97 0 0));
   --typren-accent-fg: var(--accent-foreground, oklch(0.205 0 0));
-  --typren-destructive: var(--destructive, oklch(0.577 0.245 27.325));
-  --typren-border: var(--border, oklch(0.922 0 0));
+  --typren-destructive: var(--destructive, oklch(0.55 0.245 27.325));
   --typren-input: var(--input, oklch(0.922 0 0));
-  --typren-ring: var(--ring, oklch(0.708 0 0));
 
-  /* The admin frame: shadcn's sidebar tokens. `--typren-app-bg` is the backdrop
-     the content card floats on (SidebarProvider variant="inset"). */
-  --typren-app-bg: var(--sidebar, oklch(0.985 0 0));
-  --typren-sidebar: var(--sidebar, oklch(0.985 0 0));
+  /* shadcn's sidebar tokens. The frame itself is `--typren-bg-base` below. */
   --typren-sidebar-fg: var(--sidebar-foreground, oklch(0.145 0 0));
   --typren-sidebar-accent: var(--sidebar-accent, oklch(0.97 0 0));
   --typren-sidebar-accent-fg: var(--sidebar-accent-foreground, oklch(0.205 0 0));
@@ -48,6 +45,106 @@
   /* One base radius; the port derives sm/md/lg/xl from it exactly as shadcn's
      Tailwind theme does. */
   --typren-radius: var(--radius, 0.625rem);
+
+  /* Typren's own product chrome (the studio and the cloud dashboard), read off
+     the cloud sign-in page: a coral mark, large soft cards, roomy controls.
+     Shapes derive from the one base radius so a host that changes `--radius`
+     moves them together. `--brand` is the host's hook; Typren coral otherwise. */
+  --typren-brand: var(--brand, #f74c25);
+  --typren-radius-card: calc(var(--typren-radius) * 2.4 * var(--typren-corner-scale));
+  --typren-radius-control: calc(var(--typren-radius) * 1.2 * var(--typren-corner-scale));
+  /* Small marks that nest in nothing: name pills, tags, image corners,
+     tooltips. */
+  --typren-radius-sm: calc(var(--typren-radius) * 0.4 * var(--typren-corner-scale));
+  /* Concentric corners: a surface nested in a rounded one, inset by a gap,
+     takes the outer radius minus that gap, so the band between the two curves
+     stays even round the corner. `.typren-concentric` (below) computes it from
+     the nearest `--typren-radius-outer` and `--typren-inset`; the defaults
+     are the common case, a row or thumb 4px inside a control-radius surface
+     (menus, selects, search results, toggle tracks). A surface with another
+     radius or gap sets both on itself for its children. The floor keeps a
+     deep inset from squaring off or going negative. Under corner smoothing
+     the gap counts `--typren-corner-scale` times (see `.typren-smooth`). */
+  --typren-radius-min: 4px;
+  --typren-radius-outer: var(--typren-radius-control);
+  --typren-inset: 4px;
+  /* The card radius is twice the control radius, so a card padded by the
+     difference holds controls concentrically: popovers, dialogs and gallery
+     tiles use it as their padding. Unscaled, so smoothing never moves layout. */
+  --typren-inset-card: calc(var(--typren-radius) * 1.2);
+  /* Corner smoothing's optical correction, 1 where `corner-shape` is
+     unsupported (see `.typren-smooth`). */
+  --typren-corner-scale: 1;
+  --typren-control-h: 2.5rem;
+  /* Film grain, as alpha only so `--typren-noise` tints it per theme. Used as
+     a mask by `.typren-noise` and `.typren-grain` below. */
+  --typren-noise-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.6 0 0 0 -.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --typren-grain-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='1' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.6 0 0 0 -.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --typren-noise-opacity: 0.08;
+  /* Grain on hovered controls. Set to 0 (here or in the host) to switch it off. */
+  --typren-hover-grain: 0.06;
+  --typren-selected-grain: 0.06;
+  /* Surface grain per elevation (0 frame, 1 panels, 2 floating). Barely
+     perceptible; set a level to 0 to switch it off. */
+  --typren-grain-0: 0.02;
+  --typren-grain-1: 0.025;
+  --typren-grain-2: 0.03;
+  /* Pointer reveal: a soft halo inside the hovered or selected surface, as an
+     alpha over the radius in px. Set either to 0 to switch it off. */
+  --typren-reveal-halo: 0.035;
+  --typren-reveal-radius: 100px;
+  /* The viewer's backdrop: a scrim of the frame colour, so the studio stays
+     visible behind the item it opened. Redefined under .dark, since a
+     custom property resolves its var() where it is declared. */
+  --typren-lightbox: color-mix(in oklch, var(--typren-bg-base) 50%, transparent);
+
+  /* WinUI structure, light values. A token with a shadcn equivalent reads the
+     host's token first, so a shadcn site still themes the editor. */
+  --typren-text-primary: var(--foreground, rgb(0 0 0 / 0.894));
+  --typren-text-secondary: var(--muted-foreground, rgb(0 0 0 / 0.62));
+  --typren-text-tertiary: rgb(0 0 0 / 0.447);
+  --typren-text-disabled: rgb(0 0 0 / 0.36);
+  --typren-text-on-accent: var(--primary-foreground, #fff);
+  /* Controls (buttons, inputs, pills): a translucent fill plus the elevation
+     border, which is what actually separates a control from its surface. */
+  --typren-fill-control: rgb(255 255 255 / 0.7);
+  --typren-fill-control-hover: rgb(249 249 249 / 0.5);
+  --typren-fill-control-pressed: rgb(249 249 249 / 0.3);
+  --typren-fill-control-input: #fff;
+  /* Opaque raised fill (WinUI ControlSolidFill) for a thumb that slides over
+     a track, where a translucent fill would show the track through it. */
+  --typren-fill-control-solid: #fff;
+  /* A recessed track (ControlAltFill) under a toggle group's thumb. */
+  --typren-fill-track: rgb(0 0 0 / 0.024);
+  /* Rows, tiles and menu items. WinUI selects with an accent pill on the hover
+     tint; Typren selects with a stronger step of the same neutral tint
+     instead, so hover is half of selected. */
+  --typren-fill-subtle-hover: rgb(0 0 0 / 0.045);
+  --typren-fill-subtle-selected: rgb(0 0 0 / 0.09);
+  /* Typren coral (`--typren-brand`) darkened until white text on it passes
+     WCAG AA (5.3:1; the raw coral is 3.5:1). A host `--primary` wins. */
+  --typren-fill-accent: var(--primary, #cb2e01);
+  --typren-stroke-control: rgb(0 0 0 / 0.059);
+  --typren-stroke-control-strong: rgb(0 0 0 / 0.16);
+  /* WinUI TextBox's bottom edge: a text field has no label inside it, so this
+     one edge reaches 3:1 (WCAG 1.4.11) against the frame, layer and card
+     (3.3:1) while the rest of the stroke stays subtle. */
+  --typren-stroke-control-edge: rgb(0 0 0 / 0.45);
+  --typren-stroke-card: var(--border, rgb(0 0 0 / 0.059));
+  --typren-stroke-flyout: rgb(0 0 0 / 0.059);
+  --typren-stroke-divider: var(--border, rgb(0 0 0 / 0.059));
+  /* The frame, and the content layer raised on it. */
+  --typren-bg-base: var(--sidebar, #f3f3f3);
+  --typren-layer: var(--background, rgb(255 255 255 / 0.7));
+  --typren-card-bg: rgb(255 255 255 / 0.7);
+  --typren-smoke: rgb(0 0 0 / 0.3);
+  /* WinUI's ControlElevationBorder: a 1px stroke with a stronger edge, at the
+     bottom in light and the top in dark. Box-shadows, so they compose with
+     focus rings. Not in the XAML, the flyout shadow is Fluent's web value. */
+  --typren-elevation: inset 0 0 0 1px var(--typren-stroke-control), inset 0 -1px 0 var(--typren-stroke-control-strong);
+  --typren-elevation-input: var(--typren-elevation), inset 0 -1px 0 var(--typren-stroke-control-edge);
+  --typren-elevation-accent: inset 0 0 0 1px rgb(255 255 255 / 0.08), inset 0 -1px 0 rgb(0 0 0 / 0.4);
+  --typren-shadow-flyout: 0 8px 16px rgb(0 0 0 / 0.14), 0 0 2px rgb(0 0 0 / 0.12);
 }
 
 /* shadcn's own `.dark` values (neutral), with the host's brand kept for
@@ -55,28 +152,216 @@
 .dark {
   color-scheme: dark;
   --typren-bg: oklch(0.145 0 0);
-  --typren-fg: oklch(0.985 0 0);
-  --typren-card: oklch(0.205 0 0);
+  /* WinUI's depth: content sits lighter than the frame in dark as in light.
+     The layer over the base, pre-composited so a card stays opaque. */
+  --typren-card: #2c2c2c;
   --typren-card-fg: oklch(0.985 0 0);
-  --typren-popover: oklch(0.205 0 0);
+  --typren-popover: #2c2c2c;
   --typren-popover-fg: oklch(0.985 0 0);
-  --typren-primary: var(--primary, oklch(0.922 0 0));
-  --typren-primary-fg: var(--primary-foreground, oklch(0.205 0 0));
   --typren-secondary: oklch(0.269 0 0);
   --typren-secondary-fg: oklch(0.985 0 0);
-  --typren-muted: oklch(0.269 0 0);
-  --typren-muted-fg: oklch(0.708 0 0);
   --typren-accent: oklch(0.269 0 0);
   --typren-accent-fg: oklch(0.985 0 0);
   --typren-destructive: oklch(0.704 0.191 22.216);
-  --typren-border: oklch(1 0 0 / 10%);
   --typren-input: oklch(1 0 0 / 15%);
-  --typren-ring: var(--ring, oklch(0.556 0 0));
-  --typren-app-bg: oklch(0.205 0 0);
-  --typren-sidebar: oklch(0.205 0 0);
   --typren-sidebar-fg: oklch(0.985 0 0);
   --typren-sidebar-accent: oklch(0.269 0 0);
   --typren-sidebar-accent-fg: oklch(0.985 0 0);
   --typren-sidebar-border: oklch(1 0 0 / 10%);
   --typren-sidebar-ring: oklch(0.556 0 0);
+  --typren-noise-opacity: 0.06;
+  --typren-hover-grain: 0.04;
+  --typren-selected-grain: 0.04;
+  /* Surface grain per elevation (0 frame, 1 panels, 2 floating). Barely
+     perceptible; set a level to 0 to switch it off. */
+  --typren-grain-0: 0.02;
+  --typren-grain-1: 0.025;
+  --typren-grain-2: 0.03;
+  --typren-reveal-halo: 0.045;
+  --typren-lightbox: color-mix(in oklch, var(--typren-bg-base) 50%, transparent);
+
+  --typren-text-primary: #fff;
+  --typren-text-secondary: rgb(255 255 255 / 0.77);
+  --typren-text-tertiary: rgb(255 255 255 / 0.53);
+  --typren-text-disabled: rgb(255 255 255 / 0.365);
+  --typren-text-on-accent: var(--primary-foreground, #000);
+  --typren-fill-control: rgb(255 255 255 / 0.06);
+  --typren-fill-control-hover: rgb(255 255 255 / 0.084);
+  --typren-fill-control-pressed: rgb(255 255 255 / 0.031);
+  --typren-fill-control-input: rgb(30 30 30 / 0.7);
+  --typren-fill-control-solid: #454545;
+  --typren-fill-track: rgb(0 0 0 / 0.098);
+  --typren-fill-subtle-hover: rgb(255 255 255 / 0.055);
+  --typren-fill-subtle-selected: rgb(255 255 255 / 0.11);
+  /* Coral lightened, as WinUI lightens its accent in dark, with black text
+     on it (7.9:1). */
+  --typren-fill-accent: var(--primary, #ff7456);
+  --typren-stroke-control: rgb(255 255 255 / 0.071);
+  --typren-stroke-control-strong: rgb(255 255 255 / 0.094);
+  /* 3.6:1 against the frame, layer and card. */
+  --typren-stroke-control-edge: rgb(255 255 255 / 0.4);
+  --typren-stroke-card: rgb(0 0 0 / 0.098);
+  --typren-stroke-flyout: rgb(0 0 0 / 0.2);
+  --typren-stroke-divider: rgb(255 255 255 / 0.082);
+  --typren-bg-base: #202020;
+  --typren-layer: rgb(58 58 58 / 0.45);
+  --typren-card-bg: rgb(255 255 255 / 0.05);
+  --typren-elevation: inset 0 0 0 1px var(--typren-stroke-control), inset 0 1px 0 var(--typren-stroke-control-strong);
+  --typren-elevation-input: var(--typren-elevation), inset 0 -1px 0 var(--typren-stroke-control-edge);
+  --typren-elevation-accent: inset 0 0 0 1px rgb(255 255 255 / 0.08), inset 0 -1px 0 rgb(0 0 0 / 0.14);
+  --typren-shadow-flyout: 0 8px 16px rgb(0 0 0 / 0.26), 0 0 2px rgb(0 0 0 / 0.2);
+}
+
+/* The shadcn-named tokens, as aliases of the set above. Declared for both
+   themes in one rule so each resolves against its own theme's values. */
+:root,
+.dark {
+  --typren-fg: var(--typren-text-primary);
+  --typren-muted-fg: var(--typren-text-secondary);
+  --typren-primary: var(--typren-fill-accent);
+  --typren-primary-fg: var(--typren-text-on-accent);
+  /* WinUI's accent hover and pressed are the accent at 90% and 80%. */
+  --typren-fill-accent-hover: color-mix(in srgb, var(--typren-fill-accent) 90%, transparent);
+  --typren-fill-accent-pressed: color-mix(in srgb, var(--typren-fill-accent) 80%, transparent);
+  --typren-ring: var(--ring, var(--typren-fill-accent));
+  --typren-border: var(--typren-stroke-divider);
+  --typren-app-bg: var(--typren-bg-base);
+  --typren-sidebar: var(--typren-bg-base);
+  --typren-muted: var(--typren-fill-subtle-hover);
+  --typren-hover: var(--typren-fill-control-hover);
+  --typren-selected: var(--typren-fill-subtle-selected);
+  --typren-hover-row: var(--typren-fill-subtle-hover);
+  --typren-overlay: var(--typren-smoke);
+  --typren-noise: var(--typren-fg);
+}
+
+/* The nested radius (see `--typren-radius-outer` above). Unlayered on purpose:
+   it must beat a primitive's own `rounded-*` utility on the same element. The
+   `calc()` sits here, not in a token, because a custom property resolves where
+   it is declared; only a property computed on the child sees the parent's
+   `--typren-radius-outer` and `--typren-inset`. */
+.typren-concentric {
+  border-radius: max(var(--typren-radius-min), calc(var(--typren-radius-outer) - var(--typren-inset) * var(--typren-corner-scale)));
+}
+
+/* Corner smoothing: squircle corners (a superellipse, as iOS and Figma's
+   corner smoothing draw them) on every rounded editor surface, where the
+   browser has `corner-shape`; elsewhere corners stay circular arcs. The Frame
+   root carries `.typren-smooth`, and popups portal inside it.
+   A squircle at a given radius bends over less of the edge than a circle, so
+   it reads smaller; the token radii scale by 1.5 to keep their optical size,
+   and the concentric gap scales with them (a squircle offset inward by d is
+   optically a squircle 1.5d tighter). Circles (`rounded-full`) stay round.
+   Outlines, borders, box-shadow rings, backgrounds and overflow clipping all
+   follow `corner-shape`; it is not inherited, so the grain and halo pseudo
+   layers below inherit it explicitly. */
+@supports (corner-shape: squircle) {
+  :root {
+    --typren-corner-scale: 1.5;
+  }
+  /* Layered, so a `[corner-shape:…]` utility on an element still wins. */
+  @layer base {
+    :where(.typren-smooth, .typren-smooth *) {
+      corner-shape: squircle;
+    }
+    :where(.typren-smooth) .rounded-full {
+      corner-shape: round;
+    }
+  }
+}
+
+/* Grain surfaces. `.typren-noise` is a layer (give it its own box); no blend
+   mode or negative z-index, either breaks backdrop-filter in Chrome.
+   `.typren-grain` fades the same grain in over a control while hovered. */
+.typren-noise {
+  background-color: var(--typren-noise);
+  opacity: var(--typren-noise-opacity);
+  mask-image: var(--typren-noise-image);
+  -webkit-mask-image: var(--typren-noise-image);
+}
+/* Unlayered rules beat Tailwind's layered utilities whatever their
+   specificity, so a bare `position: relative` here would override `absolute`
+   on the same element. Layering it lets any utility win. */
+@layer base {
+  .typren-grain {
+    position: relative;
+  }
+}
+.typren-grain::after,
+.typren-selected::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  corner-shape: inherit;
+  pointer-events: none;
+  background-color: var(--typren-noise);
+  mask-image: var(--typren-grain-image);
+  -webkit-mask-image: var(--typren-grain-image);
+  opacity: 0;
+  transition: opacity 150ms;
+}
+.typren-grain:hover::after {
+  opacity: var(--typren-hover-grain);
+}
+/* The same grain, always on, for a selected surface. Use it instead of
+   `.typren-grain` there so a hover never stacks a second layer. It does not set
+   `position` (the element must already be positioned) so it cannot override
+   a utility like `absolute`. */
+.typren-selected::after {
+  opacity: var(--typren-selected-grain);
+}
+@media (prefers-reduced-motion: reduce) {
+  .typren-grain::after,
+  .typren-selected::after {
+    transition: none;
+  }
+}
+
+/* Static grain on a surface, per elevation. A `::before` (controls use
+   `::after`), so it neither collides with hover grain nor needs a blend mode or
+   negative z-index. Positioned descendants, like the preview iframe, paint
+   above it and stay clean. The `position` sits in `@layer base` so `absolute` or
+   `fixed` utilities win. */
+@layer base {
+  :where(.typren-surface-0, .typren-surface-1, .typren-surface-2) {
+    position: relative;
+  }
+}
+.typren-surface-0::before,
+.typren-surface-1::before,
+.typren-surface-2::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  corner-shape: inherit;
+  pointer-events: none;
+  background-color: var(--typren-noise);
+  mask-image: var(--typren-grain-image);
+  -webkit-mask-image: var(--typren-grain-image);
+}
+.typren-surface-0::before {
+  opacity: var(--typren-grain-0);
+}
+.typren-surface-1::before {
+  opacity: var(--typren-grain-1);
+}
+.typren-surface-2::before {
+  opacity: var(--typren-grain-2);
+}
+
+/* Reveal. `--rx`/`--ry` are set by the editor's pointer handler on surfaces
+   near the pointer (see reveal.ts); without them the light sits off-surface.
+   The halo is the element's own background-image (hover or selected only).
+   Fine pointers and full motion only. */
+@media (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .typren-grain:hover,
+  .typren-selected {
+    background-image: radial-gradient(
+      calc(var(--typren-reveal-radius) * 0.9) circle at var(--rx, -999px) var(--ry, -999px),
+      color-mix(in oklch, var(--typren-fg) calc(var(--typren-reveal-halo) * 100%), transparent),
+      transparent
+    );
+  }
 }

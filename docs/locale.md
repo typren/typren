@@ -238,6 +238,6 @@ republish of catalogs, just the one small mutable file.
 ## License
 
 `@typren/locale` is licensed Apache-2.0, on its own, inside a monorepo whose
-root and several sibling packages (`@typren/core`, `@typren/editor`) are under
+root and several sibling packages (`@typren/core`, `@typren/studio`) are under
 the Functional Source License instead. Check `packages/locale/LICENSE`
 against the repo root's before assuming one license covers everything here.

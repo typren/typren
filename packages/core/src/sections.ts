@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { ContentAdapter, MediaAdapter, MediaAsset, SliceSchema } from "./types";
+import type { ContentAdapter, MediaAdapter, MediaAsset, MediaUse, SliceSchema } from "./types";
 import type { PageActions } from "./actions";
 import type { Messages } from "./i18n";
 import type { SiteSettings, SettingsStore } from "./settings";
@@ -7,16 +7,30 @@ import { slugify } from "./store";
 
 // ponytail: the predecessor's custom-element editor shell (and the element
 // `FieldFormMedia` was originally declared on) was dropped from this port;
-// @typren/editor is a fresh React implementation. `icon` is untyped until
+// @typren/studio is a fresh React implementation. `icon` is untyped until
 // that package defines its own icon contract; `FieldFormMedia` is inlined
 // here (it was never more than this shape) so SectionCtx doesn't have to
 // import a UI package to describe its own server-safe media capability.
-// Upgrade: re-type `icon` once @typren/editor settles, and re-export
+// Upgrade: re-type `icon` once @typren/studio settles, and re-export
 // FieldFormMedia from there too.
 export type FieldFormMedia = {
   list: () => Promise<MediaAsset[]>;
-  delete: (id: string) => Promise<void>;
+  /** Refused while content uses the asset, unless `opts.force`. */
+  delete: (id: string, opts?: { force?: boolean }) => Promise<void>;
+  /** Uploads POST multipart "file", plus "folder" when uploading into one. */
   uploadPath: string;
+  /** Where each asset URL is referenced; omit to hide usage. */
+  usage?: () => Promise<Record<string, MediaUse[]>>;
+  /** Folder support (see `MediaAdapter.listFolders`); omit for a flat library. */
+  folders?: {
+    list: () => Promise<string[]>;
+    create: (folder: string) => Promise<void>;
+    delete: (folder: string) => Promise<void>;
+    /** Moves an asset, renaming it when `name` is given. */
+    move: (id: string, folder: string, name?: string) => Promise<MediaAsset>;
+    /** Renames or moves a folder to the path `to`. */
+    rename: (folder: string, to: string) => Promise<void>;
+  };
 };
 
 /** Bump ONLY on a breaking change to SectionCtx or the custom mount/element
@@ -26,7 +40,7 @@ export type FieldFormMedia = {
 export const SECTION_API_VERSION = 1 as const;
 
 interface SectionBase {
-  /** Stable identity for nav highlighting + the `/editor/<id>` route segment.
+  /** Stable identity for nav highlighting + the `/studio/<id>` route segment.
    *  Defaults: built-in singletons use `kind`; collection/custom fall back to
    *  slug(label) but SHOULD be set so renaming `label` never breaks a link. */
   id?: string;
@@ -46,6 +60,10 @@ export interface MediaSection extends SectionBase {
 }
 export interface SettingsSection extends SectionBase {
   kind: "settings";
+}
+/** The Sections library: slices saved from the page editor (see library.ts). */
+export interface LibrarySection extends SectionBase {
+  kind: "library";
 }
 
 export interface CollectionSection extends SectionBase {
@@ -89,7 +107,7 @@ export interface CustomSection extends SectionBase {
 /** Plain union, NOT closed by a `never`-exhaustive host convention (see the
  *  spec's forward-compat switch convention). Adding a built-in kind later is
  *  an ADDITIVE change here. */
-export type Section = PagesSection | MediaSection | SettingsSection | CollectionSection | CustomSection;
+export type Section = PagesSection | MediaSection | SettingsSection | LibrarySection | CollectionSection | CustomSection;
 export type SectionKind = Section["kind"];
 
 /**
@@ -127,7 +145,7 @@ export interface SectionCtx {
   readonly locale: string;
   readonly locales: string[];
   readonly defaultLocale: string;
-  /** Navigate to another section (full navigation to `/editor/<id>`). */
+  /** Navigate to another section (full navigation to `/studio/<id>`). */
   navigate(sectionId: string): void;
   /** Contribute a top-bar right-slot action (e.g. collection "+ New").
    *  Optional; a section that never calls it puts nothing there. Returns an

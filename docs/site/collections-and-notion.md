@@ -7,7 +7,7 @@ order: 23
 
 A **collection** is a set of records — authors, FAQ entries, case studies —
 that aren't individually routed pages. Collections are a `CollectionSection`
-on the editor's `sections` config, each with its own `ContentAdapter`.
+on the studio's `sections` config, each with its own `ContentAdapter`.
 
 ## Declaring a collection
 
@@ -139,10 +139,10 @@ than trusting this one layer.
 >   store operation, if a collection grows into the thousands of rows. See
 >   [cost-and-rate-limits](./cost-and-rate-limits.md).
 
-## Sections and the editor shell
+## Sections and the studio shell
 
 Collections are one of five section kinds (`pages`, `media`, `settings`,
 `collection`, `custom`) resolved by `resolveSections(config)`. Omitting
 `sections` entirely falls back to the three built-in singletons
-(`DEFAULT_SECTIONS`); adding a `collection` section appends it to the editor
+(`DEFAULT_SECTIONS`); adding a `collection` section appends it to the studio
 nav without touching the Pages/Media/Settings defaults.

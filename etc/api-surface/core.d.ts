@@ -1,5 +1,6 @@
 // ---- dist/actions.d.ts ----
-import type { CmsConfig, PageContent } from "./types.js";
+import type { CmsConfig, ContentAdapter, MediaAsset, MediaMove, MediaUse, PageContent, PageInfo, Slice } from "./types.js";
+import { type GitLogEntry, type GitPendingChange, type GitPushResult } from "./git.js";
 /** Result of a version-checked write. A conflict is returned as data because Next
  *  redacts thrown error messages to an opaque digest in production, so a client
  *  couldn't read `e.message` to detect one. Auth denial still throws (fail loud). */
@@ -22,6 +23,36 @@ export type RenameResult = {
     ok: false;
     code: "conflict";
 };
+/** A refusal written for the person who asked (a locked rename, a stale
+ *  section insert), unlike the plain errors that carry internals. The HTTP
+ *  API answers it as 422 with this message and no `typren:` prefix. */
+export declare class ActionRefusedError extends Error {
+    name: string;
+}
+/** A page as the editor opens it: its draft, else its published content. */
+export type OpenedPage = {
+    page: PageContent;
+    version: string | null;
+    hasDraft: boolean;
+};
+/** Result of `uploadMedia`. A refused file (too large, an unsupported or
+ *  disabled format) is data, its `error` written for the person uploading. */
+export type UploadResult = {
+    ok: true;
+    asset: MediaAsset;
+} | {
+    ok: false;
+    error: string;
+};
+/** What `updatePageMeta` can change. Text is trimmed; an empty description
+ *  and a false `noindex` remove their keys. `nav` adds the page to, or
+ *  removes it from, the site doc's menu draft. */
+export type PageMetaPatch = {
+    title?: string;
+    nav?: boolean;
+    noindex?: boolean;
+    description?: string;
+};
 /**
  * Build the mutation handlers for a config. Each guards on the resolved
  * `AuthAdapter` first, because a Server Action is a public POST endpoint, so the gate
@@ -36,19 +67,101 @@ export type RenameResult = {
  * collection.ts); every guard forwards it with the target slug and locale, so
  * a policy keyed on any of them gates writes exactly as it gates reads.
  */
+/** Rewrites each move's `from` URL to its `to` in every page's published and
+ *  draft source, in every locale, plus the settings doc (a logo or share
+ *  image), in one pass. A match must end at a URL boundary, so "/img/a.webp"
+ *  leaves "/img/a.webp2" alone.
+ *  ponytail: collections keep their own adapters and aren't rewritten; walk
+ *  `config.sections` here once a collection field can hold media. */
+export declare function rewriteMediaRefs(adapter: ContentAdapter, moves: MediaMove[]): Promise<void>;
+/** Every reference to each of `urls` in content, keyed by URL, matched on
+ *  the same URL boundary as `rewriteMediaRefs`. A page counts its draft when
+ *  it has one, since that is what the editor shows, else its published
+ *  source.
+ *  ponytail: reads every page per call; index on write once a site's page
+ *  count makes the Assets list slow to open. */
+export declare function findMediaRefs(adapter: ContentAdapter, urls: string[]): Promise<Record<string, MediaUse[]>>;
+/** A function that applies every move to a source text. Exported for hosts
+ *  that rewrite references outside content (the studio's site files). */
+export declare function mediaRefSwapper(moves: MediaMove[]): (text: string) => string;
 export declare function makeActions(config: CmsConfig, scope?: {
     collectionId?: string;
 }): {
+    /** Every page in `locale` for the page list (see `ContentStore.listPages`). */
+    listPages(locale?: string): Promise<PageInfo[]>;
+    /** A page as the editor opens it, or null when it has neither published
+     *  content nor a draft in the default locale. */
+    getPage(slug: string, locale?: string): Promise<OpenedPage | null>;
+    /** Page folders kept without pages (see `ContentAdapter.listFolders`). */
+    listPageFolders(locale?: string): Promise<string[]>;
     saveDraft(slug: string, page: PageContent, baseVersion?: string, locale?: string): Promise<SaveResult>;
     discardDraft(slug: string, locale?: string): Promise<void>;
     publish(slug: string, baseVersion?: string, locale?: string): Promise<SaveResult>;
     /** Create an empty page (in `locale`, default when omitted); returns the
-     *  normalized slug for navigation. */
-    createPage(title: string, locale?: string): Promise<string>;
+     *  normalized slug for navigation. `opts.slug` places it at an explicit,
+     *  possibly nested slug (`event/1`) instead of one derived from the title;
+     *  it is passed through as-is, so the adapter's slug guard is what rejects
+     *  a bad one. `opts.draft` creates it as a draft only. */
+    createPage(title: string, locale?: string, opts?: {
+        slug?: string;
+        draft?: boolean;
+    }): Promise<string>;
+    /** Creates a draft page at `slug` holding `slices`: an empty draft first,
+     *  then a save against the version it was made at, so a page changed in
+     *  between is a conflict, not overwritten. Resolves to the stored slug. */
+    createPageFrom(title: string, slug: string, slices: Slice[], locale?: string): Promise<string>;
+    /** Inserts `slice` into a page's draft at index `at` (clamped), or at the
+     *  end; a conflict when the page moved on from `baseVersion`. */
+    insertSection(slug: string, slice: Slice, at: number | "end", baseVersion?: string, locale?: string): Promise<SaveResult>;
+    /** Changes a page's title, search visibility, description and place in
+     *  the menu, as drafts: the page's own front matter at `baseVersion`, and
+     *  the site doc's menu only when `nav` differs from it. A site whose menu
+     *  lives in its code (no site doc menu) refuses `nav`. */
+    updatePageMeta(slug: string, patch: PageMetaPatch, baseVersion?: string, locale?: string): Promise<SaveResult>;
+    /** Save: writes `page` as the draft when given, then publishes it. With
+     *  `config.git` the commit comes from `onPublish`. */
+    commitPage(slug: string, page?: PageContent, baseVersion?: string, locale?: string): Promise<SaveResult>;
+    /** Publishes every page with a draft in `locale`, and the site doc's
+     *  menu draft, each at its current draft (last write wins). Resolves to
+     *  the slugs published. */
+    publishAll(locale?: string): Promise<string[]>;
+    /** Pushes the local checkout's commits to its upstream. A push ships
+     *  every pending commit live, so it clears the publish tier. */
+    push(): Promise<GitPushResult>;
+    /** Files with saved changes the upstream lacks: the Review list. */
+    pendingChanges(): Promise<GitPendingChange[]>;
+    /** Pushes only these files' saved changes (see `GitRepo.pushPaths`),
+     *  and these pages' drafts: each draft is published first, one local
+     *  commit per page, so it goes out as one commit per page. A draft whose
+     *  publish commits nothing (it matches the page) adds nothing. `more`
+     *  publishes other drafts the same way (the settings doc's). */
+    pushChanges(paths: string[], slugs?: string[], locale?: string, more?: (() => Promise<unknown>)[]): Promise<GitPushResult>;
+    /** A page's version history: the commits that touched its file in
+     *  `locale`, newest first. Needs `config.git` and an adapter that keeps
+     *  pages in files (`pageFile`); the adapter checks the slug and the repo
+     *  keeps the read inside the content roots. */
+    pageHistory(slug: string, locale?: string, limit?: number): Promise<GitLogEntry[]>;
+    /** Undoes these files' saved changes in a new commit (see
+     *  `GitRepo.discardPaths`). It changes what the next push ships, so it
+     *  clears the publish tier. */
+    discardChanges(paths: string[]): Promise<void>;
+    /** Validates and web-optimizes an upload (see `processUpload`), then
+     *  stores it in `folder`. */
+    uploadMedia(file: {
+        name: string;
+        buffer: Buffer;
+    }, folder?: string): Promise<UploadResult>;
+    /** Keep a page folder with no page in it yet (see
+     *  `ContentAdapter.createFolder`). Gated like creating a page there. */
+    createPageFolder(folder: string, locale?: string): Promise<void>;
+    /** Remove an empty page folder; the adapter refuses one that holds pages.
+     *  Gated like deleting a page there. */
+    deletePageFolder(folder: string, locale?: string): Promise<void>;
     /** Rename (move) a page's slug across every locale it occupies. See
      *  `ContentStore.renamePage` for why this isn't locale-scoped like most
-     *  actions here. `newSlug` is run through the same `slugify` as
-     *  `createPage` so a caller passing free text still lands on a valid slug.
+     *  actions here. Each "/" segment of `newSlug` is run through the same
+     *  `slugify` as `createPage`, so a caller passing free text still lands on
+     *  a valid slug and a nested page (`event/1`) keeps its folder.
      *
      *  No `baseVersion` param: a rename doesn't race on CONTENT (it moves
      *  bytes, never edits them). It races on the DESTINATION SLUG, which
@@ -69,22 +182,43 @@ export declare function makeActions(config: CmsConfig, scope?: {
      *  "createPage" action: a duplicate IS creating a new page, just seeded
      *  from an existing one, so it shares that permission rather than adding
      *  a distinct one. Both the source and the derived destination slug are
-     *  authorized, the destination before anything is written. */
+     *  authorized, the destination before anything is written, and so is a
+     *  read of the source, since the copy exposes it. */
     duplicatePage(slug: string, locale?: string): Promise<string>;
     /** Seed a draft translation of `slug` into `toLocale` from the default
-     *  locale's published content. Gated as a draft write to `toLocale`. */
+     *  locale's published content. Gated as a read of that source and a
+     *  draft write to `toLocale`. */
     createTranslation(slug: string, toLocale: string): Promise<void>;
     deletePage(slug: string): Promise<void>;
     /** Delete a single translation (one locale) + its draft. */
     deleteTranslation(slug: string, locale: string): Promise<void>;
-    listMedia(): Promise<import("./types.js").MediaAsset[]>;
-    deleteMedia(id: string): Promise<void>;
+    listMedia(): Promise<MediaAsset[]>;
+    /** Deletes an asset. One that content still uses is refused, naming the
+     *  pages, unless `opts.force`; `mediaUsage` lets a UI warn first. */
+    deleteMedia(id: string, opts?: {
+        force?: boolean;
+    }): Promise<void>;
+    /** Where each asset is referenced in content, keyed by asset URL. */
+    mediaUsage(): Promise<Record<string, MediaUse[]>>;
+    /** Folders under the media root; [] for an adapter without folders. */
+    listMediaFolders(): Promise<string[]>;
+    /** Folder writes reuse the media actions: making a folder is gated like an
+     *  upload, removing one like a delete. */
+    createMediaFolder(folder: string): Promise<void>;
+    deleteMediaFolder(folder: string): Promise<void>;
+    /** Moves an asset, then points every reference at its new URL: content
+     *  through the content adapter, anything else through `onMediaMove`.
+     *  A move both adds and removes a file, so it needs both media actions,
+     *  and it rewrites live pages and changes a live URL, so it is a publish too. */
+    moveMedia(id: string, folder: string, name?: string): Promise<MediaAsset>;
+    /** Renames or moves a folder, with every asset in it, the same way. */
+    renameMediaFolder(folder: string, to: string): Promise<void>;
 };
 export type CmsActions = ReturnType<typeof makeActions>;
 /** The subset of `CmsActions` the page/site/media editor shells actually call
- *  (page CRUD + draft/publish, for PagesNav's create/delete-page controls and
- *  EditorShell's save flow). `listMedia`/`deleteMedia` are wired separately
- *  via each shell's `media` prop. Hosts mounting `@typren/editor` pass a
+ *  (page CRUD + draft/publish, for the Pages rail's create/delete-page controls
+ *  and PageEditor's save flow). `listMedia`/`deleteMedia` are wired separately
+ *  via each shell's `media` prop. Hosts mounting `@typren/studio` pass a
  *  reconstructed literal here, assembled in their own editor wiring (the CLI
  *  scaffold no longer emits one), not the real `makeActions()` object, so
  *  this must list only what's used, not the full action registry.
@@ -95,13 +229,21 @@ export type CmsActions = ReturnType<typeof makeActions>;
  *  stub before it typechecks. `TyprenClient` (see api/client.ts) still
  *  exposes both directly, the same way it already exposes reads/media/settings
  *  that also aren't part of this subset. Fold them into this Omit once a shell
- *  actually wires a rename/duplicate control. */
-export type PageActions = Omit<CmsActions, "listMedia" | "deleteMedia" | "renamePage" | "duplicatePage">;
+ *  actually wires a rename/duplicate control. The reads and whole flows
+ *  (`getPage` to `uploadMedia`) are left out the same way, until a shell
+ *  calls them through its host. */
+/** The whole-flow actions the editor calls through its host (the HTTP
+ *  client has them all), kept apart from `PageActions` so a collection's
+ *  actions and a host's hand-built literal don't owe them. */
+export type PageFlows = Pick<CmsActions, "createPageFrom" | "insertSection" | "updatePageMeta" | "commitPage" | "publishAll">;
+export type PageActions = Omit<CmsActions, "listPages" | "getPage" | "listPageFolders" | "createPageFrom" | "insertSection" | "updatePageMeta" | "commitPage" | "publishAll" | "push" | "pendingChanges" | "pushChanges" | "pageHistory" | "discardChanges" | "uploadMedia" | "listMedia" | "deleteMedia" | "listMediaFolders" | "mediaUsage" | "createMediaFolder" | "deleteMediaFolder" | "moveMedia" | "renameMediaFolder" | "renamePage" | "duplicatePage" | "createPageFolder" | "deletePageFolder">;
 
 // ---- dist/api/client.d.ts ----
-import type { PageActions, RenameResult, SaveResult } from "../actions.js";
-import type { CollectionRecordInfo, MediaAsset, PageContent, PageInfo } from "../types.js";
+import type { PageActions, PageFlows, RenameResult, SaveResult } from "../actions.js";
+import type { CollectionRecordInfo, MediaAsset, MediaUse, PageContent, PageInfo } from "../types.js";
 import type { SiteSettings, SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings.js";
+import type { GitLogEntry, GitOutgoing, GitPendingChange } from "../git.js";
+import type { FolderedLibrary } from "../library.js";
 /**
  * Typed client for the editor's HTTP API (./routes).
  *
@@ -120,7 +262,7 @@ export interface TyprenClientOptions {
     /** Merged into every request: auth headers for a token-authenticated host. */
     headers?: Record<string, string>;
 }
-export interface TyprenClient extends PageActions {
+export interface TyprenClient extends PageActions, PageFlows {
     listPages(locale?: string): Promise<PageInfo[]>;
     getPage(slug: string, locale?: string): Promise<{
         page: PageContent;
@@ -129,14 +271,42 @@ export interface TyprenClient extends PageActions {
     }>;
     renamePage(slug: string, newSlug: string): Promise<RenameResult>;
     duplicatePage(slug: string, locale?: string): Promise<string>;
+    /** Page folders kept without pages (see `ContentAdapter.createFolder`). */
+    listPageFolders(locale?: string): Promise<string[]>;
+    createPageFolder(folder: string, locale?: string): Promise<void>;
+    deletePageFolder(folder: string, locale?: string): Promise<void>;
     listMedia(): Promise<MediaAsset[]>;
-    deleteMedia(id: string): Promise<void>;
-    uploadMedia(file: File): Promise<MediaAsset>;
+    /** Refused (422) while content uses the asset, unless `opts.force`. */
+    deleteMedia(id: string, opts?: {
+        force?: boolean;
+    }): Promise<void>;
+    uploadMedia(file: File, folder?: string): Promise<MediaAsset>;
+    listMediaFolders(): Promise<string[]>;
+    createMediaFolder(folder: string): Promise<void>;
+    deleteMediaFolder(folder: string): Promise<void>;
+    moveMedia(id: string, folder: string, name?: string): Promise<MediaAsset>;
+    renameMediaFolder(folder: string, to: string): Promise<void>;
+    mediaUsage(): Promise<Record<string, MediaUse[]>>;
     getSettings(locale?: string): Promise<SiteSettings>;
     saveSettingsDraft(next: SiteSettingsRuntime, baseVersion?: string, locale?: string): Promise<SaveResult>;
     publishSettings(baseVersion?: string, locale?: string): Promise<SaveResult>;
+    discardSettingsDraft(locale?: string): Promise<void>;
+    settingsHistory(locale?: string): Promise<GitLogEntry[]>;
     writeBootstrap(patch: Partial<SiteSettingsBootstrap>): Promise<void>;
+    /** The Sections library and its page templates (see `createSliceLibrary`). */
+    library: FolderedLibrary;
     listCollectionRecords(sectionId: string, locale?: string): Promise<CollectionRecordInfo[]>;
+    /** Commits a push would send; 404s unless the host set `config.git`. */
+    gitOutgoing(): Promise<GitOutgoing>;
+    /** Pushes to the upstream, or only `paths`' saved changes; a rejection
+     *  throws with git's own error text. */
+    gitPush(paths?: string[], slugs?: string[], settings?: boolean): Promise<void>;
+    /** A page's commits, newest first (see `CmsActions.pageHistory`). */
+    gitHistory(slug: string, locale?: string): Promise<GitLogEntry[]>;
+    /** Files with saved changes the upstream lacks. */
+    gitPending(): Promise<GitPendingChange[]>;
+    /** Undoes `paths`' saved changes in a new commit. */
+    gitDiscard(paths: string[]): Promise<void>;
     /** A PageActions for one collection section, HTTP-backed the same way the
      *  top-level Pages methods are. It structurally satisfies PageActions so it
      *  can be dropped straight into `SectionCtx.collections[id]`. */
@@ -177,16 +347,24 @@ import type { CmsConfig } from "../types.js";
  * ## Resources
  * ```
  * GET    /pages                              list (?locale=)
- * POST   /pages                              create           (?locale=) { title } -> { slug }
+ * POST   /pages                              create           (?locale=) { title, slug?, draft? } -> { slug }
+ *        With `slices` it is createPageFrom: a draft at `slug` holding them ({ title, slug, slices }).
+ * POST   /pages/publish-all                  publish every draft (?locale=) -> { slugs }
  * GET    /pages/:slug                        draft ?? published (?locale=)
  * PUT    /pages/:slug/draft                  save draft       (?locale=) { page, baseVersion? }
  * DELETE /pages/:slug/draft                  discard draft    (?locale=)
  * POST   /pages/:slug/publish                publish          (?locale=) { baseVersion? }
+ * POST   /pages/:slug/commit                 save then publish (?locale=) { page?, baseVersion? }
+ * POST   /pages/:slug/sections               insert a section (?locale=) { slice, at, baseVersion? }
+ * PUT    /pages/:slug/meta                   title, nav, noindex, description (?locale=) { patch, baseVersion? }
  * POST   /pages/:slug/rename                 rename slug      { newSlug } -> SaveResult-shaped (409 on collision)
  * POST   /pages/:slug/duplicate              duplicate        (?locale=) -> { slug }
  * DELETE /pages/:slug                        delete page
  * POST   /pages/:slug/translations           create           { toLocale }
  * DELETE /pages/:slug/translations/:locale   delete translation
+ * GET    /folders                            page folders     (?locale=) -> { folders: string[] }
+ * POST   /folders                            keep a folder    (?locale=) { path }
+ * DELETE /folders/:path                      delete an empty folder (?locale=; 409 when it holds pages)
  * GET    /collections/:id                    list records     (?locale=) -> { records: CollectionRecordInfo[] }
  * GET    /collections/:id/:slug              draft ?? published (?locale=)
  * POST   /collections/:id                    create           (?locale=) { title } -> { slug }
@@ -196,11 +374,41 @@ import type { CmsConfig } from "../types.js";
  * DELETE /collections/:id/:slug              delete record
  * GET    /media                              list
  * POST   /media                              upload (multipart/form-data, field "file")
- * DELETE /media/:id                          delete
- * GET    /settings                           runtime + bootstrap snapshot + version
+ * DELETE /media/:id[?force=1]                delete (an id may hold "/" folders; 422 while in use unless force)
+ * GET    /media/folders                      list folders
+ * POST   /media/folders                      create folder {folder}
+ * DELETE /media/folders?folder=               delete an empty folder
+ * POST   /media/folders/rename               rename/move a folder {folder, to}
+ * GET    /media/usage                        where each asset URL is referenced
+ * POST   /media/move                         move/rename {id, folder, name?}; rewrites references
+ * GET    /settings                           runtime (its draft when there is one) + bootstrap + version + hasDraft
  * PUT    /settings/draft                     save draft       (?locale=) { settings, baseVersion? }
+ * DELETE /settings/draft                     discard draft    (?locale=)
  * POST   /settings/publish                   publish          (?locale=) { baseVersion? }
+ * GET    /settings/history?limit=            the settings doc's commits, newest first
  * PUT    /settings/bootstrap                 write bootstrap  (admin)   { patch }
+ * GET    /library                            saved sections   -> { saved: SavedSlice[] }
+ * POST   /library                            save a section   { name, slice } -> SavedSlice
+ * PUT    /library/:id                        update a section { slice, baseSavedAt, name? } -> LibraryUpdateResult (409 conflict, 404 gone)
+ * DELETE /library/:id                        delete a saved section
+ * GET    /library/templates                  page templates   -> { templates: PageTemplate[] }
+ * POST   /library/templates                  save a template  { name, slices } -> PageTemplate
+ * PUT    /library/templates/:id              update a template { slices, baseSavedAt, name? } -> TemplateUpdateResult (409 conflict, 404 gone)
+ * DELETE /library/templates/:id              delete a template
+ * POST   /library[/templates]/:id/move        move an entry    { folder, baseSavedAt? } -> result (409 conflict, 404 gone)
+ * GET    /library[/templates]/folders         folders          -> { folders: string[] }
+ * POST   /library[/templates]/folders         create a folder  { folder }
+ * POST   /library[/templates]/folders/rename  rename a folder  { folder, to }
+ * DELETE /library[/templates]/folders?folder= delete an empty folder (422 while it holds anything)
+ * GET    /git                                commits a push would send (only with `config.git`)
+ * POST   /git/push                           push to the upstream (publish) -> 502 { error } on rejection;
+ *                                             with { paths } only those files' saved changes; { slugs }
+ *                                             and { settings: true } publish those drafts first
+ * GET    /git/pending                        files with saved changes the upstream lacks
+ * GET    /git/history?slug=&limit=           a page's commits, newest first
+ * POST   /git/discard                        undo files' saved changes in a new commit { paths }
+ *        A failed git commit on publish, or a refused flow (a locked rename, a stale section insert),
+ *        answers 422 { error } with a plain-language reason.
  * ```
  *
  * ## Security
@@ -211,7 +419,8 @@ import type { CmsConfig } from "../types.js";
  *  - **Origin checking** on unsafe methods, so a cookie-authenticated editor
  *    can't be driven cross-site (CSRF). Same-origin by default; a host with a
  *    split origin passes `allowedOrigins`.
- *  - **Read gating**, since a bare GET never reaches an action guard.
+ *  - **Read gating** for the GETs no action serves (collections, settings,
+ *    git); page and folder reads go through `makeActions`' own read guard.
  */
 export interface TyprenApiOptions {
     /** Path prefix to strip before matching, e.g. "/api/typren". Inferred from
@@ -749,12 +958,136 @@ export type FsMediaAdapterOptions = {
     publicPath: string;
 };
 /**
- * Filesystem media adapter over a flat directory (mirrors `markdown-adapter.ts`'s
- * conventions: a `create*Adapter(opts)` factory, a `SAFE_*` traversal guard,
- * idempotent delete). Async throughout, same as `ContentAdapter` (issue #29):
- * `list()` probes image dimensions via sharp. See `types.ts`'s `MediaAdapter`.
+ * Filesystem media adapter over a directory tree: subfolders are media
+ * folders, and an asset's id is its "/"-joined path under `dir` (mirrors
+ * `markdown-adapter.ts`'s conventions: a `create*Adapter(opts)` factory, a
+ * `SAFE_*` traversal guard, idempotent delete). Async throughout, same as
+ * `ContentAdapter` (issue #29): `list()` probes image dimensions via sharp.
+ * See `types.ts`'s `MediaAdapter`.
  */
 export declare function createFsMediaAdapter({ dir, publicPath }: FsMediaAdapterOptions): MediaAdapter;
+
+// ---- dist/git-error.d.ts ----
+/** A git failure whose message is a plain-language reason the person saving
+ *  or pushing can act on, not git's own text. */
+export declare class GitError extends Error {
+    name: string;
+}
+export declare const GIT_NO_BRANCH = "Check out a branch in your site folder to save.";
+
+// ---- dist/git.d.ts ----
+import { GitError, GIT_NO_BRANCH } from "./git-error.js";
+export { GitError, GIT_NO_BRANCH };
+/** A local commit the upstream branch does not have yet. */
+export type GitCommit = {
+    hash: string;
+    subject: string;
+    files: string[];
+};
+/** What a push would send. `upstream` is null when the branch tracks none,
+ *  so there is nowhere to push and `commits` is empty. */
+export type GitOutgoing = {
+    branch: string;
+    upstream: string | null;
+    commits: GitCommit[];
+};
+export type GitPushResult = {
+    ok: true;
+} | {
+    ok: false;
+    error: string;
+};
+/** One commit in a file's history (see `GitRepo.history`). `date` is ISO 8601. */
+export type GitLogEntry = {
+    hash: string;
+    subject: string;
+    author: string;
+    date: string;
+};
+/** One file with saved (committed) changes the upstream does not have yet:
+ *  its net change since the upstream, and the local commits that touched it.
+ *  `path` is relative to the repository root, like `GitCommit.files`. */
+export type GitPendingChange = {
+    path: string;
+    change: "added" | "modified" | "deleted";
+    commits: {
+        hash: string;
+        subject: string;
+    }[];
+};
+/**
+ * Explains a failed commit or push in words a non-developer working locally
+ * can act on, keeping one line of git's (or a hook's) output where it helps.
+ * ponytail: a hook is recognised by elimination, output with no "fatal:" or
+ * "error:" line of git's own; read the hook path (core.hooksPath) if a
+ * message ever needs to name the hook.
+ */
+export declare function explainGitError(output: string, step: "commit" | "push"): string;
+/** A local git checkout holding the content: the local studio's Save commits
+ *  into it and its Push sends the commits to the branch's upstream. */
+export interface GitRepo {
+    /** Stages and commits exactly `files` (absolute, inside the checkout),
+     *  leaving anything else in the index alone. A file that no longer exists
+     *  commits as a deletion when git tracks it, and is skipped when it never
+     *  did, like an untracked file git ignores. False when they hold no
+     *  change, so there was nothing to commit. Throws `GitError` with a
+     *  plain-language reason, refusing outright on a detached HEAD; a failed
+     *  commit leaves these paths' index entries as they were. */
+    commit(files: string[], message: string): Promise<boolean>;
+    /** `branch` is "" on a detached HEAD, where Save is refused. */
+    outgoing(): Promise<GitOutgoing>;
+    /** Pushes the current branch to its upstream, never forced. A rejection
+     *  (non-fast-forward, auth) comes back as a plain-language reason. */
+    push(): Promise<GitPushResult>;
+    /** Every content file (see `createGitRepo`'s `roots`) with a net change the upstream lacks.
+     *  Empty with no upstream or on a detached HEAD. */
+    pending(): Promise<GitPendingChange[]>;
+    /** Pushes only `paths` (from `pending()`), never forced: one commit on
+     *  top of the upstream per local commit that last touched them, with that
+     *  commit's message and author, holding just the chosen paths' changes.
+     *  A page saved once per push is one commit per page. On success the
+     *  branch becomes those commits followed by every unpushed commit
+     *  replayed without the pushed paths' changes (dropped when nothing is
+     *  left), so the working tree is untouched and unpushed history keeps its
+     *  commits. A rejection (the remote moved, auth) comes back as a
+     *  plain-language reason with the local branch as it was. Throws
+     *  `GitError` for a path not in `pending()`. */
+    pushPaths(paths: string[]): Promise<GitPushResult>;
+    /** The latest `limit` (1 to 100) commits that touched `file` (absolute,
+     *  inside one of the content roots), newest first. Throws `GitError` for
+     *  a file outside them. */
+    history(file: string, limit?: number): Promise<GitLogEntry[]>;
+    /** Puts `paths` (from `pending()`) back to the upstream's version, a file
+     *  the upstream lacks being deleted, as one new commit; history is never
+     *  rewritten. Throws `GitError` for a path not in `pending()`, a path with
+     *  uncommitted edits, or a failed commit, which leaves the files as they were. */
+    discardPaths(paths: string[]): Promise<void>;
+}
+/**
+ * Runs git as an argument array (`execFile`, no shell) in `dir`, with the
+ * user's own credentials and config. Paths are literal pathspecs, so a file
+ * name can never be read as pathspec magic.
+ */
+export declare function createGitRepo({ dir, roots, }: {
+    dir: string;
+    /** The files and folders (absolute) whose changes `pending()` lists and
+     *  `pushPaths`/`discardPaths` accept: the content the host owns, so a
+     *  developer's code commits stay out of per-file review. Default: `dir`. */
+    roots?: string[];
+}): GitRepo & {
+    /** The subset of `files` (absolute, inside the checkout) git tracks,
+     *  whether or not they still exist on disk. Kept off `GitRepo`, which
+     *  hosts implement, since only the studio's rename commit needs it. */
+    tracked(files: string[]): Promise<string[]>;
+};
+/**
+ * Runs `write` and commits `files` (absolute, inside the checkout) as one
+ * change: a detached HEAD is refused before anything is written, and a
+ * failed write or commit runs `restore` to put the written files back before
+ * the error (a plain-language `GitError` for the commit) is rethrown. `files` may be a function, read
+ * once the write is done, for a write that only knows its paths afterwards.
+ */
+export declare function commitOrRestore<T>(git: GitRepo, files: string[] | (() => string[]), message: string, restore: () => unknown, write: () => Promise<T>): Promise<T>;
 
 // ---- dist/github-adapter.d.ts ----
 import type { ContentAdapter } from "./types.js";
@@ -946,27 +1279,177 @@ export type LocaleRoute = {
 export declare function routeLocale(i18n: I18nConfig, pathname: string): LocaleRoute;
 
 // ---- dist/index.d.ts ----
-export type { Slice, PageContent, LocalizedPage, PageInfo, CollectionRecordInfo, ContentAdapter, CmsConfig, FieldDef, SliceSchema, MediaAsset, MediaAdapter, PreparedFile, } from "./types.js";
+export type { Slice, PageContent, LocalizedPage, PageInfo, CollectionRecordInfo, ContentAdapter, CmsConfig, FieldDef, SliceSchema, MediaAsset, MediaMove, MediaUse, MediaAdapter, PreparedFile, } from "./types.js";
 export { resolveI18n, localizedPath, localizedHref, routeLocale, defaultIsUnprefixed, type I18nConfig, type Messages, type RoutingMode, type LocaleRoute, } from "./i18n.js";
 export { mergeLocalized, localeSubdir } from "./localize.js";
 export { createMarkdownAdapter, type MarkdownAdapterOptions } from "./markdown-adapter.js";
+export { STYLE_MAP_DEFAULT, STYLE_TOKENS, mappedName, sanitizeStyle, styleCss, styleMapError, styleVars, type StyleMap, type StyleToken, type StyleTokenGroup, type StyleTokenKind, } from "./style.js";
+export { GitError, GIT_NO_BRANCH } from "./git-error.js";
+export { commitOrRestore, createGitRepo, explainGitError, type GitRepo, type GitCommit, type GitOutgoing, type GitPendingChange, type GitPushResult, type GitLogEntry } from "./git.js";
 export { createNotionAdapter, createFetchNotionClient, type NotionAdapterOptions, type NotionClient, type NotionPage, type NotionPropertyMap, type NotionPropertyType, } from "./notion-adapter.js";
 export { blocksToMarkdown, blocksToSegments, pageRecordFrom, richTextToMarkdown, type NotionBlock, type NotionSegment, type ProseSegment, type ComponentSegment, } from "./notion-blocks.js";
 export { createFsMediaAdapter, type FsMediaAdapterOptions } from "./fs-media-adapter.js";
+export { createLocalSiteConfig, rewriteSiteFiles, type LocalSite } from "./local-site.js";
 export { createGithubAdapter, isAllowedRepoPath, type GithubAdapterOptions } from "./github-adapter.js";
 export { processUpload, handleMediaUpload, MAX_UPLOAD_BYTES } from "./media.js";
-export { createStore, type ContentStore } from "./store.js";
-export { makeActions, type CmsActions, type PageActions, type SaveResult } from "./actions.js";
+export { createStore, slugify, type ContentStore } from "./store.js";
+export { SITE_SLUG, assertSafeNav, linksTo, navHrefError, readMenu, unlink, type NavItem } from "./nav.js";
+export { nameError, slugError, libraryFolderError, BUILT_IN_FOLDER } from "./names.js";
+export { findMediaRefs, makeActions, mediaRefSwapper, rewriteMediaRefs, ActionRefusedError, type CmsActions, type OpenedPage, type PageActions, type PageFlows, type PageMetaPatch, type RenameResult, type SaveResult, type UploadResult, } from "./actions.js";
 export { resolveAuth, legacyAuthAdapter, withPolicy, type AuthAdapter, type AuthAction, type AuthContext, type AuthUser, type Policy, } from "./auth-adapter.js";
 export { filePolicy, type AccessPolicyFile } from "./file-policy.js";
 export { versionOf, ConflictError } from "./version.js";
 export { serializeFieldSchema, parseFieldSchema, isFieldSchema, type SerializedFieldSchema, } from "./field-schema.js";
-export { resolveSections, DEFAULT_SECTIONS, SECTION_API_VERSION, type Section, type SectionKind, type SectionCtx, type ResolvedSection, type PagesSection, type MediaSection, type SettingsSection, type CollectionSection, type CustomSection, type FieldFormMedia, } from "./sections.js";
+export { resolveSections, DEFAULT_SECTIONS, SECTION_API_VERSION, type Section, type SectionKind, type SectionCtx, type ResolvedSection, type PagesSection, type MediaSection, type SettingsSection, type CollectionSection, type CustomSection, type LibrarySection, type FieldFormMedia, } from "./sections.js";
 export { createSettingsStore, createFsSettingsAdapter, validateBootstrap, BOOTSTRAP_KEYS, type SiteSettings, type SiteSettingsRuntime, type SiteSettingsBootstrap, type SettingsAdapter, type SettingsStore, } from "./settings.js";
+export { createSliceLibrary, type FolderedLibrary, type LibraryFolders, type LibraryUpdateResult, type PageTemplate, type PageTemplateLibrary, type SavedSlice, type SliceLibrary, type TemplateUpdateResult, } from "./library.js";
 export { makeCollectionActions, makeCollectionAdapter, buildCollectionActions, listCollectionRecords } from "./collection.js";
 export { buildRedirects, type RedirectEntry, type BuildRedirectsOptions, type PageRedirectMeta } from "./redirects.js";
 export { scanContentStore, loadRedirectMap, mergeRedirectEntries, toRedirectPairs, type RedirectMapEntry, type ToRedirectPairsOptions, } from "./redirect-sources.js";
 export { resolveStaticHostRequest, isUnsafeRedirectTarget, STATIC_HOST_PASSTHROUGH, REDIRECT_STATUSES, type StaticHostDecision, type RedirectLookup, type RedirectStatus, } from "./static-host.js";
+
+// ---- dist/library.d.ts ----
+import type { CmsConfig, Slice } from "./types.js";
+/** One slice saved to the Sections library (the page editor's "Save to
+ *  Sections"): a copy of its props, not a link, so inserting it later pastes
+ *  that copy and editing a page never changes the library. */
+export type SavedSlice = {
+    id: string;
+    name: string;
+    savedAt: string;
+    slice: Slice;
+    folder?: string;
+};
+/** `update`'s outcome: the section as saved, or why it wasn't. "conflict"
+ *  means it changed since `baseSavedAt`; "missing" that it was deleted. */
+export type LibraryUpdateResult = {
+    ok: true;
+    saved: SavedSlice;
+} | {
+    ok: false;
+    code: "conflict" | "missing";
+};
+/** The Sections library: list, save, update and delete saved slices. */
+export interface SliceLibrary {
+    list(): Promise<SavedSlice[]>;
+    save(name: string, slice: Slice): Promise<SavedSlice>;
+    /** Replaces a saved section's slice (and its name, when given), only while
+     *  its `savedAt` still equals `baseSavedAt` (the version the caller edited). */
+    update(id: string, slice: Slice, baseSavedAt: string, name?: string): Promise<LibraryUpdateResult>;
+    remove(id: string): Promise<void>;
+    /** Moves a section into `folder` ("" is the top level), checked against
+     *  `baseSavedAt` when given. Optional so a host's own library type-checks. */
+    move?(id: string, folder: string, baseSavedAt?: string): Promise<LibraryUpdateResult>;
+    folders?: LibraryFolders;
+    /** Page templates, kept in the same doc. Optional so a host's own
+     *  `SliceLibrary` still type-checks; the editor hides them without it. */
+    templates?: PageTemplateLibrary;
+}
+/** A page template: a named, ordered group of sections a new page can start
+ *  from. Like a saved section, a copy: a page made from it never changes it. */
+export type PageTemplate = {
+    id: string;
+    name: string;
+    savedAt: string;
+    slices: Slice[];
+    folder?: string;
+};
+/** `PageTemplateLibrary.update`'s outcome, read as `LibraryUpdateResult`'s. */
+export type TemplateUpdateResult = {
+    ok: true;
+    saved: PageTemplate;
+} | {
+    ok: false;
+    code: "conflict" | "missing";
+};
+/** Page templates: list, save, update and delete. */
+export interface PageTemplateLibrary {
+    list(): Promise<PageTemplate[]>;
+    save(name: string, slices: Slice[]): Promise<PageTemplate>;
+    /** Replaces a template's sections (and its name, when given), only while
+     *  its `savedAt` still equals `baseSavedAt`. */
+    update(id: string, slices: Slice[], baseSavedAt: string, name?: string): Promise<TemplateUpdateResult>;
+    remove(id: string): Promise<void>;
+    /** As `SliceLibrary.move`. */
+    move?(id: string, folder: string, baseSavedAt?: string): Promise<TemplateUpdateResult>;
+    folders?: LibraryFolders;
+}
+/** A library's folders: "/"-joined paths, kept even while empty. */
+export interface LibraryFolders {
+    list(): Promise<string[]>;
+    /** Creates `folder` and any missing parents. */
+    create(folder: string): Promise<void>;
+    /** Renames or moves `folder`, its subfolders and every entry in them. */
+    rename(folder: string, to: string): Promise<void>;
+    /** Refuses a folder that holds entries or subfolders. */
+    delete(folder: string): Promise<void>;
+}
+/** `createSliceLibrary`'s library: every optional part present. */
+export type FolderedLibrary = Required<Omit<SliceLibrary, "templates">> & {
+    templates: Required<PageTemplateLibrary>;
+};
+/**
+ * The library is one reserved-slug doc in the private content adapter
+ * settings already use (`.typren/library.md` beside a markdown Pages dir), its
+ * sections under `saved` and its page templates under `templates` in the
+ * front matter. No new adapter method: any
+ * adapter that can hold the settings doc holds this one too.
+ *
+ * Writes are gated as "saveDraft": the library never reaches the live site.
+ * With `config.git` and a file-backed doc, every write is committed, the way
+ * a page Save is: a detached HEAD refuses it before anything is written, and
+ * a failed commit puts the doc back.
+ */
+export declare function createSliceLibrary(config: CmsConfig): FolderedLibrary;
+
+// ---- dist/local-site.d.ts ----
+import type { AuthAdapter } from "./auth-adapter.js";
+import type { StyleMap } from "./style.js";
+import type { CmsConfig, MediaMove } from "./types.js";
+/** What a site on disk is, read from its folder and `typren.config.json`'s
+ *  `studio` block by the CLI: everything a local front end (the studio, the
+ *  CLI's content commands) needs to edit it. */
+export type LocalSite = {
+    /** Absolute path of the site's project root. */
+    siteDir: string;
+    /** Absolute path of the site's markdown content directory. */
+    contentDir: string;
+    /** `dir` is relative to `siteDir`. Default `public/img` at `/img`. */
+    media?: {
+        dir: string;
+        publicPath: string;
+    };
+    /** Default "home". */
+    homeSlug?: string;
+    /** `typren.config.json`'s `studio.style`, validated by the CLI. */
+    styleMap?: StyleMap;
+    /** typren.config.json exists, so Settings can write its bootstrap keys. */
+    writeBootstrap?: boolean;
+};
+/**
+ * The `CmsConfig` for a site on disk: its markdown content, `public/img`
+ * style media and `typren.config.json` settings, with `auth` injected by the
+ * front end (the studio passes `localAuth()`).
+ *
+ * Inside a git checkout every write that changes published files commits
+ * them: Save (publish, then `onPublish`'s commit), a rename, a folder
+ * delete, and through `withCommit` a page delete, duplicate or published
+ * create, and a media upload, delete or move with the references it
+ * rewrote. A detached HEAD refuses the write first, and a failed commit puts
+ * every touched file back. Drafts are working state and never commit.
+ *
+ * `registry`, `defaults` and `previewPath` come back empty: a front end that
+ * shows slices or previews sets its own.
+ */
+export declare function createLocalSiteConfig(site: LocalSite, { auth }: {
+    auth: AuthAdapter;
+}): CmsConfig;
+/** Points the site's own files at moved assets: every move's `from` URL in
+ *  source becomes its `to`, ending at a URL boundary like core's content
+ *  rewrite. Returns the changed files, relative to `siteDir`.
+ *  ponytail: a full tree walk per move, fine at site scale; an index or a
+ *  git-grep is the upgrade for a monorepo-sized site. */
+export declare function rewriteSiteFiles(siteDir: string, moves: MediaMove[]): string[];
 
 // ---- dist/localize.d.ts ----
 import type { PageContent } from "./types.js";
@@ -1036,7 +1519,22 @@ export type MarkdownAdapterOptions = {
  *  the GitHub nor Notion adapter has a real filesystem path to report. */
 export type MarkdownAdapter = ContentAdapter & {
     readonly root: string;
+    /** Absolute path of a page's published file, slug- and locale-checked like
+     *  every read. A git-backed host commits exactly this file. */
+    pageFile(slug: string, locale?: string): string;
+    /** Absolute path of a folder's marker file, checked like `pageFile`. A
+     *  git-backed host commits it so an empty folder survives a clone. */
+    folderFile(folder: string, locale?: string): string;
+    /** Absolute path of a page's draft file, checked like `pageFile`. */
+    draftFile(slug: string, locale?: string): string;
+    listFolders(locale?: string): Promise<string[]>;
+    createFolder(folder: string, locale?: string): Promise<void>;
+    deleteFolder(folder: string, locale?: string): Promise<void>;
 };
+/** The file that keeps an empty page folder (see `createFolder`). A name of
+ *  Typren's own, not `.gitkeep`: a `.gitkeep` a developer placed means
+ *  nothing to the editor, and deleting a folder must never remove one. */
+export declare const FOLDER_MARKER = ".typren-folder";
 export declare function createMarkdownAdapter({ contentDir, draftDir, frontmatterKey, defaultLocale, locales, draftSubdir, requireSliceArray, }: MarkdownAdapterOptions): MarkdownAdapter;
 
 // ---- dist/media.d.ts ----
@@ -1057,19 +1555,79 @@ export declare function processUpload(input: {
 /** CSRF check for an unsafe request: true when it comes from the request's
  *  own host or an `allowed` origin. A request with no `Origin` header and no
  *  cross-site `Sec-Fetch-Site` is a non-browser caller, with no ambient
- *  credentials to abuse. */
+ *  credentials to abuse. "Own host" is the `Host` header the browser sent:
+ *  a dev server bound to 127.0.0.1 can rebuild `request.url` as localhost,
+ *  which refused every write from its own page. */
 export declare function sameOrigin(request: Request, allowed: string[]): boolean;
 /** Route Handler body. The host's route.ts is a thin wrapper, the same
  *  "host owns the boundary, package supplies the logic" split actions.ts
  *  already uses for Server Actions.
  *
  *  Route Handlers never run through a parent layout's auth gate (a
- *  `route.ts` renders no layout tree at all), so this re-checks auth itself
- *  via the same `resolveAuth` the action guard uses, and refuses a
+ *  `route.ts` renders no layout tree at all). The upload itself is
+ *  `makeActions().uploadMedia`, whose guard is the gate; this checks the
+ *  same action first anyway, so a caller who would be refused never gets a
+ *  body buffered, and refuses a
  *  cross-origin request itself: a multipart POST needs no CORS preflight, so
  *  any page could otherwise drive a loopback dev server's upload. A host
  *  serving the editor from another origin passes it in `allowedOrigins`. */
 export declare function handleMediaUpload(config: CmsConfig, request: Request, allowedOrigins?: string[]): Promise<Response>;
+
+// ---- dist/names.d.ts ----
+/** Why `segment` can't be a new slug segment beside `taken`, in the style of
+ *  `nameError`; null when it can. The content adapter enforces its own slug
+ *  rule regardless; this only explains it before the round trip. */
+export declare function slugError(segment: string, taken: string[]): string | null;
+/** Why `name` can't be a media asset or folder name beside `taken`, or null:
+ *  safe in a URL as typed, and within what the media adapter accepts. `ext`
+ *  is an asset's extension, which the name may end with but never changes. */
+export declare function nameError(name: string, taken: string[], ext?: string): string | null;
+/** The editor's group for templates its code ships. Reserved at the top
+ *  level, so no saved folder can be mistaken for it. */
+export declare const BUILT_IN_FOLDER = "built-in";
+/** Why `folder` can't be a library folder path, or null. Each segment
+ *  follows the media folder name rule (`nameError`), so "..", "/" runs and
+ *  other traversal shapes never pass. */
+export declare function libraryFolderError(folder: string): string | null;
+
+// ---- dist/nav.d.ts ----
+/** Slug of the site-wide doc `typren init` scaffolds beside the pages
+ *  (`content/site.md`). The store never lists it as a page, slice array or
+ *  not. Its `nav` and `cta` are the site's header menu. */
+export declare const SITE_SLUG = "site";
+/** One header menu link in the site doc's `nav`, or its `cta`. Keys the
+ *  editor doesn't know round-trip untouched. */
+export type NavItem = {
+    label: string;
+    href: string;
+    external?: boolean;
+    children?: NavItem[];
+} & Record<string, unknown>;
+/** Why `href` can't be a menu link, or null when it can: a site path
+ *  ("/about"), a fragment ("#", "#team") or an absolute http(s) URL. Every
+ *  other scheme is refused, `javascript:` foremost, since a site renders
+ *  these straight into `<a href>`. */
+export declare function navHrefError(href: string): string | null;
+/** Throws on the first unsafe href in a site doc's `nav` (children
+ *  included) or `cta`, or on submenus nested deeper than `MAX_NAV_DEPTH`.
+ *  The store runs it on every draft of the site doc, so no caller can write
+ *  a link the editor would refuse. Items of another shape are left alone:
+ *  they are not menu links. */
+export declare function assertSafeNav(meta: Record<string, unknown>): void;
+/** The site doc's menu, or null when it has none: a site whose header is
+ *  built in its own code. Entries that aren't items are left out. */
+export declare function readMenu(meta: Record<string, unknown>): {
+    nav: NavItem[];
+    cta?: NavItem;
+} | null;
+/** Whether any menu item, submenus included, links to `path`. */
+export declare const linksTo: (nav: NavItem[], path: string) => boolean;
+/** `nav` without the items linking to `path`; a removed item's submenu
+ *  moves up into its place, so unlinking a page never drops other links. */
+export declare function unlink(nav: NavItem[], path: string): NavItem[];
+/** `nav` with every item linking to `from`, submenus included, pointed at
+ *  `to` instead, keeping its query, fragment or trailing slash. */
+export declare function relink(nav: NavItem[], from: string, to: string): NavItem[];
 
 // ---- dist/notion-adapter.d.ts ----
 import type { ContentAdapter } from "./types.js";
@@ -1303,14 +1861,14 @@ export declare function pageRecordFrom(segments: NotionSegment[], opts?: {
 // ---- dist/proxy.d.ts ----
 /** Current `adminRoute` from `typren.config.json`, mtime-cached so a steady
  *  file only costs one `statSync` per request, not a `readFileSync` too.
- *  Missing file (`throwIfNoEntry: false`) or missing/invalid field -> "editor". */
+ *  Missing file (`throwIfNoEntry: false`) or missing/invalid field -> "studio". */
 export declare function currentAdminRoute(file?: string): string;
 /** `previewPath` derived from the live admin route, so it can never drift
  *  from whatever `currentAdminRoute` reports. */
 export declare function previewPathFor(adminRoute: string): string;
 /**
- * Maps `/<adminRoute>/**` -> `/editor/**`; returns null when no rewrite
- * applies (adminRoute is still the default "editor", or the path isn't under
+ * Maps `/<adminRoute>/**` -> `/studio/**`; returns null when no rewrite
+ * applies (adminRoute is still the default "studio", or the path isn't under
  * the admin route at all) so a host's proxy can fall through to its own logic.
  * Accepts `URL | string` (matches `request.nextUrl` or a plain path) rather
  * than a `NextRequest`, so this stays testable without a `next/server` import
@@ -1320,13 +1878,13 @@ export declare function typrenProxyRewrite(url: URL | string, opts?: {
     configFile?: string;
 }): string | null;
 /**
- * True when `url` hits `/editor/**` directly while a renamed `adminRoute`
+ * True when `url` hits `/studio/**` directly while a renamed `adminRoute`
  * means that's no longer the live admin path. A host wires this ahead of
  * `typrenProxyRewrite` (see the module doc comment) to 404 it: without this,
  * renaming the admin route for URL hygiene was purely cosmetic -- the OLD
- * path kept serving the editor side by side with the new one, forever.
+ * path kept serving the studio side by side with the new one, forever.
  */
-export declare function typrenBlocksDirectEditorAccess(url: URL | string, opts?: {
+export declare function typrenBlocksDirectStudioAccess(url: URL | string, opts?: {
     configFile?: string;
 }): boolean;
 
@@ -1478,14 +2036,30 @@ export declare function buildRedirects(store: ContentStore, opts?: BuildRedirect
 
 // ---- dist/sections.d.ts ----
 import type { ComponentType } from "react";
-import type { ContentAdapter, MediaAdapter, MediaAsset, SliceSchema } from "./types.js";
+import type { ContentAdapter, MediaAdapter, MediaAsset, MediaUse, SliceSchema } from "./types.js";
 import type { PageActions } from "./actions.js";
 import type { Messages } from "./i18n.js";
 import type { SiteSettings, SettingsStore } from "./settings.js";
 export type FieldFormMedia = {
     list: () => Promise<MediaAsset[]>;
-    delete: (id: string) => Promise<void>;
+    /** Refused while content uses the asset, unless `opts.force`. */
+    delete: (id: string, opts?: {
+        force?: boolean;
+    }) => Promise<void>;
+    /** Uploads POST multipart "file", plus "folder" when uploading into one. */
     uploadPath: string;
+    /** Where each asset URL is referenced; omit to hide usage. */
+    usage?: () => Promise<Record<string, MediaUse[]>>;
+    /** Folder support (see `MediaAdapter.listFolders`); omit for a flat library. */
+    folders?: {
+        list: () => Promise<string[]>;
+        create: (folder: string) => Promise<void>;
+        delete: (folder: string) => Promise<void>;
+        /** Moves an asset, renaming it when `name` is given. */
+        move: (id: string, folder: string, name?: string) => Promise<MediaAsset>;
+        /** Renames or moves a folder to the path `to`. */
+        rename: (folder: string, to: string) => Promise<void>;
+    };
 };
 /** Bump ONLY on a breaking change to SectionCtx or the custom mount/element
  *  calling convention. A custom section can runtime-check this and degrade
@@ -1493,7 +2067,7 @@ export type FieldFormMedia = {
  *  this (see the switch convention in the spec). */
 export declare const SECTION_API_VERSION: 1;
 interface SectionBase {
-    /** Stable identity for nav highlighting + the `/editor/<id>` route segment.
+    /** Stable identity for nav highlighting + the `/studio/<id>` route segment.
      *  Defaults: built-in singletons use `kind`; collection/custom fall back to
      *  slug(label) but SHOULD be set so renaming `label` never breaks a link. */
     id?: string;
@@ -1512,6 +2086,10 @@ export interface MediaSection extends SectionBase {
 }
 export interface SettingsSection extends SectionBase {
     kind: "settings";
+}
+/** The Sections library: slices saved from the page editor (see library.ts). */
+export interface LibrarySection extends SectionBase {
+    kind: "library";
 }
 export interface CollectionSection extends SectionBase {
     kind: "collection";
@@ -1552,7 +2130,7 @@ export interface CustomSection extends SectionBase {
 /** Plain union, NOT closed by a `never`-exhaustive host convention (see the
  *  spec's forward-compat switch convention). Adding a built-in kind later is
  *  an ADDITIVE change here. */
-export type Section = PagesSection | MediaSection | SettingsSection | CollectionSection | CustomSection;
+export type Section = PagesSection | MediaSection | SettingsSection | LibrarySection | CollectionSection | CustomSection;
 export type SectionKind = Section["kind"];
 /**
  * The ONE context object every section renderer (built-in or custom) reads.
@@ -1589,7 +2167,7 @@ export interface SectionCtx {
     readonly locale: string;
     readonly locales: string[];
     readonly defaultLocale: string;
-    /** Navigate to another section (full navigation to `/editor/<id>`). */
+    /** Navigate to another section (full navigation to `/studio/<id>`). */
     navigate(sectionId: string): void;
     /** Contribute a top-bar right-slot action (e.g. collection "+ New").
      *  Optional; a section that never calls it puts nothing there. Returns an
@@ -1626,6 +2204,7 @@ export { JsonLd, organizationJsonLd, websiteJsonLd, breadcrumbJsonLd } from "./j
 export { collectSliceJsonLd } from "./slice-registry.js";
 export { buildRootMetadata, buildMetadata } from "./metadata.js";
 export { buildSitemap, type BuildSitemapOptions } from "./sitemap.js";
+export { withSiteSettings, resolveSeoConfig } from "./site-settings.js";
 export { buildRobots, DEFAULT_AI_CRAWLERS } from "./robots.js";
 export { renderSlicesAsMarkdown, type SliceMarkdownRegistry } from "./markdown-render.js";
 export { createMarkdownRouteHandler, createMarkdownMirrorMiddleware, matchMarkdownMirrorSlug, } from "./markdown-route.js";
@@ -1761,6 +2340,22 @@ import type { SeoConfig } from "./types.js";
 export declare const DEFAULT_AI_CRAWLERS: readonly ["GPTBot", "ChatGPT-User", "ClaudeBot", "Claude-Web", "anthropic-ai", "PerplexityBot", "Google-Extended", "CCBot"];
 export declare function buildRobots(config: SeoConfig): MetadataRoute.Robots;
 
+// ---- dist/seo/site-settings.d.ts ----
+import type { SettingsStore, SiteSettingsRuntime } from "../settings.js";
+import type { SeoConfig } from "./types.js";
+/** Overlays the saved Site Settings onto a code `SeoConfig`, field by field.
+ *  A non-empty saved value wins; the code value is the fallback, so a site
+ *  with no settings doc (or blank fields) renders exactly as it did before.
+ *  Pure: no I/O. Mapping: brand.name -> siteName, brand.logo ->
+ *  organization.logo (Organization JSON-LD), seo.titleTemplate ->
+ *  titleTemplate, seo.description -> defaultDescription, seo.ogImage ->
+ *  defaultOgImage. `brand.logoDark` has no SEO surface and is not read. */
+export declare function withSiteSettings(config: SeoConfig, settings: Partial<SiteSettingsRuntime> | undefined): SeoConfig;
+/** Reads the published settings and overlays them (see `withSiteSettings`).
+ *  Call once per request in `generateMetadata`, the root layout, sitemap and
+ *  robots; the store read is cheap and the result is never cached here. */
+export declare function resolveSeoConfig(config: SeoConfig, settings: Pick<SettingsStore, "get">, locale?: string): Promise<SeoConfig>;
+
 // ---- dist/seo/sitemap.d.ts ----
 import type { MetadataRoute } from "next";
 import type { ContentStore } from "../store.js";
@@ -1855,9 +2450,10 @@ export type SeoConfig = {
 export type { PageContent };
 
 // ---- dist/settings.d.ts ----
-import type { CmsConfig, MediaAsset } from "./types.js";
+import type { CmsConfig, ContentAdapter, MediaAsset } from "./types.js";
 import type { RoutingMode } from "./i18n.js";
 import type { SaveResult } from "./actions.js";
+import type { GitLogEntry } from "./git.js";
 /** Content-shaped, locale-aware, hot-editable: a reserved-slug PageContent in
  *  a PRIVATE dir (never the Pages dir). */
 export interface SiteSettingsRuntime {
@@ -1877,6 +2473,8 @@ export interface SiteSettingsRuntime {
     theme?: {
         preset?: "shadcn" | "neutral";
     };
+    /** The site's `--typren-*` style tokens (custom property to value); see `styleCss`. */
+    style?: Record<string, string>;
 }
 /** NOT locale-scoped, NOT adapter-managed. Small root JSON, read at server
  *  start (cms.config.ts), by the CLI, and optionally by proxy.ts (Wave 5). */
@@ -1894,15 +2492,15 @@ export interface SettingsAdapter {
     readBootstrap(): SiteSettingsBootstrap;
     writeBootstrap(patch: Partial<SiteSettingsBootstrap>): void;
 }
-/** Keys `PUT /settings/bootstrap` may patch (see api/routes.ts settingsRoutes).
- *  Anything else in the patch is rejected before it ever reaches
- *  `writeBootstrap`, since that adapter has no key allowlist of its own. */
+/** Keys `SettingsStore.writeBootstrap` (and so `PUT /settings/bootstrap`)
+ *  may patch. Anything else in the patch is rejected before it ever reaches
+ *  the adapter's `writeBootstrap`, which has no key allowlist of its own. */
 export declare const BOOTSTRAP_KEYS: ReadonlySet<string>;
 /**
  * Validates a FULL bootstrap (not a partial patch): the one check shared by
  * the Settings "Advanced" panel, the onboarding wizard's admin-route step,
- * `typren apply-settings` (packages/cli/src/cli.ts), and the settings API's
- * bootstrap write (api/routes.ts), so a config that passes one passes all
+ * `typren apply-settings` (packages/cli/src/cli.ts), and the settings store's
+ * bootstrap write (`SettingsStore.writeBootstrap`), so a config that passes one passes all
  * four. Returns an error string, or null when valid. Reuses `resolveI18n`'s
  * own defaultLocale-in-locales check rather than re-deriving it.
  */
@@ -1920,10 +2518,34 @@ export interface SettingsStore {
      *  version to check" and writes unconditionally, silently overwriting whatever
      *  another session had just saved. */
     currentVersion(locale?: string): Promise<string | null>;
+    /** What the editor shows: the draft when there is one, else the published
+     *  doc, with the version to save against. Read tier, as a page's draft is. */
+    open(locale?: string): Promise<{
+        settings: SiteSettingsRuntime;
+        version: string | null;
+        hasDraft: boolean;
+    }>;
     saveDraft(next: SiteSettingsRuntime, baseVersion?: string, locale?: string): Promise<SaveResult>;
     publish(baseVersion?: string, locale?: string): Promise<SaveResult>;
+    /** Drops the draft, so the published doc shows again. */
+    discardDraft(locale?: string): Promise<void>;
+    /** The settings doc's commits in a local git checkout, newest first; empty
+     *  without git or a file-backed doc. */
+    history(locale?: string, limit?: number): Promise<GitLogEntry[]>;
+    /** Patches the bootstrap file, as admin: only `BOOTSTRAP_KEYS`, and only
+     *  when the merged result passes `validateBootstrap`. A refused patch is
+     *  data, its `error` written for the person changing it. */
+    writeBootstrap(patch: Partial<SiteSettingsBootstrap>): Promise<{
+        ok: true;
+    } | {
+        ok: false;
+        error: string;
+    }>;
     bootstrap: SettingsAdapter;
 }
+/** The private content adapter beside the Pages one: settings and the saved
+ *  slice library (see library.ts) live there as reserved-slug docs. */
+export declare function privateContentAdapter(config: CmsConfig): ContentAdapter;
 export declare function createSettingsStore(config: CmsConfig): SettingsStore;
 
 // ---- dist/static-host.d.ts ----
@@ -2002,8 +2624,12 @@ export interface ContentStore {
     /** Promote the draft to published (via the adapter), clear it, run onPublish.
      *  With `baseVersion`, throws `ConflictError` if the draft moved since. */
     publish(slug: string, baseVersion?: string, locale?: string): Promise<void>;
-    /** Create a new published page in a locale. Throws if it already exists. */
-    createPage(slug: string, page: PageContent, locale?: string): Promise<void>;
+    /** Create a new page in a locale, published, or with `opts.draft` as a draft
+     *  only (it lists with `published: false` until its first publish). Throws
+     *  if the slug already has published content or a draft. */
+    createPage(slug: string, page: PageContent, locale?: string, opts?: {
+        draft?: boolean;
+    }): Promise<void>;
     /** Seed a draft translation of an existing page from `fromLocale`'s content
      *  (copies structure + text as a starting point). No-op if `toLocale` already
      *  has content or a draft. */
@@ -2038,21 +2664,70 @@ export declare function createStore(adapter: ContentAdapter, opts?: {
     defaultLocale?: string;
 }): ContentStore;
 
+// ---- dist/style.d.ts ----
+/** The site's visual tokens as an editable `--typren-*` set. Stored on
+ *  `SiteSettingsRuntime.style` (custom property name to value) and turned into
+ *  CSS with {@link styleCss}; a site reads them with `var(--typren-primary, ...)`. */
+/** `number` is unitless (a line height, a ratio). */
+export type StyleTokenKind = "color" | "text" | "length" | "number";
+export type StyleTokenGroup = "colors" | "typography" | "shape";
+export interface StyleToken {
+    /** The CSS custom property, always `--typren-*`. */
+    name: string;
+    label: string;
+    group: StyleTokenGroup;
+    kind: StyleTokenKind;
+}
+export declare const STYLE_TOKENS: readonly StyleToken[];
+/** The known tokens of `style` whose values are safe to emit. */
+export declare function sanitizeStyle(style: Record<string, string> | undefined): Record<string, string>;
+/** Which of the site's own custom properties each token drives: a set token
+ *  is emitted under its mapped name as well as its own, and the editor reads a
+ *  token's current value from the mapped name. A site sets its own map as
+ *  `studio.style` in `typren.config.json`; one that styles with `--typren-*`
+ *  directly maps a token to itself.
+ *  ponytail: a plain name-to-name map. A StyleAdapter (design-token files,
+ *  per-mode values) is the upgrade once a site needs more than renaming. */
+export type StyleMap = Readonly<Record<string, string>>;
+/** The stock shadcn names, used when a site gives no map, so a shadcn
+ *  site restyles with no config. The same names core's theme.css reads as its
+ *  host fallbacks. */
+export declare const STYLE_MAP_DEFAULT: StyleMap;
+/** A custom property name safe to write into a stylesheet. */
+export declare const CUSTOM_PROPERTY: RegExp;
+/** Why `map` can't be a style map, or null when it can: every key a known
+ *  token, every value a plain lowercase custom property name. */
+export declare function styleMapError(map: unknown): string | null;
+/** The name `token` writes to and is read from under `map`; the token itself
+ *  when the map leaves it out. */
+export declare function mappedName(token: string, map?: StyleMap): string;
+/** The declarations a site style makes: each safe token under its own name
+ *  and its mapped one, with the same concrete value. A site whose CSS sets
+ *  `--typren-x: var(--x)` gets both overridden at once, so neither refers to
+ *  the other and no cycle can form. An invalid map entry is skipped. */
+export declare function styleVars(style: Record<string, string> | undefined, map?: StyleMap): Record<string, string>;
+/** A rule for the site's stylesheet (empty string when nothing is set). The
+ *  doubled `:root:root` outranks the site's own `:root`, `.dark` and
+ *  `html.dark` blocks whatever order the stylesheets load in or which layer
+ *  they sit in, as long as this rule is unlayered; only `!important` or an
+ *  inline style on `<html>` beat it. */
+export declare function styleCss(style: Record<string, string> | undefined, map?: StyleMap): string;
+
 // ---- dist/templates/init.d.ts ----
-export declare const TYPREN_REWRITE_MARKER = "typren:admin-route-rewrite";
 export declare const TYPREN_BOOTSTRAP_MARKER = "typren:bootstrap-wired";
 /** Every file \`typren init\` scaffolds, keyed by path relative to the
  *  detected project base dir ("src" when the project has \`src/app\`, "."
  *  when it has a root-level \`app\`). \`contentDirLiteral\` is the same base
  *  dir joined with "content" (e.g. "src/content" or "content"). A key
  *  starting with "/" is project-ROOT-relative regardless of baseDir (see
- *  ../cli.ts's \`scaffold\`), used for next.config.ts/typren.config.json,
- *  which can never live under src/. */
+ *  ../cli.ts's \`scaffold\`), used for typren.config.json, which can never
+ *  live under src/. */
 export declare function buildTemplates(contentDirLiteral: string): Record<string, string>;
 
 // ---- dist/types.d.ts ----
 import type { ComponentType } from "react";
 import type { AuthAdapter } from "./auth-adapter.js";
+import type { GitRepo } from "./git.js";
 import type { I18nConfig } from "./i18n.js";
 import type { Section } from "./sections.js";
 import type { SettingsAdapter } from "./settings.js";
@@ -2075,12 +2750,22 @@ export type LocalizedPage = PageContent & {
     isFallback: boolean;
 };
 /** Summary row for the page picker. `locales` is which locales this page exists
- *  in (translation status); `hasDraft` is for the currently-listed locale. */
+ *  in (translation status); `hasDraft` is for the currently-listed locale.
+ *  `nav`/`navOrder`/`system`/`noindex` mirror the page's front matter and are
+ *  present only when set there with the right type; the editor groups pages
+ *  by them. Without front matter, `nav`/`navOrder` come from the site doc's
+ *  header navigation (`site.md`'s `nav` and `cta` links), in its order. `published` is false for a page that exists only as a draft (never
+ *  published); absent means published. */
 export type PageInfo = {
     slug: string;
     title: string;
     hasDraft: boolean;
     locales: string[];
+    nav?: boolean;
+    navOrder?: number;
+    system?: boolean;
+    noindex?: boolean;
+    published?: boolean;
 };
 /** One row of a collection's list view. A record IS a `PageContent` with
  *  `slices: []` (see collection.ts). `meta` is the schema-shaped prop bag,
@@ -2134,6 +2819,21 @@ export type MediaAsset = {
     height?: number;
     mime: string;
     createdAt: string;
+    /** Folder the asset sits in, "/"-joined ("events/2025"); "" or absent at
+     *  the root. Only adapters with folder support set it. */
+    folder?: string;
+};
+/** One asset's public URL before and after a move or rename. */
+export type MediaMove = {
+    from: string;
+    to: string;
+};
+/** Where one asset URL is referenced: a page (or "settings") in a locale,
+ *  and how many times. */
+export type MediaUse = {
+    slug: string;
+    locale: string;
+    count: number;
 };
 /** A file that has already passed validation + web-optimization (see
  *  media.ts's processUpload) and is ready to persist. Adapters never see
@@ -2156,8 +2856,27 @@ export interface MediaAdapter {
     /** `file` is already validated + converted (see media.ts). Adapters own
      *  collision-free key assignment (the fs adapter appends a random suffix
      *  unconditionally rather than check-then-write). */
-    upload(file: PreparedFile): Promise<MediaAsset>;
+    /** `folder` (see `MediaAsset.folder`) is only passed to adapters with
+     *  folder support; others ignore it. */
+    upload(file: PreparedFile, folder?: string): Promise<MediaAsset>;
     delete(id: string): Promise<void>;
+    /** Optional folder support: implement all five or none. Folder paths are
+     *  "/"-joined and validated by the adapter, like ids. */
+    listFolders?(): Promise<string[]>;
+    createFolder?(folder: string): Promise<void>;
+    /** Refuses a folder that still holds assets, so nothing referenced goes
+     *  missing as a side effect. */
+    deleteFolder?(folder: string): Promise<void>;
+    /** Moves an asset into `folder` ("" for the root), renaming it to `name`
+     *  when given (the extension is kept). `from` is its old public URL, so
+     *  callers can rewrite references to it. */
+    move?(id: string, folder: string, name?: string): Promise<{
+        from: string;
+        to: MediaAsset;
+    }>;
+    /** Renames or moves a whole folder to the path `to`; returns the old and new
+     *  public URL of every asset it carried. */
+    renameFolder?(folder: string, to: string): Promise<MediaMove[]>;
 }
 /**
  * The ONLY thing that knows where/how content is stored and serialized.
@@ -2196,6 +2915,17 @@ export interface ContentAdapter {
     }): Promise<void>;
     deleteDraft(slug: string, locale?: string): Promise<void>;
     hasDraft(slug: string, locale?: string): Promise<boolean>;
+    /** Slugs with a draft in a locale, published or not. Optional: without it,
+     *  a page that exists only as a draft is left out of `listPages`. */
+    listDraftSlugs?(locale?: string): Promise<string[]>;
+    /** Page folders kept on their own, with no page inside required: paths
+     *  like `event` or `docs/guides`. Folders that hold pages are implied by
+     *  their slugs and need not be listed. The three folder methods are
+     *  optional together; the folder path is validated like a slug. */
+    listFolders?(locale?: string): Promise<string[]>;
+    createFolder?(folder: string, locale?: string): Promise<void>;
+    /** Refuses (rejects) unless the folder holds nothing but its own marker. */
+    deleteFolder?(folder: string, locale?: string): Promise<void>;
     /** True when `writeDraftRaw` writes the live content (no separate draft
      *  storage, e.g. Notion). `makeActions` then gates draft writes as
      *  "publish", since a draft save publishes. */
@@ -2219,8 +2949,11 @@ export interface CmsConfig {
      *  without an entry auto-detect their control. Keyed by slice name. */
     fieldSchema?: Record<string, SliceSchema>;
     adapter: ContentAdapter;
-    /** Route the editor iframes for live preview, e.g. "/editor/preview". */
+    /** Route the editor iframes for live preview, e.g. "/studio/preview". */
     previewPath: string;
+    /** Slug of the page the site serves at "/". It keeps its slug: a rename
+     *  refuses it. Default "home". */
+    homeSlug?: string;
     /** Pluggable auth (preferred over `authorize`). Resolved via `resolveAuth`,
      *  which both the action guard and the layout gate share. */
     auth?: AuthAdapter;
@@ -2239,10 +2972,29 @@ export interface CmsConfig {
      *  the HTTP response is sent. Keep it fast (a marker-file write, not a
      *  network call). store.saveDraft is synchronous and does not await this. */
     onSaveDraft?(slug: string, locale: string, version: string): void;
+    /** Optional rename side-effect, awaited after `renamePage` moved the page's
+     *  files in every locale (the local studio commits the move here). With
+     *  `git` set, a rename on a detached HEAD is refused before anything moves,
+     *  and a throw moves the page back before it propagates. */
+    onRename?(slug: string, newSlug: string): void | Promise<void>;
+    /** The local git checkout the content lives in (the local studio). The
+     *  HTTP API then serves `GET /git` (commits a push would send) and
+     *  `POST /git/push`. Committing stays the host's call, from `onPublish`. */
+    git?: GitRepo;
+    /** Wraps a page or media write that lands as one change (a page delete,
+     *  duplicate or published create; a media upload, delete or move), with a
+     *  one-line description of it. The local site commits every file the
+     *  write touched here (see `createLocalSiteConfig`); without it the write
+     *  just runs. */
+    withCommit?<T>(message: string, write: () => Promise<T>): Promise<T>;
     /** Optional media library. Omit to disable media management. Image-typed
      *  fields (see FieldDef) still render, just as a plain text input with no
      *  "Browse library" button. */
     mediaAdapter?: MediaAdapter;
+    /** Called after a media move, once references in content are rewritten,
+     *  for references the content adapter can't see (a site's source code).
+     *  The local studio rewrites the site's files here. */
+    onMediaMove?(moves: MediaMove[]): void | Promise<void>;
     /** Accept SVG uploads (sanitized). Off by default: an SVG is a document, so
      *  serve media from a separate origin or with `Content-Security-Policy:
      *  sandbox` before turning this on. See docs/site/media-storage.md. */
@@ -2275,10 +3027,126 @@ export interface CmsConfig {
 }
 export type { I18nConfig, Messages, RoutingMode } from "./i18n.js";
 
+// ---- dist/ui/canvas-react.d.ts ----
+import { type ComponentType } from "react";
+import type { RendererAdapter } from "./canvas.js";
+type Props = Record<string, unknown>;
+/**
+ * The page canvas's React renderer. It creates no root per section, which
+ * would cut sections off from the root layout's providers: each `mount`
+ * adds a slot that the canvas's own React tree (its `Outlet`) fills with a
+ * portal, so context reaches every section. A slot keeps its portal while
+ * the canvas moves its element, so a reorder keeps the mounted instance.
+ *
+ * Changes made while handling one studio message commit together, in one
+ * synchronous render a microtask later, so the canvas's `rendered` timing
+ * sees them painted on the next frame.
+ */
+export declare function createReactRenderer(): RendererAdapter<ComponentType<Props>>;
+export {};
+
+// ---- dist/ui/canvas.d.ts ----
+import { type ComponentType } from "react";
+/** The canvas protocol this core speaks (see docs/canvas-renderer.md). */
+export declare const CANVAS_PROTOCOL = 1;
+/** One section a renderer has mounted. */
+export interface MountedSection {
+    update(props: Record<string, unknown>): void;
+    unmount(): void;
+}
+/** Mounts one framework component into one element of the page canvas. A
+ *  section that throws should dispatch a bubbling `typren:error` event from
+ *  its element, which the canvas reports to the studio. */
+export interface RendererAdapter<C = unknown> {
+    readonly name: string;
+    mount(el: HTMLElement, component: C, props: Record<string, unknown>): MountedSection;
+    /** Rendered once inside the canvas's own React tree, for a renderer whose
+     *  sections live there (the React renderer's portals). */
+    readonly Outlet?: ComponentType;
+}
+/** A `patch` operation, by the studio's per-session slice key. */
+export type CanvasOp = {
+    op: "set";
+    key: string;
+    slice: unknown;
+} | {
+    op: "insert";
+    at: number;
+    key: string;
+    slice: unknown;
+} | {
+    op: "remove";
+    key: string;
+} | {
+    op: "move";
+    key: string;
+    to: number;
+};
+type Post = (message: Record<string, unknown>) => void;
+/**
+ * The page canvas's state machine, framework-free: it keeps one element per
+ * slice under `root`, in document order, each wrapped as the preview bridge
+ * expects (`data-typren-index`, plus `data-typren-key`), and has `renderer`
+ * mount, update or unmount the registry's component in it. A reorder moves
+ * the element, so the mounted section survives it.
+ *
+ * `receive` takes the studio's messages, already checked for origin and
+ * nonce: `document` replaces the page, `patch` applies to the current `rev`
+ * only and otherwise asks for a `resync`. Each answer goes through `post`:
+ * `rendered { rev, ms }` on the next animation frame, `missing { keys }` for
+ * slices this site cannot render, `error { key }` for a section that threw.
+ */
+export declare function createCanvasSession<C>({ renderer, registry, root, post, }: Readonly<{
+    renderer: RendererAdapter<C>;
+    registry: Record<string, C>;
+    root: HTMLElement;
+    post: Post;
+}>): {
+    /** Ready: tells the studio this canvas's protocol and renderer. */
+    hello: () => void;
+    receive(d: Record<string, unknown>): void;
+    destroy(): void;
+};
+/** The studio's session nonce from the frame URL's fragment
+ *  (`#typren=<nonce>`), or null. */
+export declare function readNonce(hash: string): string | null;
+/** Page mode on a canvas with no client renderer (the server form of
+ *  `createSectionCanvas`): says so at once, so the studio falls back to the
+ *  real route without waiting out its timer. */
+export declare function CanvasUnavailable({ origin }: Readonly<{
+    origin?: string;
+}>): null;
+/**
+ * The section canvas in the browser, with a renderer for page mode. Mount
+ * the result where the site mounts its section canvas today, passed to
+ * `createSectionCanvas`, which keeps the server-side gate:
+ *
+ * - `?page` (with the studio's nonce in the fragment): the persistent page
+ *   canvas. The studio posts the page as a `document` and its edits as
+ *   `patch`es; every slice renders here, in order, under the root layout.
+ * - `?slices=`: the Templates grid (see `MultiSectionCanvas`).
+ * - `?slice=`: one slice, as `createClientSectionCanvas` always did.
+ *
+ * ponytail: the one and many modes render registry entries as React
+ * components whatever the renderer; non-React renderers (phase 4) take
+ * them over when they land.
+ *
+ * Inert outside the studio: it reads its URL only outside a production
+ * build and with a valid studio `origin`, which the server wrapper passes
+ * only while `typren studio` previews.
+ */
+export declare function createCanvas<C>({ renderer, registry }: Readonly<{
+    renderer: RendererAdapter<C>;
+    registry: Record<string, C>;
+}>): ({ origin }: Readonly<{
+    origin?: string;
+}>) => import("react").JSX.Element | null;
+export {};
+
 // ---- dist/ui/i18n-strings.d.ts ----
 import type { Messages } from "../i18n.js";
 /**
- * Vanilla (non-React) counterpart to @typren/editor's `useT`: same
+ * Vanilla (non-React) counterpart to @typren/studio's `useT`: same
  * key→host-override→English-default→literal-key fallback + `{var}`
  * interpolation, without a context provider. A non-React consumer calls
  * `createT(messages)` itself; `messages` is passed as a plain value, no
@@ -2302,11 +3170,25 @@ export declare const defaultMessages: Messages;
  *  - double-click a text element to edit it inline; on blur the new text is
  *    posted back to the editor, which maps it to the matching slice field
  *  - applies an independent light/dark theme + scroll-to on request
+ *  - draws the editor's hover and selection outlines in this document, in a
+ *    shadow root laid over the page, so they scroll with it natively; the
+ *    editor says which blocks (`outline`), in its own colour
+ *  - posts every block's rect on a layout change, the document's scroll on
+ *    each frame it scrolls, and the hovered block, so the editor can place
+ *    its interactive controls over this frame
+ *  - posts its path on load and on every navigation, so a browsing editor
+ *    can follow it; once the editor answers `browse`, clicks and
+ *    double-clicks are left to the site, so its links work, until `edit`
+ *    makes the page an edit canvas again
+ *  - answers `computedStyle` with the site's effective values for the Style
+ *    screen's tokens
  */
+/** True for a serialized http(s) origin such as "http://127.0.0.1:4400". */
+export declare function isOrigin(value: string): boolean;
 /**
  * Attach the preview bridge listeners + inject its stylesheet into
  * `document.head` (once). Returns a cleanup function that removes the
- * listeners (the injected `<style>` is left in place: idempotent, harmless).
+ * listeners (the base `<style>` is left in place: idempotent, harmless; the scrollbar one is removed).
  *
  * `allowedOrigin` is the one origin this frame will post to and accept
  * messages from. Omit it and the bridge defaults to `window.location.origin`
@@ -2315,8 +3197,148 @@ export declare const defaultMessages: Messages;
  * customer's site is cross-origin by definition, so it must pass its own
  * origin explicitly here (learned from the site record), this is never
  * `"*"`; the channel always compares against one explicit value.
+ *
+ * Fails closed: an `allowedOrigin` that is not a bare http(s) origin (`"*"`,
+ * `"null"`, an empty env var, a URL with a path) leaves the bridge inert,
+ * with no listeners attached, rather than guessing what was meant.
+ *
+ * `nonce` is the studio's session nonce (the page canvas reads it from its
+ * URL fragment): with one, every post carries it and a message without it
+ * is ignored, so a page the frame navigates to cannot speak for it.
  */
-export declare function initPreviewBridge(allowedOrigin?: string): () => void;
+export declare function initPreviewBridge(allowedOrigin?: string, nonce?: string): () => void;
+
+// ---- dist/ui/section-canvas-client.d.ts ----
+import type { CmsConfig } from "../types.js";
+/** The section canvas for a static-export site: renders the slice in the
+ *  browser from `window.location.search`, since `output: "export"` refuses
+ *  `searchParams` even under `next dev`. Call it in a `"use client"` file and
+ *  hand the result to `createSectionCanvas`, which keeps the gate on the
+ *  server. ponytail: every registry component must render on the client, so
+ *  an async server component or one importing server-only code cannot sit in
+ *  this registry; such a site keeps `createSectionCanvas(registry)` and turns
+ *  export off for the preview.
+ *
+ *  It holds its own gate too, for a site that mounts it without the server
+ *  wrapper: it reads the query only outside a production build and only with
+ *  an `origin`, which the wrapper passes just while the studio previews
+ *  (`TYPREN_PREVIEW` never reaches the browser). Without one the bridge is
+ *  inert anyway, so the studio could not use the canvas.
+ *
+ *  It is `createCanvas` with the React renderer, so it also serves the
+ *  studio's page canvas (`?page`) and its Templates grid (`?slices=`). */
+export declare function createClientSectionCanvas(registry: CmsConfig["registry"]): ({ origin }: Readonly<{
+    origin?: string;
+}>) => import("react").JSX.Element;
+
+// ---- dist/ui/section-canvas-multi.d.ts ----
+import { type ReactNode } from "react";
+import type { CmsConfig } from "../types.js";
+/** One tile as the studio posts it: where to draw, in this frame's pixels. */
+export type SectionPlace = {
+    key: string;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    radius: number;
+    slice?: unknown;
+};
+/** The studio's posted layout, validated. Malformed entries are dropped; a
+ *  slice rides along untouched, for the caller to check. */
+export declare function toPlaces(raw: unknown): SectionPlace[];
+/**
+ * The section canvas's many-section mode (`?slices=`): one page draws every
+ * tile of the studio's Templates grid, so the grid costs one page load
+ * instead of one per tile. The studio lays this frame over its grid and
+ * posts `{type:"sections", items}`, each item a tile's key, rect and slice;
+ * every section renders 1280px wide, scaled into its rect and clipped to its
+ * radius. It answers with the keys it has drawn (`ready`), the ones it
+ * cannot (`missing`) and its root's `colorScheme`, which the studio copies
+ * onto the frame so the browser keeps the frame transparent.
+ *
+ * `rendered` is the server form: sections rendered on the server from the
+ * page's `?slices=` query, by key, so a posted slice is ignored and a key
+ * that is not there is missing (the studio then reloads with it). `registry`
+ * is the client form: it renders the posted slices themselves, checked like
+ * the query (see `parseSectionQuery`), so it never needs a reload.
+ *
+ * Messages count only from the parent window at `origin`, and posts go only
+ * there; without a valid origin, or in a production build, it is inert.
+ */
+export declare function MultiSectionCanvas({ origin, rendered, registry, }: Readonly<{
+    origin?: string;
+    rendered?: Record<string, ReactNode>;
+    registry?: CmsConfig["registry"];
+}>): import("react").JSX.Element | null;
+
+// ---- dist/ui/section-canvas.d.ts ----
+import type { ComponentType } from "react";
+import type { CmsConfig } from "../types.js";
+type Query = {
+    slice?: string | string[];
+    slices?: string | string[];
+    page?: string | string[];
+};
+/** The page behind `<site>/typren/section?slice=<json>`: renders one slice
+ *  alone so the studio can show it as a real thumbnail. Mount it as a site's
+ *  `app/typren/section/page.tsx` default export.
+ *
+ *  Pass the registry to render the slice on the server from `searchParams`;
+ *  any component works, but a static export (`output: "export"`) refuses the
+ *  query even under `next dev`. Pass a client canvas instead (see
+ *  `createClientSectionCanvas`) and the slice renders in the browser, so the
+ *  page never reads `searchParams` and exports as static.
+ *
+ *  Closed unless `typren studio` is previewing (same rule as the scaffold's
+ *  `studioPreview`), and then it never reads `searchParams` either.
+ *  ponytail: closed means an empty 200, not a 404 (`notFound()` would break
+ *  `output: "export"`); the route exists in production but renders nothing.
+ *  The bridge mounts even for an empty or unknown slice: the studio's probe
+ *  sends `{slice:""}` and waits for the bridge's `rects` post.
+ *
+ *  With `?slices=` instead, the page is the studio's whole Templates grid
+ *  (see `MultiSectionCanvas`): the server form renders every slice in that
+ *  query, by key; the client form renders what the studio posts.
+ *
+ *  With `?page`, the client form is the studio's persistent page canvas
+ *  (see `createCanvas`). The server form has no client renderer, so it
+ *  answers that it cannot, and the studio frames the real route instead. */
+export declare function createSectionCanvas(source: CmsConfig["registry"] | ComponentType<{
+    origin?: string;
+}>): ({ searchParams }: Readonly<{
+    searchParams: Promise<Query>;
+}>) => Promise<import("react").JSX.Element | null>;
+export {};
+
+// ---- dist/ui/studio-bridge.d.ts ----
+/** Talks to the `typren studio` editor framing this page. `origin` is the
+ *  studio's own origin (`TYPREN_STUDIO_ORIGIN`, which `typren studio` sets):
+ *  the only one the bridge posts to or accepts. Without it the bridge stays
+ *  off rather than guess. `nonce` is the page canvas's session nonce (see
+ *  `initPreviewBridge`). */
+export declare function StudioBridge({ origin, nonce }: Readonly<{
+    origin?: string;
+    nonce?: string;
+}>): null;
+
+// ---- dist/ui/typren-style.d.ts ----
+import type { SettingsStore } from "../settings.js";
+import { type StyleMap } from "../style.js";
+/** The saved Style tokens as the site's stylesheet rule (see `styleCss`):
+ *  sanitised, unlayered, `:root:root`. Empty when nothing is saved. `map` is
+ *  the site's `studio.style` from `typren.config.json`; without one, the stock
+ *  shadcn names. Reads the published settings on every call, like
+ *  `resolveSeoConfig`. */
+export declare function resolveStyleCss(settings: Pick<SettingsStore, "get">, map?: StyleMap, locale?: string): Promise<string>;
+/** A server component that renders `resolveStyleCss` as a `<style>`, which
+ *  React hoists into `<head>` once however many times it renders. Nothing
+ *  when no token is saved. */
+export declare function TyprenStyle({ store, map, locale }: Readonly<{
+    store: Pick<SettingsStore, "get">;
+    map?: StyleMap;
+    locale?: string;
+}>): Promise<import("react").JSX.Element | null>;
 
 // ---- dist/version.d.ts ----
 /** Content version = SHA-256 of the raw file text, truncated. Deterministic and

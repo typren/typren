@@ -46,6 +46,31 @@ describe("typren LocalStore round-trip", () => {
     expect(await store.listPages()).toEqual([{ slug: "home", title: "Home", hasDraft: false, locales: ["en"] }]);
   });
 
+  it("lists nav/navOrder/system from front matter on a site doc without a menu, dropping wrongly typed values", async () => {
+    fs.writeFileSync(path.join(contentDir, "site.md"), "---\ntitle: Site settings\n---\n");
+    fs.writeFileSync(
+      path.join(contentDir, "about.md"),
+      "---\ntitle: About\nnav: true\nnavOrder: 2\nsystem: false\nslices: []\n---\n"
+    );
+    fs.writeFileSync(
+      path.join(contentDir, "odd.md"),
+      "---\ntitle: Odd\nnav: yes please\nnavOrder: first\nsystem: 1\nslices: []\n---\n"
+    );
+    const { store } = makeStore();
+    const pages = await store.listPages();
+    expect(pages.find((p) => p.slug === "about")).toEqual({
+      slug: "about",
+      title: "About",
+      hasDraft: false,
+      locales: ["en"],
+      nav: true,
+      navOrder: 2,
+      system: false,
+    });
+    const odd = pages.find((p) => p.slug === "odd")!;
+    expect(["nav", "navOrder", "system"].filter((k) => k in odd)).toEqual([]);
+  });
+
   it("reads published slices", async () => {
     const { store } = makeStore();
     expect((await store.getPublished("home")).slices[0]).toMatchObject({ slice: "hero", heading: "Original" });
@@ -90,6 +115,100 @@ describe("typren LocalStore round-trip", () => {
     await store.createPage("about", { meta: { title: "About" }, slices: [], body: "" });
     expect((await store.getPublished("about")).meta.title).toBe("About");
     await expect(store.createPage("about", { meta: {}, slices: [], body: "" })).rejects.toThrow();
+  });
+
+  it("createPage with draft writes a draft-only page that lists unpublished until its first publish", async () => {
+    const { store } = makeStore();
+    await store.createPage("event/1", { meta: { title: "Day one", noindex: true }, slices: [], body: "" }, undefined, {
+      draft: true,
+    });
+    expect(await store.exists("event/1")).toBe(false);
+    expect((await store.listPages()).find((p) => p.slug === "event/1")).toEqual({
+      slug: "event/1",
+      title: "Day one",
+      hasDraft: true,
+      locales: [],
+      noindex: true,
+      published: false,
+    });
+    // A draft holds the slug: neither kind of create may clobber it.
+    await expect(store.createPage("event/1", { meta: {}, slices: [], body: "" })).rejects.toThrow(/already exists/);
+    await store.publish("event/1");
+    expect((await store.listPages()).find((p) => p.slug === "event/1")).toEqual({
+      slug: "event/1",
+      title: "Day one",
+      hasDraft: false,
+      locales: ["en"],
+      noindex: true,
+    });
+  });
+
+  it("reads nav and its order from the site doc's header links, over page front matter", async () => {
+    for (const slug of ["about", "banks", "contact", "hidden"])
+      fs.writeFileSync(path.join(contentDir, `${slug}.md`), `---\ntitle: ${slug}\nslices: []\n---\n`);
+    fs.writeFileSync(
+      path.join(contentDir, "hidden.md"),
+      "---\ntitle: hidden\nnav: false\nslices: []\n---\n"
+    );
+    fs.writeFileSync(
+      path.join(contentDir, "site.md"),
+      [
+        "---",
+        "nav:",
+        "  - { label: Home, href: / }",
+        "  - label: Products",
+        '    href: "#"',
+        "    children:",
+        "      - { label: Banks, href: /banks/ }",
+        "      - { label: Elsewhere, href: https://example.com/x, external: true }",
+        "      - { label: Protocol relative, href: //example.com }",
+        "  - { label: About, href: /about?ref=nav }",
+        "  - { label: Hidden, href: /hidden }",
+        "  - not an item",
+        "cta: { label: Contact, href: /contact }",
+        "---",
+        "",
+      ].join("\n")
+    );
+    const { store } = makeStore();
+    const nav = Object.fromEntries((await store.listPages()).map((p) => [p.slug, [p.nav, p.navOrder]]));
+    expect(nav).toEqual({
+      about: [true, 1],
+      banks: [true, 0],
+      contact: [true, 3],
+      hidden: [true, 2],
+      home: [undefined, undefined],
+    });
+  });
+
+  it("never lists the site doc as a page, even once it carries a slice array", async () => {
+    const { store } = makeStore();
+    await store.saveDraft("site", { meta: { nav: [] }, slices: [], body: "" });
+    expect((await store.listPages()).map((p) => p.slug)).toEqual(["home"]);
+    await store.publish("site");
+    expect((await store.listPages()).map((p) => p.slug)).toEqual(["home"]);
+    expect(await store.listSlugs()).toEqual(["home"]);
+  });
+
+  it("refuses a site doc draft with an unsafe navigation link", async () => {
+    const { store } = makeStore();
+    const page = { meta: { nav: [{ label: "x", href: "javascript:alert(1)" }] }, slices: [], body: "" };
+    await expect(store.saveDraft("site", page)).rejects.toThrow(/refused/);
+    expect(await store.getDraft("site")).toBeNull();
+    // Only the site doc carries the menu; a page's own `nav` is not checked.
+    await expect(store.saveDraft("home", page)).resolves.toBeTypeOf("string");
+  });
+
+  it("treats a site doc of the wrong shape as no navigation", async () => {
+    fs.writeFileSync(path.join(contentDir, "site.md"), "---\nnav: { href: /home }\ncta: 3\n---\n");
+    const { store } = makeStore();
+    expect((await store.listPages())[0].nav).toBeUndefined();
+  });
+
+  it("lists a published page with a pending draft once, as published", async () => {
+    const { store } = makeStore();
+    await store.saveDraft("home", await store.getPublished("home"));
+    expect(await store.listPages()).toEqual([{ slug: "home", title: "Home", hasDraft: true, locales: ["en"] }]);
   });
 
   it("deletePage removes the published file and any draft", async () => {

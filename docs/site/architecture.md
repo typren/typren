@@ -14,7 +14,7 @@ ContentStore      draft/publish, locale fallback, version-checked writes
       ↓
 makeActions()     auth-gated handlers
       ↓
-editor UI         React, mounted by a thin host
+studio UI         React, mounted by a thin host
 ```
 
 `MediaAdapter` and `AuthAdapter` follow the same shape alongside
@@ -74,23 +74,25 @@ public POST endpoint — the gate can't live in a parent layout alone, since a
 Route Handler (e.g. the media upload route) renders no layout tree at all.
 See [Auth model](./auth-model.md).
 
-`typren init`'s scaffolded `cms-actions.ts` is a thin, host-owned
-`"use server"` wrapper around `makeActions(cmsConfig)` — the package supplies
-the logic, the host owns the `"use server"` boundary.
+The site itself exposes none of these. [`typren studio`](./studio.md) serves
+them from its own process, over `createTyprenApi`, and the site only reads.
 
-## editor UI
+## studio UI
 
-`@typren/editor` — the React components (`TyprenEditor` and its pieces:
-`EditorShell`, `PagesNav`, `BlockList`, `FieldForm`, `DevicePreview`, media
-and icon pickers) that call into `makeActions()`'s handlers. It depends on
+`@typren/studio` — the React components (`TyprenStudio` and its pieces:
+`BlockList`, `FieldForm`, `DevicePreview`, the Media/Settings/Collection
+panels, media and icon pickers) that call into `makeActions()`'s handlers. It depends on
 `@typren/core` for everything below this layer and owns nothing
 server-side itself.
 
-> **Status:** `@typren/editor` is still `private: true` and not published to
-> npm. The current `typren init` scaffold wires the content layer only and
-> emits no editor route; install `@typren/editor` once it ships if you want a
-> UI on top of the slices and server actions `init` already wrote.
+Studio local runs in `apps/studio`, a thin Next.js host that
+[`typren studio`](./studio.md) starts beside your site. It frames the site's
+own pages as the live preview, so the site mounts no studio route. Studio
+cloud, the hosted dashboard, is the second host of the same package.
 
-A non-React host can still mount a built editor through the `./element`
-subpath (`<typren-shell>`, a custom element wrapping `TyprenEditor`), without
+> **Status:** `@typren/studio` and `@typren/studio-local` are still `private: true`
+> and not published to npm.
+
+A non-React host can still mount a built studio through the `./element`
+subpath (`<typren-shell>`, a custom element wrapping `TyprenStudio`), without
 pulling React into its own app shell beyond what the element needs internally.

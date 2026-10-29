@@ -5,7 +5,7 @@ category: Contributing
 order: 80
 ---
 
-This page is for implementing a new `ContentAdapter` or `MediaAdapter` for Typren — a backend beyond the markdown, GitHub and Notion adapters this repo already ships. See [architecture](./architecture.md) for where adapters sit in the four-layer stack: `ContentAdapter` → `ContentStore` → `makeActions()` → editor UI.
+This page is for implementing a new `ContentAdapter` or `MediaAdapter` for Typren — a backend beyond the markdown, GitHub and Notion adapters this repo already ships. See [architecture](./architecture.md) for where adapters sit in the four-layer stack: `ContentAdapter` → `ContentStore` → `makeActions()` → studio UI.
 
 ## Shape of an adapter
 

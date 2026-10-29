@@ -41,7 +41,7 @@
     "@typren/core": "^0.5.4"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@typren/contract-tests": "workspace:*",
     "typescript": "^6.0.3"
   },

@@ -8,6 +8,7 @@ export { JsonLd, organizationJsonLd, websiteJsonLd, breadcrumbJsonLd } from "./j
 export { collectSliceJsonLd } from "./slice-registry";
 export { buildRootMetadata, buildMetadata } from "./metadata";
 export { buildSitemap, type BuildSitemapOptions } from "./sitemap";
+export { withSiteSettings, resolveSeoConfig } from "./site-settings";
 export { buildRobots, DEFAULT_AI_CRAWLERS } from "./robots";
 export { renderSlicesAsMarkdown, type SliceMarkdownRegistry } from "./markdown-render";
 export {

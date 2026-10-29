@@ -23,14 +23,10 @@ export declare function scaffold(cwd: string, opts?: {
  *  script it couldn't safely rewrite (not plain `next dev`, or an explicit
  *  non-loopback `-H`), so the user has to bind it themselves. */
 export type DevScriptStatus = "bound" | "already-bound" | "custom" | "no-package-json";
-/** "created" only when no next.config.* existed yet (nothing to corrupt, so
- *  it's safe to write ours). An existing file is only ever READ. */
-type NextConfigStatus = "created" | "already-wired" | "needs-manual-update";
 type CmsConfigStatus = "already-wired" | "needs-manual-update" | "not-found";
 export type ApplySettingsResult = {
     ok: true;
     bootstrap: SiteSettingsBootstrap;
-    nextConfig: NextConfigStatus;
     cmsConfig: CmsConfigStatus;
     notes: string[];
 } | {
@@ -38,19 +34,10 @@ export type ApplySettingsResult = {
     error: string;
 };
 /**
- * Core of `typren apply-settings`: reconciles the host's next.config /
- * cms.config with typren.config.json's bootstrap tier (spec §5's "Admin-route
- * mechanism"). Validates first, so it never writes anything on a bad config.
- *
- * Ladder-preferred mechanism: next.config.ts is plain code that runs at
- * config-eval time, so the generated template just `import`s
- * typren.config.json and reads `bootstrap.adminRoute` directly: no codegen,
- * no regex-patching of the user's rewrite array. When a next.config.* already
- * exists, this function only ever READS it (grepping for the marker comment
- * the template embeds). Auto-patching an arbitrary existing rewrites() body
- * is the unsafe case the spec calls out, so that path prints exact
- * instructions instead of guessing at an edit. Idempotent: a file that's
- * already wired (or a config that's still invalid) makes no writes on rerun.
+ * Core of `typren apply-settings`: validates typren.config.json's bootstrap
+ * tier and checks the host's cms.config reads it. Never writes: an existing
+ * cms.config is only grepped for the marker comment the template embeds, and
+ * a missing wire-up prints exact instructions instead of guessing at an edit.
  */
 export declare function applySettings(cwd: string): ApplySettingsResult;
 export type CheckStatus = "pass" | "warn" | "fail" | "skip";
@@ -171,14 +158,7 @@ export declare function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): 
  */
 export declare function updatePrBody(cwd: string, prNumber: number, bodyFile: string): PrResult;
 /** Split from `printNextSteps` so the text is assertable without capturing
- *  stdout, matching how the rest of this file keeps its logic pure.
- *
- *  No Tailwind/theme step here: @typren/core/theme.css's tokens are read
- *  ONLY by @typren/editor's own UI (see that file's own doc comment), and
- *  this scaffold no longer emits an editor route at all, so importing it
- *  would wire up styling for a component that isn't there. Nothing below
- *  tells the user to open /editor either, for the same reason: that route
- *  doesn't exist in this scaffold's output. */
+ *  stdout, matching how the rest of this file keeps its logic pure. */
 export declare function nextSteps(baseDir: string): string;
 /** `argv` defaults to the real process argv so direct runs (isDirectRun()
  *  below) need no change, but takes an explicit array so tests can drive
@@ -189,6 +169,45 @@ export declare function nextSteps(baseDir: string): string;
  *  (`--remote` fetches); every other branch returns before its first await,
  *  so it runs fully synchronously the way existing callers expect. */
 export declare function main(argv?: string[]): Promise<void>;
+export {};
+
+// ---- dist/content.d.ts ----
+import { type AuthAdapter } from "@typren/core";
+/**
+ * Allows everything. Whoever runs the CLI already owns the site's files, so
+ * the operating system's permissions are the boundary; there is no session to
+ * check. Lives here and is never exported from core: a server must never be
+ * handed an adapter that says yes. Slug, locale, media-id, nav-href and style
+ * validation still runs in the adapters and stores, not in auth.
+ */
+export declare const cliOwnerAuth: AuthAdapter;
+export type ContentIO = {
+    cwd: string;
+    stdin: () => Promise<string>;
+    log: (text: string) => void;
+    error: (text: string) => void;
+};
+type Flags = Record<string, string | true>;
+/** `--flag value`, `--flag=value` and the `booleans` (no value); everything
+ *  else is positional, `-` (stdin) included. Unknown flags are refused, so a
+ *  typo can't silently drop `--base-version`. */
+export declare function parseFlags(args: string[], allowed: {
+    booleans?: string[];
+    values?: string[];
+}): {
+    pos: string[];
+    flags: Flags;
+};
+/** The command words `main` hands to `runContent`. */
+export declare const CONTENT_COMMANDS: string[];
+/**
+ * Runs one content command (`argv[0]` is its noun) and returns its exit code:
+ * 0 done, 1 error, 2 version conflict. Prints `{ ok: true, ... }` or
+ * `{ ok: false, code, error }` with `--json`, readable text otherwise.
+ * Never prompts.
+ */
+export declare function runContent(argv: string[], io: ContentIO): Promise<number>;
+export declare function readStdin(): Promise<string>;
 export {};
 
 // ---- dist/migrate.d.ts ----
@@ -266,6 +285,116 @@ export declare function printMigrateReport(result: MigrateResult, opts?: {
 // ---- dist/safe-matter.d.ts ----
 import matter from "gray-matter";
 export declare const parseMatter: (raw: string) => matter.GrayMatterFile<string>;
+
+// ---- dist/studio.d.ts ----
+import type { ChildProcess, SpawnOptions } from "node:child_process";
+import { type LocalSite, type Section, type SliceSchema } from "@typren/core";
+export type StudioArgs = {
+    port: number;
+    /** Port of the preview-mode site dev server the studio spawns. */
+    previewPort: number;
+    /** Set by `--site-url`: frame this origin and spawn nothing. */
+    siteUrl?: string;
+};
+/** Same hand-rolled argv style as the rest of the CLI. `--site-url` is
+ *  reduced to its origin: the editor appends "/<slug>" to it. */
+export declare function parseStudioArgs(args: string[]): StudioArgs | {
+    error: string;
+};
+/** Mirrors apps/studio's `StudioManifest`: the site's facts plus the data
+ *  parts of its cms.config, handed to the studio process as JSON. */
+export type StudioManifest = LocalSite & {
+    siteUrl: string;
+    defaults: Record<string, Record<string, unknown>>;
+    fieldSchema?: Record<string, SliceSchema>;
+    /** The `studio` block's site facts (see `readStudioBlock`), each optional. */
+    sections?: Section[];
+    /** Route prefix under the site that page previews live at, e.g. "/draft". */
+    previewPath?: string;
+    /** The one-slice route's path, or `false` for a site with none. */
+    sectionRoute?: string | false;
+    /** Page path prefixes under a nested layout, which the studio previews on
+     *  their real route instead of the page canvas. */
+    nestedLayouts?: string[];
+};
+/**
+ * The site at `cwd` as core's `LocalSite`: its `typren.config.json` `studio`
+ * block (validated), content dir, media, home slug and style map. What a
+ * command needs to edit the site through `createLocalSiteConfig`, without
+ * the slice data the studio's editor also needs.
+ */
+export declare function resolveSite(cwd: string): LocalSite | {
+    error: string;
+};
+/**
+ * Builds the studio manifest for the site at `cwd`. Slice data comes from
+ * `slices/defaults.ts` (required; its keys are the slice names) and
+ * `slices/field-schema.ts` (optional), siblings of the content dir as
+ * `typren init` lays them out.
+ * ponytail: imported under Node's native type stripping, not through the
+ * site's bundler, so these two files must be erasable TypeScript with no
+ * value imports (no path aliases, no JSX). A slice missing from defaults.ts
+ * is missing from the editor's add menu. Upgrade path: a studio entry point
+ * the site compiles itself.
+ */
+export declare function buildStudioManifest(cwd: string, siteUrl: string): Promise<StudioManifest | {
+    error: string;
+}>;
+/** The installed `@typren/studio-local` app: the site's own dependency first, then
+ *  the one beside this CLI (the monorepo workspace link). */
+export declare function resolveStudioDir(cwd: string, from?: string): string | null;
+/** `next dev` bound to 127.0.0.1: the bind localAuth requires, and the
+ *  development NODE_ENV it requires too.
+ *  ponytail: dev mode compiles on first request. A prebuilt `next start`
+ *  would need localAuth's `allowInProduction`, which it should not get. */
+export declare function studioCommand(studioDir: string, manifest: StudioManifest, port: number): Command;
+export type Command = {
+    command: string;
+    args: string[];
+    options: SpawnOptions & {
+        env: NodeJS.ProcessEnv;
+    };
+};
+/**
+ * The site's own dev command in preview mode. `typren.config.json`'s
+ * `studio.previewCommand` overrides the default, which is the site's `dev`
+ * script through its package manager plus Next.js's port flags, e.g.
+ * `"studio": { "previewCommand": "npm run dev -- --port {port} --host 127.0.0.1" }`
+ * for Astro or Vite.
+ * ponytail: the template is split on whitespace, no shell quoting. Upgrade
+ * to an argv array in the config if a command ever needs a quoted argument.
+ */
+export declare function previewCommand(cwd: string, port: number, studioOrigin: string): Command;
+/** Resolves true once `url` answers at all (any status), false when
+ *  `stopped()` turns true or the timeout passes first. */
+export declare function waitForUrl(url: string, stopped: () => boolean, opts: {
+    fetch: typeof fetch;
+    timeoutMs: number;
+    intervalMs: number;
+}): Promise<boolean>;
+export type StudioDeps = {
+    spawn: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+    fetch: typeof fetch;
+    log: (msg: string) => void;
+    error: (msg: string) => void;
+    /** Where SIGINT/SIGTERM arrive: `process` outside tests. */
+    signals: Pick<NodeJS.Process, "on" | "off">;
+    timeoutMs?: number;
+    intervalMs?: number;
+};
+/**
+ * One studio session, the way `storybook dev` runs: start the site's dev
+ * server in preview mode (unless `preview` is omitted, for `--site-url`),
+ * wait until it answers at `siteUrl`, then run the studio in the foreground. Either one
+ * exiting ends the session and stops the other; a preview crash prints its
+ * captured output. Resolves with the exit code for the CLI.
+ */
+export declare function runStudio(plan: {
+    studio: Command;
+    studioUrl: string;
+    siteUrl: string;
+    preview?: Command;
+}, deps: StudioDeps): Promise<number>;
 
 // ---- dist/telemetry.d.ts ----
 /** Whether telemetry should fire at all right now, folding in every opt-out source. */

@@ -25,12 +25,14 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     css: false,
-    include: ["packages/*/src/**/*.test.{ts,tsx}"],
+    include: ["packages/*/src/**/*.test.{ts,tsx}", "apps/*/lib/**/*.test.{ts,tsx}"],
     exclude: ["**/node_modules/**", "**/dist/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov", "json-summary"],
-      include: ["packages/*/src/**"],
+      // An app's logic lives in lib/; its app/ routes and components/ are
+      // framework glue over it.
+      include: ["packages/*/src/**", "apps/*/lib/**"],
       exclude: [
         "**/*.test.ts",
         "**/*.test.tsx",
@@ -38,11 +40,10 @@ export default defineConfig({
         "**/dist/**",
         // Scaffold source strings, not executed code. `tsc` and vitest never run them.
         "packages/*/src/templates/**",
-        // The ported editor UI has no tests yet, and apps/studio is an empty
-        // stub. Excluded so the ratchet measures tested code; remove the
-        // editor line when its tests land, and re-seed the thresholds then.
-        "packages/editor/**",
-        "apps/studio/**",
+        // The ported editor UI has no tests yet. Excluded so the ratchet
+        // measures tested code; remove this line when its tests land, and
+        // re-seed the thresholds then.
+        "packages/studio/**",
         // Thin `aws` CLI glue (parse `--output json`, done), exercising it
         // for real needs a live AWS account. The actual logic it's glue for
         // (diff/chunk/ETag-chain, the guard/upsert flow) is fully unit-tested
@@ -65,11 +66,13 @@ export default defineConfig({
       thresholds: {
         // Ratchets up as coverage improves, fails a regression below the last
         // seeded value. See package.json's "test:coverage" and the pre-push hook.
-        autoUpdate: true,
-        lines: 95.4,
-        statements: 93.65,
-        functions: 93.39,
-        branches: 87.04,
+        // Floored to one decimal: CI runs on Linux, where a few macOS-only
+        // branches go uncovered, so an exact local ratchet fails CI by ~0.02.
+        autoUpdate: (n: number) => Math.floor(n * 10) / 10,
+        lines: 97,
+        statements: 95.7,
+        functions: 96,
+        branches: 90.2,
       },
     },
   },

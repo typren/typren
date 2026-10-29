@@ -31,11 +31,17 @@ per slug, per collection, or per locale:
 - A write carries the `locale` it targets; `createTranslation` carries the
   new `toLocale`, and `deleteTranslation` the locale being deleted.
   `deletePage` and `renamePage` act on every locale, so they pass none.
+- A settings write's `"admin"` check carries the locale being written, the
+  same locale its follow-up content check sees. Bootstrap writes and media
+  upload/delete are site-wide, so they pass no slug, collection or locale.
 - `createPage` carries the slug derived from the title. `renamePage` is
   authorized twice, once for the source slug and once for the destination,
   and `duplicatePage` the same way (as `"createPage"`), with the derived
   copy slug checked before anything is written. A policy that reserves a
-  slug can't be bypassed by renaming or duplicating onto it.
+  slug can't be bypassed by renaming or duplicating onto it. Duplicating a
+  page or seeding a translation of it also needs `"read"` on the source.
+- Moving an asset or renaming a media folder rewrites the live pages that
+  use it, so it needs `"publish"` as well as both media actions.
 
 **`"saveDraft"` is not always a lesser tier than `"publish"`.** An adapter
 with no separate draft storage (the Notion adapter) writes a draft straight
@@ -65,7 +71,7 @@ site.
 
 With neither `allowedEmails` nor `allowedRoles` set, a mapping would
 authorize *any* resolved identity — almost never the right policy for a
-public editor. Every mapping throws at construction if you pass none of
+public studio. Every mapping throws at construction if you pass none of
 these:
 
 - **`nextAuthAdapter`** (`@typren/core/auth/next-auth`)
