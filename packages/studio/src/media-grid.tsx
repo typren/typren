@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef } from "react";
-import { Copy, ImageOff, Trash2, Upload } from "lucide-react";
+import { Copy, ImageOff, MoreHorizontal, Trash2, Upload } from "lucide-react";
 import type { MediaAsset } from "@typren/core";
 import { Button } from "./primitives/button";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "./primitives/menu";
 import { SearchInput } from "./primitives/search-input";
 import { useMediaUrl } from "./media-url";
 
@@ -25,8 +26,11 @@ export function MediaGrid({
   onQueryChange,
   onSelect,
   onDelete,
+  extraActions,
+  copyUrl,
   onUploadFiles,
   busy = false,
+  readOnly = false,
 }: Readonly<{
   assets: MediaAsset[];
   mode: "library" | "picker";
@@ -36,8 +40,17 @@ export function MediaGrid({
   onQueryChange?: (q: string) => void;
   onSelect?: (asset: MediaAsset) => void; // picker mode
   onDelete?: (id: string) => void; // library mode
+  /** Library mode: a host's own per-asset actions (Replace, Rename, ...),
+   *  listed in a menu between Copy and Delete. */
+  extraActions?: (asset: MediaAsset) => { label: string; onSelect: () => void }[];
+  /** Library mode: the URL the Copy action puts on the clipboard. Defaults to
+   *  the asset's own `url`; a host showing cache-busted thumbnails passes the
+   *  stable one. */
+  copyUrl?: (asset: MediaAsset) => string;
   onUploadFiles: (files: FileList) => void; // both: drag/drop + file-picker upload
   busy?: boolean;
+  /** Drops every upload affordance (a source the studio only lists). */
+  readOnly?: boolean;
 }>) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -47,7 +60,7 @@ export function MediaGrid({
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
-        if (e.dataTransfer.files.length) onUploadFiles(e.dataTransfer.files);
+        if (!readOnly && e.dataTransfer.files.length) onUploadFiles(e.dataTransfer.files);
       }}
     >
       <div className="flex items-center gap-2">
@@ -62,30 +75,34 @@ export function MediaGrid({
         ) : (
           <div className="flex-1" />
         )}
-        <label className="sr-only" htmlFor="media-upload-input">
-          Upload images
-        </label>
-        <input
-          id="media-upload-input"
-          ref={inputRef}
-          type="file"
-          multiple
-          accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml"
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files?.length) onUploadFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
-          <Upload /> Upload
-        </Button>
+        {!readOnly && (
+          <>
+          <label className="sr-only" htmlFor="media-upload-input">
+            Upload images
+          </label>
+          <input
+            id="media-upload-input"
+            ref={inputRef}
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.length) onUploadFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
+            <Upload /> Upload
+          </Button>
+          </>
+        )}
       </div>
 
       {assets.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-10 text-sm text-[var(--typren-muted-fg)]">
           <ImageOff className="size-6" aria-hidden />
-          Drop images here, or use Upload.
+          {readOnly ? "No images here." : "Drop images here, or use Upload."}
         </div>
       ) : (
         <ul className="grid grid-cols-3 gap-3 sm:grid-cols-4">
@@ -108,19 +125,37 @@ export function MediaGrid({
                       size="icon-sm"
                       className="typren-concentric"
                       aria-label={`Copy ${a.name} URL`}
-                      onClick={() => navigator.clipboard.writeText(a.url)}
+                      onClick={() => navigator.clipboard.writeText(copyUrl ? copyUrl(a) : a.url)}
                     >
                       <Copy />
                     </Button>
-                    <Button
-                      variant="destructive"
-                      size="icon-sm"
-                      className="typren-concentric"
-                      aria-label={`Delete ${a.name}`}
-                      onClick={() => onDelete?.(a.id)}
-                    >
-                      <Trash2 />
-                    </Button>
+                    {extraActions && (
+                      <Menu>
+                        <MenuTrigger
+                          render={<Button variant="ghost" size="icon-sm" className="typren-concentric" aria-label={`More actions for ${a.name}`} />}
+                        >
+                          <MoreHorizontal />
+                        </MenuTrigger>
+                        <MenuContent align="center">
+                          {extraActions(a).map((x) => (
+                            <MenuItem key={x.label} onClick={x.onSelect}>
+                              {x.label}
+                            </MenuItem>
+                          ))}
+                        </MenuContent>
+                      </Menu>
+                    )}
+                    {onDelete && !readOnly && (
+                      <Button
+                        variant="destructive"
+                        size="icon-sm"
+                        className="typren-concentric"
+                        aria-label={`Delete ${a.name}`}
+                        onClick={() => onDelete(a.id)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}

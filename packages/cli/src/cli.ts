@@ -4,13 +4,25 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { randomBytes } from "node:crypto";
 import { buildTemplates, TYPREN_BOOTSTRAP_MARKER } from "@typren/core/templates/init";
 import { createFsSettingsAdapter, validateBootstrap, type SiteSettingsBootstrap, type Slice } from "@typren/core";
 import { firstRunNotice, isEnabled, readCliVersion, record, setEnabled } from "./telemetry";
 import { parseMatter } from "./safe-matter";
 import { envWithoutGit, migrate, printMigrateReport, parseMigrateArgs } from "./migrate";
 import { CONTENT_COMMANDS, readStdin, runContent } from "./content";
-import { buildStudioManifest, CLOUD_DEFAULT_NOTICE, parseStudioArgs, previewCommand, resolveStudioDir, runStudio, studioCommand } from "./studio";
+import {
+  browserCommand,
+  buildStudioManifest,
+  connectUrl,
+  parseStudioArgs,
+  previewCommand,
+  resolveStudioDir,
+  runStudio,
+  studioCommand,
+  type Foreground,
+} from "./studio";
+import { serveOnLoopback, studioApi } from "./studio-server";
 
 /** `fs.existsSync` follows symlinks, so a dangling symlink at a scaffold
  *  target reads as "doesn't exist" and `writeFileSync` then creates a file at
@@ -905,7 +917,7 @@ Usage:
   npx typren review --update-pr <number> --body-file <path>
   npx typren telemetry [on|off]
   npx typren migrate [--from <ver>] [--to <ver>] [--json] [--remote] [--cwd <dir>]
-  npx typren studio [--local] [--port <n>] [--preview-port <n>] [--site-url <url>]
+  npx typren studio [--local] [--cloud-url <url>] [--port <n>] [--preview-port <n>] [--site-url <url>]
   npx typren page|template|section|media|settings|style|nav ...   (content commands, below)
   npx typren save [slug...] | publish | status
   npx typren --version
@@ -950,16 +962,21 @@ Usage:
                      --cwd <dir>    Run against a project at this path
                                     (default: current directory).
 
-  studio           Start the editor studio for the site in the current
-                   directory, on 127.0.0.1. Also starts the site's own dev
-                   command in preview mode (TYPREN_PREVIEW=1) on a side port
-                   and frames it; your normal dev server is left alone.
+  studio           Edit the site in the current directory. Starts the
+                   site's own dev command in preview mode (TYPREN_PREVIEW=1)
+                   on a side port; your normal dev server is left alone.
                    Override the command with typren.config.json's
                    "studio": { "previewCommand": "... {port} ..." }.
-                     --local             Run the local studio UI (today's
-                                         default; changing in 0.7, when the
-                                         cloud studio becomes the default).
-                     --port <n>          Studio port (default 4400).
+                   By default the studio UI opens in the cloud: only the
+                   content API runs here, on 127.0.0.1, answering just that
+                   origin with a one-session token carried in the link's
+                   #fragment. Content never goes through the cloud.
+                     --local             Run the studio UI on this machine
+                                         instead (needs @typren/studio-local).
+                     --cloud-url <url>   Cloud studio origin (default
+                                         https://app.typren.com, or
+                                         TYPREN_CLOUD_URL).
+                     --port <n>          Studio (or API) port (default 4400).
                      --preview-port <n>  Preview dev server port (default --port + 1).
                      --site-url <url>    Frame this running site instead of
                                          starting one.
@@ -1134,14 +1151,56 @@ async function runStudioCommand(args: string[]): Promise<boolean> {
   };
   const opts = parseStudioArgs(args);
   if ("error" in opts) return fail(opts.error);
-  if (!opts.local) console.error(CLOUD_DEFAULT_NOTICE);
   const cwd = process.cwd();
   const studioUrl = `http://127.0.0.1:${opts.port}`;
   const siteUrl = opts.siteUrl ?? `http://127.0.0.1:${opts.previewPort}`;
   const manifest = await buildStudioManifest(cwd, siteUrl);
   if ("error" in manifest) return fail(manifest.error);
+  const deps = {
+    spawn,
+    fetch: globalThis.fetch,
+    log: console.log,
+    error: (msg: string) => console.error(`typren studio: ${msg}`),
+    signals: process,
+  };
+
+  if (opts.cloudUrl) {
+    // Cloud mode: the UI is the cloud's, so no studio app runs here, only
+    // the content API, and only for that origin with this session's token.
+    const cloud = { origin: opts.cloudUrl, token: randomBytes(32).toString("base64url") };
+    const start = async (): Promise<Foreground> => {
+      const server = await serveOnLoopback(studioApi(manifest, cloud), opts.port);
+      const exited = new Promise<number | null>((resolve) => server.on("close", () => resolve(0)));
+      return {
+        stop: () => {
+          server.close();
+          server.closeAllConnections();
+        },
+        exited,
+      };
+    };
+    process.exitCode = await runStudio(
+      {
+        studio: start,
+        studioUrl,
+        siteUrl,
+        // The preview's bridge and canvas answer only their parent's origin, which is now the cloud's.
+        preview: opts.siteUrl ? undefined : previewCommand(cwd, opts.previewPort, cloud.origin),
+        openUrl: connectUrl(cloud.origin, opts.port, cloud.token),
+      },
+      {
+        ...deps,
+        open: (url) => {
+          const { command, args: argv, options } = browserCommand(url);
+          spawn(command, argv, options).on("error", () => {}).unref();
+        },
+      }
+    );
+    return true;
+  }
+
   const studioDir = resolveStudioDir(cwd);
-  if (!studioDir) return fail("@typren/studio-local is not installed. Add it as a dev dependency of this site.");
+  if (!studioDir) return fail("@typren/studio-local is not installed. Add it as a dev dependency of this site, or drop --local.");
   process.exitCode = await runStudio(
     {
       studio: studioCommand(studioDir, manifest, opts.port),
@@ -1149,13 +1208,7 @@ async function runStudioCommand(args: string[]): Promise<boolean> {
       siteUrl,
       preview: opts.siteUrl ? undefined : previewCommand(cwd, opts.previewPort, studioUrl),
     },
-    {
-      spawn,
-      fetch: globalThis.fetch,
-      log: console.log,
-      error: (msg) => console.error(`typren studio: ${msg}`),
-      signals: process,
-    }
+    deps
   );
   return true;
 }

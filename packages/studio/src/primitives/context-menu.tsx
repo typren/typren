@@ -14,7 +14,7 @@ function ContextMenuTrigger(props: ContextMenuPrimitive.Trigger.Props) {
 
 function ContextMenuContent({ className, ...props }: ContextMenuPrimitive.Popup.Props) {
   return (
-    <ContextMenuPrimitive.Portal container={usePortal()}>
+    <ContextMenuPrimitive.Portal container={usePortal() ?? undefined}>
       <ContextMenuPrimitive.Positioner className="isolate z-50 outline-none">
         <ContextMenuPrimitive.Popup
           data-slot="context-menu-content"

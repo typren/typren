@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type {
   GitOutgoing,
+  MediaAsset,
   GitPendingChange,
   GitLogEntry,
   PageActions,
@@ -109,12 +110,24 @@ export interface TyprenStudioHost {
    *  seam this package has, no plugin framework: the host renders whatever it
    *  wants and @typren/studio just gives it a mount point. */
   topBarSlot?: ReactNode;
+  /** The level above the site, e.g. the cloud account's Sites overview:
+   *  rail level 0 shows it as its Back link. Omit and level 0 has none. */
+  exit?: { label: string; onExit: () => void };
   /** Rail entries, core's `resolveSections()`-compatible list, grouped at
    *  rail level 0 in config order. Pages always sits in the Website group.
-   *  Omit for Website → Pages only. "custom" sections aren't rendered by
-   *  this package (no plugin runtime here, see `docs/hosted-platform.md`'s
-   *  "custom sections ship code"); the host renders those itself. */
+   *  Omit for Website → Pages only. "custom" sections have no plugin runtime
+   *  here (see `docs/hosted-platform.md`'s "custom sections ship code"): one
+   *  with `host: true` is painted by `renderSection`, any other (and `host`
+   *  ones `renderSection` declines) shows a "not available" notice. */
   sections?: Section[];
+  /** Renders a `host: true` custom section's screen, keyed by its id, inside
+   *  the studio's own panel and scroll area. Return null/undefined to fall
+   *  back to the notice. */
+  renderSection?: (id: string) => ReactNode;
+  /** A second, read-only image source beside `media` (e.g. assets shared
+   *  across sites). The image picker offers a switch to it; picking there
+   *  stores the asset's `url`. No upload or delete. */
+  sharedMedia?: { label: string; list(): Promise<MediaAsset[]> };
   /** Per-collection-section write actions, keyed by section id, core's
    *  `buildCollectionActions(config)` output passes straight through. Only
    *  needed when `sections` includes a "collection" entry; a collection

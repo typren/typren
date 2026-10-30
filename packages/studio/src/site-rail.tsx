@@ -150,6 +150,55 @@ function sectionIcon(s: ResolvedSection): ReactNode {
   return <Icon className="size-4 shrink-0" aria-hidden />;
 }
 
+export type RailEntry = { id: string; label: string; icon?: ReactNode };
+
+/** A top-level rail: a title and its entries in groups. A group without a
+ *  label lists its entries ungrouped, like Pages' home row. */
+export function EntryLevel({
+  title,
+  groups,
+  activeId,
+  onOpen,
+}: Readonly<{
+  title?: string;
+  groups: { id: string; label?: string; items: RailEntry[] }[];
+  activeId?: string;
+  onOpen: (id: string) => void;
+}>) {
+  const rows = (items: RailEntry[]) =>
+    items.map((e) => (
+      <li key={e.id}>
+        <button
+          type="button"
+          aria-current={e.id === activeId ? "page" : undefined}
+          onClick={() => onOpen(e.id)}
+          className={rowClass(e.id === activeId)}
+        >
+          {e.icon}
+          <span className="min-w-0 truncate" title={e.label}>
+            {e.label}
+          </span>
+        </button>
+      </li>
+    ));
+  return (
+    <SelectionList>
+      {title && <PanelHeader title={title} />}
+      {groups.map((g) =>
+        g.label ? (
+          <Group key={g.id} label={g.label}>
+            {rows(g.items)}
+          </Group>
+        ) : (
+          <ul key={g.id} className="space-y-1 px-3 pb-4">
+            {rows(g.items)}
+          </ul>
+        )
+      )}
+    </SelectionList>
+  );
+}
+
 /** Level 0: the site name and its sections, grouped. */
 export function SiteLevel({
   siteName,
@@ -163,30 +212,15 @@ export function SiteLevel({
   onOpen: (s: ResolvedSection) => void;
 }>) {
   return (
-    <SelectionList>
-      {siteName && <PanelHeader title={siteName} />}
-      {railGroups(sections).map((g) => (
-        <Group key={g.id} label={g.label}>
-          {g.items.map((s) => {
-            return (
-              <li key={s.id}>
-                <button
-                  type="button"
-                  aria-current={s.id === activeId ? "page" : undefined}
-                  onClick={() => onOpen(s)}
-                  className={rowClass(s.id === activeId)}
-                >
-                  {sectionIcon(s)}
-                  <span className="min-w-0 truncate" title={s.label}>
-                    {s.label}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </Group>
-      ))}
-    </SelectionList>
+    <EntryLevel
+      title={siteName}
+      groups={railGroups(sections).map((g) => ({
+        ...g,
+        items: g.items.map((s) => ({ id: s.id, label: s.label, icon: sectionIcon(s) })),
+      }))}
+      activeId={activeId}
+      onOpen={(id) => onOpen(sections.find((s) => s.id === id)!)}
+    />
   );
 }
 

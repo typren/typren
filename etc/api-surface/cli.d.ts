@@ -286,42 +286,57 @@ export declare function printMigrateReport(result: MigrateResult, opts?: {
 import matter from "gray-matter";
 export declare const parseMatter: (raw: string) => matter.GrayMatterFile<string>;
 
+// ---- dist/studio-server.d.ts ----
+import http from "node:http";
+import { type StudioManifest } from "@typren/core";
+/** Where the API is mounted, the same path the local studio app uses. */
+export declare const API_BASE = "/api/typren";
+/**
+ * The connected studio's API: the site's content API, plus `GET /studio`
+ * (the studio's initial props), callable only from `cloud.origin` with
+ * `Authorization: Bearer <cloud.token>`. A request from anywhere else,
+ * including one with no Origin (curl, another local process, a DNS-rebinding
+ * page reading its "own" origin), is refused before routing.
+ */
+export declare function studioApi(manifest: StudioManifest, cloud: {
+    origin: string;
+    token: string;
+}): (request: Request) => Promise<Response>;
+/**
+ * Serves a WHATWG `Request -> Response` handler on node:http at
+ * 127.0.0.1:`port`, streaming bodies both ways. Resolves once listening.
+ * ponytail: node:http plus `Readable.toWeb/fromWeb` covers one fetch-style
+ * handler; no server framework for a single route tree.
+ */
+export declare function serveOnLoopback(handler: (request: Request) => Promise<Response>, port: number): Promise<http.Server>;
+
 // ---- dist/studio.d.ts ----
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { type LocalSite, type Section, type SliceSchema } from "@typren/core";
+import { type LocalSite, type StudioManifest } from "@typren/core";
 export type StudioArgs = {
     port: number;
     /** Port of the preview-mode site dev server the studio spawns. */
     previewPort: number;
     /** Set by `--site-url`: frame this origin and spawn nothing. */
     siteUrl?: string;
-    /** `--local`: the local studio UI, asked for explicitly. The default in
-     *  0.6; the cloud studio becomes the default in 0.7. */
-    local?: true;
+    /** The cloud studio's origin; undefined with `--local`, which runs the
+     *  studio UI on this machine instead. */
+    cloudUrl?: string;
 };
-/** Printed when `--local` is not passed, ahead of 0.7's default change. */
-export declare const CLOUD_DEFAULT_NOTICE = "Heads up: in 0.7 `typren studio` opens the cloud studio by default. Pass --local to keep the local studio.";
+export declare const DEFAULT_CLOUD_URL = "https://app.typren.com";
 /** Same hand-rolled argv style as the rest of the CLI. `--site-url` is
- *  reduced to its origin: the editor appends "/<slug>" to it. */
-export declare function parseStudioArgs(args: string[]): StudioArgs | {
+ *  reduced to its origin: the editor appends "/<slug>" to it. Cloud is the
+ *  default; `--local` opts out, and `--cloud` is accepted as a no-op. */
+export declare function parseStudioArgs(args: string[], env?: NodeJS.ProcessEnv): StudioArgs | {
     error: string;
 };
-/** Mirrors apps/studio's `StudioManifest`: the site's facts plus the data
- *  parts of its cms.config, handed to the studio process as JSON. */
-export type StudioManifest = LocalSite & {
-    siteUrl: string;
-    defaults: Record<string, Record<string, unknown>>;
-    fieldSchema?: Record<string, SliceSchema>;
-    /** The `studio` block's site facts (see `readStudioBlock`), each optional. */
-    sections?: Section[];
-    /** Route prefix under the site that page previews live at, e.g. "/draft". */
-    previewPath?: string;
-    /** The one-slice route's path, or `false` for a site with none. */
-    sectionRoute?: string | false;
-    /** Page path prefixes under a nested layout, which the studio previews on
-     *  their real route instead of the page canvas. */
-    nestedLayouts?: string[];
-};
+/** The cloud studio's pairing link. Port and token ride in the fragment,
+ *  which the browser never sends to the cloud's server. */
+export declare function connectUrl(cloudUrl: string, port: number, token: string): string;
+/** Opens `url` in the default browser without a shell, so nothing in the URL
+ *  is interpreted. Best effort: the link is printed too. */
+export declare function browserCommand(url: string, platform?: NodeJS.Platform): Command;
+export type { StudioManifest };
 /**
  * The site at `cwd` as core's `LocalSite`: its `typren.config.json` `studio`
  * block (validated), content dir, media, home slug and style map. What a
@@ -377,6 +392,13 @@ export declare function waitForUrl(url: string, stopped: () => boolean, opts: {
     timeoutMs: number;
     intervalMs: number;
 }): Promise<boolean>;
+/** The session's foreground: the local studio app's process, or the cloud
+ *  mode's in-process API server. */
+export type Foreground = {
+    stop(signal: NodeJS.Signals): void;
+    /** Resolves with the exit code; null when killed by a signal. */
+    exited: Promise<number | null>;
+};
 export type StudioDeps = {
     spawn: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
     fetch: typeof fetch;
@@ -395,11 +417,16 @@ export type StudioDeps = {
  * captured output. Resolves with the exit code for the CLI.
  */
 export declare function runStudio(plan: {
-    studio: Command;
+    /** The local studio app to spawn, or the cloud mode's API server to start. */
+    studio: Command | (() => Promise<Foreground>);
     studioUrl: string;
     siteUrl: string;
     preview?: Command;
-}, deps: StudioDeps): Promise<number>;
+    /** Cloud mode: the connect link, printed and opened once the API answers. */
+    openUrl?: string;
+}, deps: StudioDeps & {
+    open?: (url: string) => void;
+}): Promise<number>;
 
 // ---- dist/telemetry.d.ts ----
 /** Whether telemetry should fire at all right now, folding in every opt-out source. */

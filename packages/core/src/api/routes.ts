@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { ActionRefusedError, makeActions } from "../actions";
 import { resolveAuth } from "../auth-adapter";
 import { GitError } from "../git";
@@ -7,6 +8,7 @@ import { handleMediaUpload, sameOrigin } from "../media";
 import { resolveSections, type CollectionSection } from "../sections";
 import { BOOTSTRAP_KEYS, createSettingsStore } from "../settings";
 import { createStore, type ContentStore } from "../store";
+import { isOrigin } from "../ui/preview-bridge.vanilla";
 import type { CmsConfig, ContentAdapter, PageContent, Slice } from "../types";
 import type { PageMetaPatch } from "../actions";
 import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
@@ -80,6 +82,7 @@ import type { SiteSettingsBootstrap, SiteSettingsRuntime } from "../settings";
  * POST   /library[/templates]/folders         create a folder  { folder }
  * POST   /library[/templates]/folders/rename  rename a folder  { folder, to }
  * DELETE /library[/templates]/folders?folder= delete an empty folder (422 while it holds anything)
+ * GET    /studio                             the studio's initial props (only with `options.studio`; ?slug=)
  * GET    /git                                commits a push would send (only with `config.git`)
  * POST   /git/push                           push to the upstream (publish) -> 502 { error } on rejection;
  *                                             with { paths } only those files' saved changes; { slugs }
@@ -110,6 +113,16 @@ export interface TyprenApiOptions {
    *  requests with no `Origin` header (server-to-server, curl) are allowed
    *  because CSRF needs a browser to attach credentials. */
   allowedOrigins?: string[];
+  /** One foreign origin allowed to call this API from a browser, reads
+   *  included, when it also sends `Authorization: Bearer <token>`: the
+   *  connected studio (`typren studio --cloud`), whose UI is served by the
+   *  cloud while the API stays on this machine. Anything else from that
+   *  origin is refused, so the token is the whole credential. Never `*`. */
+  allowOrigin?: { origin: string; token: string };
+  /** Serves `GET /studio`: the studio's initial props for a UI that cannot
+   *  render them on this host's server (the connected studio). Gated by the
+   *  `read` action like every other read. */
+  studio?: (request: Request) => unknown;
 }
 
 /** Resolves a `CmsConfig` fresh per request (session -> user -> account ->
@@ -118,7 +131,7 @@ export interface TyprenApiOptions {
  *  the request yourself here -- resolve them server-side same as identity. */
 export type CmsConfigFactory = (request: Request) => CmsConfig | Promise<CmsConfig>;
 
-const RESOURCES = ["pages", "media", "settings", "collections", "git", "library", "folders"] as const;
+const RESOURCES = ["pages", "media", "settings", "collections", "git", "library", "folders", "studio"] as const;
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 function json(body: unknown, status = 200): Response {
@@ -232,11 +245,36 @@ function saveResult(result: { ok: boolean; code?: string }): Response {
  * this factory form existed.
  */
 export function createTyprenApi(config: CmsConfig | CmsConfigFactory, options: TyprenApiOptions = {}) {
-  const allowed = options.allowedOrigins ?? [];
+  const cloud = options.allowOrigin;
+  if (cloud && (!isOrigin(cloud.origin) || cloud.token.length < 32)) {
+    throw new Error("typren: allowOrigin needs a bare http(s) origin and a token of at least 32 characters");
+  }
   const isFactory = typeof config === "function";
   const cached = isFactory ? null : build(config);
 
   async function handler(request: Request): Promise<Response> {
+    if (!cloud || request.headers.get("origin") !== cloud.origin) return route(request, options.allowedOrigins ?? []);
+    const cors = (res: Response) => {
+      res.headers.set("Access-Control-Allow-Origin", cloud.origin);
+      res.headers.set("Vary", "Origin");
+      return res;
+    };
+    if (request.method === "OPTIONS") {
+      const res = cors(new Response(null, { status: 204 }));
+      res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
+      res.headers.set("Access-Control-Allow-Headers", "authorization, content-type");
+      // Chrome's Private Network Access preflight: a public page reaching loopback.
+      res.headers.set("Access-Control-Allow-Private-Network", "true");
+      res.headers.set("Access-Control-Max-Age", "600");
+      return res;
+    }
+    // CORS headers on the refusal too, so the page can tell a rejected token
+    // from a studio that is not running.
+    if (!bearerMatches(request, cloud.token)) return cors(json({ error: "Invalid pairing token" }, 401));
+    return cors(await route(request, [...(options.allowedOrigins ?? []), cloud.origin]));
+  }
+
+  async function route(request: Request, allowed: string[]): Promise<Response> {
     if (!SAFE_METHODS.has(request.method) && !sameOrigin(request, allowed)) {
       return json({ error: "Cross-origin request refused" }, 403);
     }
@@ -256,6 +294,9 @@ export function createTyprenApi(config: CmsConfig | CmsConfigFactory, options: T
       if (resource === "git") return await gitRoutes(built, request, method, rest);
       if (resource === "folders") return await folderRoutes(built, request, method, rest, locale);
       if (resource === "library") return await libraryRoutes(built, request, method, rest);
+      if (resource === "studio" && options.studio && !rest.length && method === "GET") {
+        return (await requireRead(built)) ?? jsonNoStore(await options.studio(request));
+      }
       return json({ error: "Not found" }, 404);
     } catch (e) {
       if (isUnauthorized(e)) return json({ error: "Unauthorized" }, 403);
@@ -278,7 +319,17 @@ export function createTyprenApi(config: CmsConfig | CmsConfigFactory, options: T
     PUT: handler,
     PATCH: handler,
     DELETE: handler,
+    OPTIONS: handler,
   };
+}
+
+/** Constant-time: both sides are hashed to equal length first, so neither
+ *  the comparison nor a length mismatch leaks how much of the token matched. */
+function bearerMatches(request: Request, token: string): boolean {
+  const sent = /^Bearer (\S+)$/.exec(request.headers.get("authorization") ?? "")?.[1];
+  if (!sent) return false;
+  const digest = (s: string) => createHash("sha256").update(s).digest();
+  return timingSafeEqual(digest(sent), digest(token));
 }
 
 async function requireRead(

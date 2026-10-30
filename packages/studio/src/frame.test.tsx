@@ -100,6 +100,8 @@ describe("Frame motion", () => {
     rerender(frame({ level: 1, view: "pages" }));
     const moved = animate.mock.contexts as Element[];
     expect(moved).toHaveLength(2);
+    // A host's cross-studio transition slides the same two parts by these marks.
+    expect(moved).toEqual([document.querySelector("[data-typren-rail-head]"), document.querySelector("[data-typren-rail]")]);
     for (const still of [screen.getByRole("button", { name: "Collapse sidebar" }), screen.getByRole("group", { name: "Studio theme" })])
       expect(moved.some((el) => el.contains(still))).toBe(false);
   });
@@ -598,5 +600,28 @@ describe("Frame narrow-viewport search sheet", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(button);
+  });
+});
+
+describe("Frame theme", () => {
+  it("mirrors dark onto <html> and keeps it after unmount", () => {
+    const html = document.documentElement;
+    const { rerender, unmount } = render(frame());
+    expect(html.classList.contains("dark")).toBe(false);
+    rerender(<Frame back={null} level={1} rail={<p>rail</p>} device="desktop" onDevice={() => {}} dark onToggleTheme={() => {}}><p>main</p></Frame>);
+    expect(html.classList.contains("dark")).toBe(true);
+    unmount();
+    expect(html.classList.contains("dark")).toBe(true);
+    html.classList.remove("dark");
+  });
+
+  it("leaves a host's pre-paint dark class alone on the first light pass", () => {
+    const html = document.documentElement;
+    html.classList.add("dark");
+    const { rerender } = render(frame());
+    expect(html.classList.contains("dark")).toBe(true);
+    rerender(<Frame back={null} level={1} rail={<p>rail</p>} device="desktop" onDevice={() => {}} dark onToggleTheme={() => {}}><p>main</p></Frame>);
+    rerender(frame());
+    expect(html.classList.contains("dark")).toBe(false);
   });
 });

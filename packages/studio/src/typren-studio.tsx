@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { SharedMediaProvider } from "./image-picker-field";
 import { MediaOriginProvider, siteOrigin } from "./media-url";
 import type {
   CollectionRecordInfo,
@@ -56,6 +57,7 @@ import {
   type TemplatesView,
 } from "./site-rail";
 import { EmptyState } from "./primitives/empty";
+import { ScrollArea } from "./primitives/scroll-area";
 import type { TyprenStudioHost } from "./types";
 
 export type { TyprenStudioHost };
@@ -190,7 +192,9 @@ export function TyprenStudio(props: Readonly<TyprenStudioProps>) {
   return (
     <CmsIntlProvider messages={props.messages}>
       <MediaOriginProvider origin={siteOrigin(props.host)}>
-        <Shell {...props} />
+        <SharedMediaProvider value={props.host.sharedMedia}>
+          <Shell {...props} />
+        </SharedMediaProvider>
       </MediaOriginProvider>
     </CmsIntlProvider>
   );
@@ -753,6 +757,8 @@ function Shell({
             previewSrc={(v) => previewSrc(host, homeSlug, v, locale)}
             device={device}
           />
+        ) : (active.raw as { host?: true }).host && host.renderSection?.(active.id) != null ? (
+          <ScrollArea className="min-h-0 flex-1">{host.renderSection(active.id)}</ScrollArea>
         ) : (
           <EmptyState
             icon={<Construction />}
@@ -800,7 +806,9 @@ function Shell({
                 onNavigateSection?.(null);
               },
             }
-          : null
+          : host.exit
+            ? { label: host.exit.label, onBack: host.exit.onExit }
+            : null
       }
       device={
         active.kind === "pages" ||
@@ -1021,7 +1029,7 @@ function Shell({
 }
 
 /** The rounded frame non-preview entries render in, matching the preview's. */
-function Panel({ children }: Readonly<{ children: ReactNode }>) {
+export function Panel({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className="typren-surface-1 flex min-h-0 min-w-0 flex-1 rounded-[var(--typren-radius-card)] border border-[var(--typren-stroke-card)] bg-[var(--typren-layer)]">
       <div className="flex min-w-0 flex-1 overflow-hidden rounded-[inherit]">

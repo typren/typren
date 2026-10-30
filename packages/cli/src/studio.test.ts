@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import {
+  browserCommand,
   buildStudioManifest,
-  parseStudioArgs,
+  connectUrl,
+  parseStudioArgs as parseWithEnv,
   previewCommand,
   resolveSite,
   resolveStudioDir,
@@ -16,6 +18,10 @@ import {
   type Command,
   type StudioDeps,
 } from "./studio";
+
+const CLOUD = "https://app.typren.com";
+// The real env could carry TYPREN_CLOUD_URL; these tests pin an empty one.
+const parseStudioArgs = (args: string[]) => parseWithEnv(args, {});
 
 let dir: string;
 
@@ -29,8 +35,8 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe("parseStudioArgs", () => {
   it("defaults to port 4400 with the preview one port above it", () => {
-    expect(parseStudioArgs(["studio"])).toEqual({ port: 4400, previewPort: 4401 });
-    expect(parseStudioArgs(["studio", "--port", "5000"])).toEqual({ port: 5000, previewPort: 5001 });
+    expect(parseStudioArgs(["studio"])).toEqual({ port: 4400, previewPort: 4401, cloudUrl: CLOUD });
+    expect(parseStudioArgs(["studio", "--port", "5000"])).toEqual({ port: 5000, previewPort: 5001, cloudUrl: CLOUD });
   });
 
   it("takes --preview-port, and reduces --site-url to its origin", () => {
@@ -38,12 +44,24 @@ describe("parseStudioArgs", () => {
       port: 4400,
       previewPort: 6000,
       siteUrl: "http://localhost:4321",
+      cloudUrl: CLOUD,
     });
   });
 
-  it("accepts --local, which runs the same local studio", () => {
-    expect(parseStudioArgs(["studio", "--local"])).toEqual({ port: 4400, previewPort: 4401, local: true });
-    expect(parseStudioArgs(["studio", "--local", "--site-url", "http://127.0.0.1:3000"])).toMatchObject({ local: true, siteUrl: "http://127.0.0.1:3000" });
+  it("opens in the cloud by default, and runs the local studio with --local", () => {
+    expect(parseStudioArgs(["studio", "--cloud"])).toMatchObject({ cloudUrl: CLOUD });
+    expect(parseStudioArgs(["studio", "--local"])).toEqual({ port: 4400, previewPort: 4401 });
+  });
+
+  it("takes the cloud URL from --cloud-url over TYPREN_CLOUD_URL, reduced to its origin", () => {
+    expect(parseWithEnv(["studio"], { TYPREN_CLOUD_URL: "http://127.0.0.1:3300/" })).toMatchObject({ cloudUrl: "http://127.0.0.1:3300" });
+    expect(parseWithEnv(["studio", "--cloud-url", "https://cloud.test/x"], { TYPREN_CLOUD_URL: "http://127.0.0.1:3300" })).toMatchObject({
+      cloudUrl: "https://cloud.test",
+    });
+  });
+
+  it.each([["http://cloud.test"], ["ftp://cloud.test"], ["cloud.test"], [""]])("rejects cloud URL %j", (url) => {
+    expect(parseStudioArgs(["studio", "--cloud-url", url])).toEqual({ error: expect.stringContaining("--cloud-url") });
   });
 
   it.each([["0"], ["70000"], ["abc"], [""]])("rejects port %j", (port) => {
@@ -59,6 +77,21 @@ describe("parseStudioArgs", () => {
     expect(parseStudioArgs(["studio", "--site-url", "/about"])).toEqual({ error: expect.stringContaining("absolute") });
     expect(parseStudioArgs(["studio", "--site-url", "file:///tmp"])).toEqual({ error: expect.stringContaining("http(s)") });
     expect(parseStudioArgs(["studio", "--site-url"])).toEqual({ error: expect.stringContaining("absolute") });
+  });
+});
+
+describe("connectUrl and browserCommand", () => {
+  it("puts port and token in the fragment, never the query", () => {
+    const url = new URL(connectUrl(CLOUD, 4400, "abc_-"));
+    expect(url.search).toBe("");
+    expect(url.pathname).toBe("/connect");
+    expect(url.hash).toBe("#port=4400&token=abc_-");
+  });
+
+  it("opens the URL as one argument, never through a shell", () => {
+    expect(browserCommand("https://x/#a&b", "darwin")).toMatchObject({ command: "open", args: ["https://x/#a&b"] });
+    expect(browserCommand("https://x/#a&b", "linux")).toMatchObject({ command: "xdg-open", args: ["https://x/#a&b"] });
+    expect(browserCommand("https://x/#a&b", "win32")).toMatchObject({ command: "rundll32", args: ["url.dll,FileProtocolHandler", "https://x/#a&b"] });
   });
 });
 
@@ -390,5 +423,30 @@ describe("runStudio", () => {
     await vi.waitFor(() => expect(deps.spawn).toHaveBeenCalledTimes(1));
     studio.emit("exit", null);
     expect(await run).toBe(1);
+  });
+
+  it("runs an in-process foreground for the cloud, then prints and opens the connect link", async () => {
+    const { preview, deps } = setup(up());
+    let exit!: (code: number | null) => void;
+    const stop = vi.fn(() => exit(0));
+    const open = vi.fn();
+    const run = runStudio(
+      { ...plan, studio: async () => ({ stop, exited: new Promise((r) => (exit = r)) }), preview: cmd("npm"), openUrl: "https://c/connect#t" },
+      { ...deps, open }
+    );
+    await vi.waitFor(() => expect(open).toHaveBeenCalledWith("https://c/connect#t"));
+    expect(deps.log).toHaveBeenCalledWith(expect.stringContaining("https://c/connect#t"));
+    expect(deps.spawn).toHaveBeenCalledTimes(1);
+    preview.emit("exit", 1);
+    expect(stop).toHaveBeenCalledWith("SIGTERM");
+    expect(await run).toBe(1);
+  });
+
+  it("reports an API server that cannot start, and stops the preview", async () => {
+    const { preview, deps } = setup(up());
+    const run = runStudio({ ...plan, studio: () => Promise.reject(new Error("EADDRINUSE")), preview: cmd("npm") }, deps);
+    expect(await run).toBe(1);
+    expect(deps.error).toHaveBeenCalledWith(expect.stringContaining("EADDRINUSE"));
+    expect(preview.kill).toHaveBeenCalledWith("SIGTERM");
   });
 });

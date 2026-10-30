@@ -370,6 +370,16 @@ describe("uploadAssets", () => {
     expect((fetchMock.mock.calls[0]![1].body as FormData).has("folder")).toBe(false);
   });
 
+  it("uploads through the host's upload when it has one, never a plain POST", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const upload = vi.fn().mockResolvedValueOnce(assets[0]).mockRejectedValueOnce(new Error("Upload too large"));
+    expect(await uploadAssets(makeMedia({ upload }), files("a.png", "b.png"), "events")).toBe("Upload too large");
+    expect(upload).toHaveBeenCalledWith(expect.any(File), "events");
+    expect(await uploadAssets(makeMedia({ upload: vi.fn().mockRejectedValue("nope") }), files("a.png"))).toBe("nope");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("resolves to the last error, falling back to the status text", async () => {
     vi.stubGlobal(
       "fetch",
