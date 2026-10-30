@@ -11,12 +11,12 @@ export { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 export { cn } from "./primitives/cn";
 export { useConfirm, type ConfirmOptions } from "./primitives/confirm";
 export { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "./primitives/context-menu";
-export { Dialog, DialogContent, DialogFooter, DialogTitle, DialogTrigger } from "./primitives/dialog";
+export { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "./primitives/dialog";
 export { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyState, EmptyTitle } from "./primitives/empty";
 export { CheckboxRow, Field } from "./primitives/field";
 export { Input } from "./primitives/input";
 export { Label } from "./primitives/label";
-export { Menu, MenuContent, MenuItem, MenuTrigger } from "./primitives/menu";
+export { Menu, MenuContent, MenuGroup, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "./primitives/menu";
 export { Popover, PopoverContent, PopoverTrigger } from "./primitives/popover";
 export { ScrollArea, ScrollBar } from "./primitives/scroll-area";
 export { SearchInput } from "./primitives/search-input";

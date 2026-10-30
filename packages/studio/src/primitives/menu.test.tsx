@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Menu, MenuContent, MenuItem, MenuTrigger } from "./menu";
+import { Menu, MenuContent, MenuGroup, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "./menu";
 
 afterEach(cleanup);
 
@@ -22,5 +22,23 @@ describe("Menu", () => {
     expect((await screen.findByText("Delete")).className).toContain("text-[var(--typren-destructive)]");
     await userEvent.click(await screen.findByText("Rename"));
     expect(onSelect).toHaveBeenCalledOnce();
+  });
+
+  it("renders a group label and a separator", async () => {
+    render(
+      <Menu>
+        <MenuTrigger>Actions</MenuTrigger>
+        <MenuContent>
+          <MenuGroup>
+            <MenuLabel>Account</MenuLabel>
+            <MenuItem>Rename</MenuItem>
+          </MenuGroup>
+          <MenuSeparator />
+        </MenuContent>
+      </Menu>,
+    );
+    await userEvent.setup().click(screen.getByText("Actions"));
+    expect(await screen.findByText("Account")).toBeTruthy();
+    expect(document.querySelector("[data-slot=menu-separator]")).not.toBeNull();
   });
 });

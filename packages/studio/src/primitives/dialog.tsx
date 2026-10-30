@@ -52,4 +52,18 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   );
 }
 
-export { Dialog, DialogContent, DialogFooter, DialogTitle, DialogTrigger };
+function DialogHeader({ className, ...props }: ComponentProps<"div">) {
+  return <div data-slot="dialog-header" className={cn("flex flex-col gap-2", className)} {...props} />;
+}
+
+function DialogDescription({ className, ...props }: DialogPrimitive.Description.Props) {
+  return (
+    <DialogPrimitive.Description
+      data-slot="dialog-description"
+      className={cn("text-sm text-[var(--typren-muted-fg)]", className)}
+      {...props}
+    />
+  );
+}
+
+export { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger };

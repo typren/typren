@@ -53,4 +53,29 @@ function MenuItem({
   );
 }
 
-export { Menu, MenuContent, MenuItem, MenuTrigger };
+/** Wraps a `MenuLabel` and its items; Base UI's label needs the group. */
+function MenuGroup(props: MenuPrimitive.Group.Props) {
+  return <MenuPrimitive.Group data-slot="menu-group" {...props} />;
+}
+
+function MenuLabel({ className, ...props }: MenuPrimitive.GroupLabel.Props) {
+  return (
+    <MenuPrimitive.GroupLabel
+      data-slot="menu-label"
+      className={cn("px-2 py-1.5 text-xs text-[var(--typren-muted-fg)]", className)}
+      {...props}
+    />
+  );
+}
+
+function MenuSeparator({ className, ...props }: MenuPrimitive.Separator.Props) {
+  return (
+    <MenuPrimitive.Separator
+      data-slot="menu-separator"
+      className={cn("-mx-1 my-1 h-px bg-[var(--typren-border)]", className)}
+      {...props}
+    />
+  );
+}
+
+export { Menu, MenuContent, MenuGroup, MenuItem, MenuLabel, MenuSeparator, MenuTrigger };
