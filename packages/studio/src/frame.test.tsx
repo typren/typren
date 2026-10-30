@@ -600,3 +600,16 @@ describe("Frame narrow-viewport search sheet", () => {
     expect(document.activeElement).toBe(button);
   });
 });
+
+describe("Frame theme", () => {
+  it("mirrors dark onto <html> and keeps it after unmount", () => {
+    const html = document.documentElement;
+    const { rerender, unmount } = render(frame());
+    expect(html.classList.contains("dark")).toBe(false);
+    rerender(<Frame back={null} level={1} rail={<p>rail</p>} device="desktop" onDevice={() => {}} dark onToggleTheme={() => {}}><p>main</p></Frame>);
+    expect(html.classList.contains("dark")).toBe(true);
+    unmount();
+    expect(html.classList.contains("dark")).toBe(true);
+    html.classList.remove("dark");
+  });
+});

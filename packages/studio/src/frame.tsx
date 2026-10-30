@@ -742,6 +742,12 @@ export function Frame({
   // Locales matter only where a page preview shows, as the presets do.
   const locale = device ? localeSwitch : undefined;
   const [live, setLive] = useState("");
+  // tokens.css puts the shadcn-name aliases on `body` and scopes host dark to
+  // `<html>`, so host content around the shell follows the toggle. No cleanup:
+  // the choice persists past unmount.
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+  }, [dark]);
   // Below `md` the rail is a drawer over the content, so the main area keeps
   // its width at 320px (WCAG 1.4.10).
   const [railOpen, setRailOpen] = useState(false);
