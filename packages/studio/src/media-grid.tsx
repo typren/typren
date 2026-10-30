@@ -27,6 +27,7 @@ export function MediaGrid({
   onDelete,
   onUploadFiles,
   busy = false,
+  readOnly = false,
 }: Readonly<{
   assets: MediaAsset[];
   mode: "library" | "picker";
@@ -38,6 +39,8 @@ export function MediaGrid({
   onDelete?: (id: string) => void; // library mode
   onUploadFiles: (files: FileList) => void; // both: drag/drop + file-picker upload
   busy?: boolean;
+  /** Drops every upload affordance (a source the studio only lists). */
+  readOnly?: boolean;
 }>) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -47,7 +50,7 @@ export function MediaGrid({
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
-        if (e.dataTransfer.files.length) onUploadFiles(e.dataTransfer.files);
+        if (!readOnly && e.dataTransfer.files.length) onUploadFiles(e.dataTransfer.files);
       }}
     >
       <div className="flex items-center gap-2">
@@ -62,30 +65,34 @@ export function MediaGrid({
         ) : (
           <div className="flex-1" />
         )}
-        <label className="sr-only" htmlFor="media-upload-input">
-          Upload images
-        </label>
-        <input
-          id="media-upload-input"
-          ref={inputRef}
-          type="file"
-          multiple
-          accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml"
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files?.length) onUploadFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
-          <Upload /> Upload
-        </Button>
+        {!readOnly && (
+          <>
+          <label className="sr-only" htmlFor="media-upload-input">
+            Upload images
+          </label>
+          <input
+            id="media-upload-input"
+            ref={inputRef}
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.length) onUploadFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => inputRef.current?.click()}>
+            <Upload /> Upload
+          </Button>
+          </>
+        )}
       </div>
 
       {assets.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-10 text-sm text-[var(--typren-muted-fg)]">
           <ImageOff className="size-6" aria-hidden />
-          Drop images here, or use Upload.
+          {readOnly ? "No images here." : "Drop images here, or use Upload."}
         </div>
       ) : (
         <ul className="grid grid-cols-3 gap-3 sm:grid-cols-4">
