@@ -25,3 +25,24 @@ describe("MediaGrid extraActions", () => {
     expect(rename).toHaveBeenCalledOnce();
   });
 });
+
+describe("MediaGrid delete and copy", () => {
+  it("shows Delete only with onDelete and not readOnly", () => {
+    const { rerender } = render(<MediaGrid {...base} />);
+    expect(screen.queryByLabelText("Delete logo.webp")).toBeNull();
+    rerender(<MediaGrid {...base} onDelete={() => {}} />);
+    expect(screen.getByLabelText("Delete logo.webp")).toBeTruthy();
+    rerender(<MediaGrid {...base} onDelete={() => {}} readOnly />);
+    expect(screen.queryByLabelText("Delete logo.webp")).toBeNull();
+  });
+
+  it("copies copyUrl's result, else the asset url", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<MediaGrid {...base} copyUrl={(a) => `https://x.test${a.url}`} />);
+    await user.click(screen.getByLabelText("Copy logo.webp URL"));
+    expect(await navigator.clipboard.readText()).toBe("https://x.test/m/logo.webp");
+    rerender(<MediaGrid {...base} />);
+    await user.click(screen.getByLabelText("Copy logo.webp URL"));
+    expect(await navigator.clipboard.readText()).toBe("/m/logo.webp");
+  });
+});

@@ -27,6 +27,7 @@ export function MediaGrid({
   onSelect,
   onDelete,
   extraActions,
+  copyUrl,
   onUploadFiles,
   busy = false,
   readOnly = false,
@@ -42,6 +43,10 @@ export function MediaGrid({
   /** Library mode: a host's own per-asset actions (Replace, Rename, ...),
    *  listed in a menu between Copy and Delete. */
   extraActions?: (asset: MediaAsset) => { label: string; onSelect: () => void }[];
+  /** Library mode: the URL the Copy action puts on the clipboard. Defaults to
+   *  the asset's own `url`; a host showing cache-busted thumbnails passes the
+   *  stable one. */
+  copyUrl?: (asset: MediaAsset) => string;
   onUploadFiles: (files: FileList) => void; // both: drag/drop + file-picker upload
   busy?: boolean;
   /** Drops every upload affordance (a source the studio only lists). */
@@ -120,7 +125,7 @@ export function MediaGrid({
                       size="icon-sm"
                       className="typren-concentric"
                       aria-label={`Copy ${a.name} URL`}
-                      onClick={() => navigator.clipboard.writeText(a.url)}
+                      onClick={() => navigator.clipboard.writeText(copyUrl ? copyUrl(a) : a.url)}
                     >
                       <Copy />
                     </Button>
@@ -140,15 +145,17 @@ export function MediaGrid({
                         </MenuContent>
                       </Menu>
                     )}
-                    <Button
-                      variant="destructive"
-                      size="icon-sm"
-                      className="typren-concentric"
-                      aria-label={`Delete ${a.name}`}
-                      onClick={() => onDelete?.(a.id)}
-                    >
-                      <Trash2 />
-                    </Button>
+                    {onDelete && !readOnly && (
+                      <Button
+                        variant="destructive"
+                        size="icon-sm"
+                        className="typren-concentric"
+                        aria-label={`Delete ${a.name}`}
+                        onClick={() => onDelete(a.id)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}
