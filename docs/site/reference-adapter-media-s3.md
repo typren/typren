@@ -31,10 +31,10 @@ Cloudflare Workers as well as Node.
 | `publicBaseUrl` | `string` | required | The public URL assets are served from. |
 | `prefix` | `string` | required | Key prefix every object is stored/listed under, e.g. `"uploads/"`. **Required and must end in `/`.** With no prefix the adapter would list, and let authors delete, every object in the bucket; a prefix missing its trailing slash is a shared-bucket collision risk (`"siteA"` also matches the key `"siteAB/x"` via plain `startsWith`). |
 
-> **Security:** `publicBaseUrl` must be a separate origin from the site/editor. `upload()`
+> **Security:** `publicBaseUrl` must be a separate origin from the site/studio. `upload()`
 > allowlists only `image/webp`, `image/avif` and `image/svg+xml`, and sets
 > `content-disposition: inline` for SVG, but `inline` does not neutralize script an SVG can
-> carry. If `publicBaseUrl` shared an origin with the site or editor, a stored SVG could run
+> carry. If `publicBaseUrl` shared an origin with the site or studio, a stored SVG could run
 > script with that origin's cookies and DOM (stored XSS). Serving media from a distinct domain
 > means a malicious SVG only ever executes in its own, cookie-less origin.
 

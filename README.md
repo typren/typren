@@ -11,7 +11,7 @@ repository**, and the source is yours to read, run and modify.
 
 Site builders trap your content in their database. Typren doesn't have one.
 Pages are markdown files with frontmatter, blocks are components in your repo,
-and the editor is a client that reads and writes those files. Delete Typren and
+and the studio is a client that reads and writes those files. Delete Typren and
 your site still builds.
 
 - **Your content, your repo.** Markdown and frontmatter, committed to Git. Every
@@ -30,7 +30,7 @@ your site still builds.
 |---|---|
 | [`@typren/core`](packages/core) | the engine: content store, adapters, HTTP API, SEO |
 | [`typren`](packages/cli) | the CLI: scaffolding, content review |
-| [`@typren/editor`](packages/editor) | the editor UI (React), in progress and not yet published |
+| [`@typren/studio`](packages/studio) | the studio UI (React), run locally by `typren studio` or hosted by the cloud dashboard; in progress and not yet published |
 | [`@typren/forms`](packages/forms) | form handling: server-authoritative validation, spam checks, pluggable delivery sinks (webhook, HubSpot, Google Sheets, file) |
 | [`@typren/locale`](packages/locale) | localization delivery: baked catalogs at build plus an OTA delta channel |
 | [`@typren/adapter-media-s3`](packages/adapter-media-s3) | S3 API-compatible `MediaAdapter` (Cloudflare R2, Supabase Storage, AWS S3, MinIO) |
@@ -49,11 +49,11 @@ ContentStore      draft/publish, locale fallback, version-checked writes
       ↓
 makeActions()     auth-gated handlers
       ↓
-editor UI         React, mounted by a thin host
+studio UI         React, mounted by a thin host (local or cloud)
 ```
 
 `MediaAdapter` and `AuthAdapter` follow the same shape: an interface plus one
-reference implementation. Swapping storage never touches the editor.
+reference implementation. Swapping storage never touches the studio.
 
 ## Development
 

@@ -3,6 +3,8 @@ import sharp, { type Metadata } from "sharp";
 import { JSDOM } from "jsdom";
 import DOMPurify, { type WindowLike } from "dompurify";
 import { resolveAuth } from "./auth-adapter";
+import { makeActions } from "./actions";
+import { GitError } from "./git";
 import type { CmsConfig, PreparedFile } from "./types";
 
 /** Pre-conversion upload cap. Sharp's own `limitInputPixels` default
@@ -81,9 +83,17 @@ function sanitizeSvg(raw: string): string {
 const isAvif = (meta: Metadata) => meta.format === "heif" && meta.compression === "av1";
 const RASTER_FORMATS = new Set(["png", "jpeg", "gif", "tiff", "webp"]);
 
-/** basename minus extension, lowercased, non-alnum runs collapsed to "-". */
+/** basename minus extension, lowercased, non-alnum runs collapsed to "-",
+ *  cut to 55 characters: the editor's 64-character name limit less the
+ *  9-character "-xxxxxxxx" suffix the fs adapter adds for uniqueness. */
 function slugifyBase(filename: string): string {
-  const base = path.parse(filename).name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const base = path
+    .parse(filename)
+    .name.toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 55)
+    .replace(/-$/, "");
   return base || "image";
 }
 
@@ -145,14 +155,16 @@ export async function processUpload(
 /** CSRF check for an unsafe request: true when it comes from the request's
  *  own host or an `allowed` origin. A request with no `Origin` header and no
  *  cross-site `Sec-Fetch-Site` is a non-browser caller, with no ambient
- *  credentials to abuse. */
+ *  credentials to abuse. "Own host" is the `Host` header the browser sent:
+ *  a dev server bound to 127.0.0.1 can rebuild `request.url` as localhost,
+ *  which refused every write from its own page. */
 export function sameOrigin(request: Request, allowed: string[]): boolean {
   const origin = request.headers.get("origin");
   if (origin && allowed.includes(origin)) return true;
   if (request.headers.get("sec-fetch-site") === "cross-site") return false;
   if (!origin) return true;
   try {
-    return new URL(origin).host === new URL(request.url).host;
+    return new URL(origin).host === (request.headers.get("host") ?? new URL(request.url).host);
   } catch {
     return false;
   }
@@ -163,8 +175,10 @@ export function sameOrigin(request: Request, allowed: string[]): boolean {
  *  already uses for Server Actions.
  *
  *  Route Handlers never run through a parent layout's auth gate (a
- *  `route.ts` renders no layout tree at all), so this re-checks auth itself
- *  via the same `resolveAuth` the action guard uses, and refuses a
+ *  `route.ts` renders no layout tree at all). The upload itself is
+ *  `makeActions().uploadMedia`, whose guard is the gate; this checks the
+ *  same action first anyway, so a caller who would be refused never gets a
+ *  body buffered, and refuses a
  *  cross-origin request itself: a multipart POST needs no CORS preflight, so
  *  any page could otherwise drive a loopback dev server's upload. A host
  *  serving the editor from another origin passes it in `allowedOrigins`. */
@@ -181,7 +195,8 @@ export async function handleMediaUpload(
       accountId: config.accountId,
     }))
   ) {
-    return new Response("Unauthorized", { status: 401 });
+    // 403 like every other refusal in the API router: there is no login to retry.
+    return new Response("Unauthorized", { status: 403 });
   }
   if (!config.mediaAdapter) return new Response("Media not configured", { status: 404 });
 
@@ -196,22 +211,17 @@ export async function handleMediaUpload(
   const form = await request.formData();
   const file = form.get("file");
   if (!(file instanceof File)) return Response.json({ error: "No file" }, { status: 400 });
+  const folder = form.get("folder");
 
-  let prepared: PreparedFile;
   try {
-    prepared = await processUpload(
+    const result = await makeActions(config).uploadMedia(
       { name: file.name, buffer: Buffer.from(await file.arrayBuffer()) },
-      { allowSvg: config.allowSvg }
+      typeof folder === "string" ? folder : undefined
     );
+    return result.ok ? Response.json(result.asset) : Response.json({ error: result.error }, { status: 400 });
   } catch (e) {
-    // processUpload's own errors are deliberately user-facing (see its doc comment above).
-    return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
-  }
-
-  try {
-    const asset = await config.mediaAdapter.upload(prepared);
-    return Response.json(asset);
-  } catch (e) {
+    // Written for the person uploading (see explainGitError), so it is shown.
+    if (e instanceof GitError) return Response.json({ error: e.message }, { status: 422 });
     // Unlike processUpload's, an adapter failure's message is not written for a client to read (it
     // can carry storage paths, bucket names, or other backend detail); log it, echo nothing back.
     console.error("typren: media upload failed", e);

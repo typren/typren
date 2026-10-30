@@ -35,8 +35,10 @@ const skipped = [];
 for (const file of walk(DIST).filter((f) => f.endsWith(".js") || f.endsWith(".d.ts"))) {
   const before = readFileSync(file, "utf8");
   const after = before.replace(RELATIVE_SPECIFIER, (match, lead, quote, spec) => {
-    if (path.extname(spec)) return match; // already .js / .json / .css
     const target = path.resolve(path.dirname(file), spec);
+    // Already .js / .json / .css. A dotted basename (`./preview-bridge.vanilla`)
+    // only looks like it has one, so the file must exist as written.
+    if (path.extname(spec) && existsSync(target)) return match;
     // `.js` in a .d.ts is correct too: TS maps ./x.js back to ./x.d.ts.
     const suffix = existsSync(`${target}.js`) ? ".js" : existsSync(path.join(target, "index.js")) ? "/index.js" : null;
     // Doesn't resolve inside dist → it isn't a dist import. `templates/init.js`

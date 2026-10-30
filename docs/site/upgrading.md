@@ -94,3 +94,23 @@ async, and every `createGithubAdapter(...)` call that needs a `draftBranch`
 decision — see
 [docs/migrations/core-0.5.0.md](https://github.com/typren/typren/blob/main/docs/migrations/core-0.5.0.md)
 for the full note.
+
+## 0.6.0: the admin route is `/studio`
+
+`@typren/core@0.6.0` names the admin route after the studio. `adminRoute`
+defaults to `"studio"` (was `"editor"`), `typrenProxyRewrite` rewrites a
+renamed route to `/studio/**` (was `/editor/**`), and
+`typrenBlocksDirectEditorAccess` is renamed `typrenBlocksDirectStudioAccess`.
+A site that sets `adminRoute` itself and doesn't wire the proxy helpers is
+unaffected: the stored value wins.
+
+1. Replace `typrenBlocksDirectEditorAccess` with
+   `typrenBlocksDirectStudioAccess` in your imports and calls.
+2. Either move `app/editor` to `app/studio`, or keep the `/editor` URL by
+   setting `"adminRoute": "editor"` in `typren.config.json`. With the proxy
+   helpers wired, move the folder either way: they rewrite to the real
+   `/studio/**` routes.
+
+`typren migrate --from 0.5.4 --to 0.6.0` flags both, and
+[docs/migrations/core-0.6.0.md](https://github.com/typren/typren/blob/main/docs/migrations/core-0.6.0.md)
+has the full note.

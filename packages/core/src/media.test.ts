@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import sharp, { type Sharp } from "sharp";
-import { handleMediaUpload, processUpload, MAX_UPLOAD_BYTES } from "./media";
+import { handleMediaUpload, processUpload, sameOrigin, MAX_UPLOAD_BYTES } from "./media";
 import type { CmsConfig, PreparedFile } from "./types";
 
 const SVG_ON = { allowSvg: true };
@@ -161,10 +161,20 @@ describe("processUpload", () => {
   });
 });
 
+describe("processUpload name length", () => {
+  it("caps the base at 55 characters without a trailing dash", async () => {
+    const long = `${"a".repeat(54)} ${"b".repeat(30)}.png`;
+    const result = await processUpload({ name: long, buffer: await png() });
+    expect(result.name).toBe(`${"a".repeat(54)}.webp`);
+    const exact = await processUpload({ name: `${"c".repeat(80)}.png`, buffer: await png() });
+    expect(exact.name).toBe(`${"c".repeat(55)}.webp`);
+  });
+});
+
 describe("handleMediaUpload", () => {
   const upload = vi.fn(async (f: PreparedFile) => ({ id: f.name, url: `/media/${f.name}` }));
   const config = (extra: Partial<CmsConfig> = {}) =>
-    ({ authorize: () => true, mediaAdapter: { upload }, ...extra }) as unknown as CmsConfig;
+    ({ authorize: () => true, adapter: { locales: ["en"], defaultLocale: "en" }, mediaAdapter: { upload }, ...extra }) as unknown as CmsConfig;
   const request = (headers: Record<string, string>, file?: File) => {
     const formData = vi.fn(async () => ({ get: () => file ?? null }));
     return { req: { headers: new Headers(headers), formData } as unknown as Request, formData };
@@ -191,6 +201,12 @@ describe("handleMediaUpload", () => {
     expect((await handleMediaUpload(config(), allowed, ["https://editor.test"])).status).toBe(400);
   });
 
+  it("refuses an unauthorized upload with 403, as the router does, before reading the body", async () => {
+    const { req, formData } = request({});
+    expect((await handleMediaUpload(config({ authorize: () => false } as Partial<CmsConfig>), req)).status).toBe(403);
+    expect(formData).not.toHaveBeenCalled();
+  });
+
   it("refuses a declared oversize body with 413 before buffering it", async () => {
     const { req, formData } = request({ "content-length": String(MAX_UPLOAD_BYTES + 1024 * 1024) });
     const res = await handleMediaUpload(config(), req);
@@ -206,7 +222,16 @@ describe("handleMediaUpload", () => {
 
     const allowed = await handleMediaUpload(config({ allowSvg: true }), request({}, svg()).req);
     expect(allowed.status).toBe(200);
-    expect(upload).toHaveBeenCalledWith(expect.objectContaining({ mime: "image/svg+xml" }));
+    expect(upload).toHaveBeenCalledWith(expect.objectContaining({ mime: "image/svg+xml" }), undefined);
+  });
+
+  it("passes the form's folder field to the adapter as the second argument", async () => {
+    const file = new File([await png()], "a.png", { type: "image/png" });
+    const fields: Record<string, unknown> = { file, folder: "events/2025" };
+    const req = { headers: new Headers(), formData: async () => ({ get: (k: string) => fields[k] ?? null }) } as unknown as Request;
+    upload.mockClear();
+    expect((await handleMediaUpload(config(), req)).status).toBe(200);
+    expect(upload).toHaveBeenCalledWith(expect.objectContaining({ mime: "image/webp" }), "events/2025");
   });
 
   it("replaces a mediaAdapter failure's raw message with a generic one, logging the detail instead", async () => {
@@ -226,5 +251,22 @@ describe("handleMediaUpload", () => {
     expect(body.error).not.toMatch(/S3|AccessDenied|arn:aws/);
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("media upload failed"), expect.any(Error));
     consoleError.mockRestore();
+  });
+});
+
+describe("sameOrigin", () => {
+  const post = (headers: Record<string, string>) =>
+    new Request("http://localhost:4400/api/typren/media", { method: "POST", headers });
+
+  it("trusts the Host header over request.url's host, which a dev server may rewrite", () => {
+    expect(sameOrigin(post({ origin: "http://127.0.0.1:4400", host: "127.0.0.1:4400" }), [])).toBe(true);
+    expect(sameOrigin(post({ origin: "http://evil.test", host: "127.0.0.1:4400" }), [])).toBe(false);
+  });
+
+  it("falls back to request.url without a Host header, and honours allowed origins", () => {
+    expect(sameOrigin(post({ origin: "http://localhost:4400" }), [])).toBe(true);
+    expect(sameOrigin(post({ origin: "http://editor.test" }), ["http://editor.test"])).toBe(true);
+    expect(sameOrigin(post({ "sec-fetch-site": "cross-site" }), [])).toBe(false);
+    expect(sameOrigin(post({}), [])).toBe(true);
   });
 });

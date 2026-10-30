@@ -105,7 +105,7 @@ attacker-controlled, and the upload route checks the request's
 
 ## Preview iframe isolation
 
-The editor's live preview renders the draft in an `<iframe sandbox="allow-scripts
+The studio's live preview renders the draft in an `<iframe sandbox="allow-scripts
 allow-forms">` — deliberately without `allow-same-origin`, since combining
 it with `allow-scripts` would let the framed page escape the sandbox
 entirely (a sandboxed-but-same-origin frame can still reach and script its
@@ -113,7 +113,7 @@ parent). The cost is that the frame's origin becomes the opaque string
 `"null"`, so the preview bridge can't check `event.origin` the way a
 same-origin postMessage protocol normally would. Instead, every message is
 checked against `event.source === iframeRef.current?.contentWindow` (so only
-the specific frame instance the editor created is trusted, not any other
+the specific frame instance the studio created is trusted, not any other
 window) and a `__typren` marker on the message payload. Outbound messages to
 the frame use `targetOrigin: "*"`, which is safe here only because nothing
 sent to the preview frame is sensitive — it's editable-field content the
@@ -148,7 +148,7 @@ silently share one site's settings across every tenant.
 ## A separate origin for media
 
 `@typren/adapter-media-s3`'s `publicBaseUrl` must be a separate origin from
-the site/editor — serving uploaded SVGs (even sanitized ones) or arbitrary
+the site/studio — serving uploaded SVGs (even sanitized ones) or arbitrary
 file content from the same origin as authenticated editor sessions/cookies
 would be a stored-content risk. The upload-time mime allowlist
 (`image/webp`, `image/avif`, `image/svg+xml`) is deliberately narrower than

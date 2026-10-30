@@ -146,7 +146,7 @@ oversized upload is rejected before it's read into memory.
 > `content-disposition: inline` for SVG — but `inline` does not neutralize
 > script an SVG can carry, and even a hardened sanitizer is defense in depth,
 > not a substitute for origin isolation. If `publicBaseUrl` shared an origin
-> with the site or editor, a stored SVG could run script with that origin's
+> with the site or studio, a stored SVG could run script with that origin's
 > cookies and DOM (stored XSS). Serve media from a distinct domain (a CDN
 > domain, R2.dev, Supabase's storage host) so a malicious SVG only ever
 > executes in its own, cookie-less origin.

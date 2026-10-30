@@ -3,7 +3,7 @@ import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import { cfAccessAuthAdapter, oidcAuthAdapter } from "./oidc";
 
 const ISSUER = "https://idp.example.com";
-const AUDIENCE = "typren-editor";
+const AUDIENCE = "typren-studio";
 const DISCOVERY_URL = `${ISSUER}/.well-known/openid-configuration`;
 const JWKS_URI = `${ISSUER}/oauth2/v1/keys`;
 

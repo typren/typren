@@ -2,6 +2,7 @@ import type { ContentAdapter, LocalizedPage, PageContent, PageInfo } from "./typ
 import { versionOf, ConflictError, SlugExistsError } from "./version";
 import { mergeLocalized } from "./localize";
 import { mapLimit } from "./concurrency";
+import { SITE_SLUG, assertSafeNav } from "./nav";
 
 /** Fan-out concurrency cap for store/SEO operations that loop over every slug
  *  (or slug x locale) in a site: bounds concurrent adapter calls against
@@ -18,6 +19,37 @@ export function slugify(text: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+}
+
+/** Page slugs linked from the site doc's header navigation, in depth-first
+ *  order: `nav` items (and their `children`), then the `cta`. Only internal
+ *  hrefs count ("/about", "/about/"); "#", "/" and external links don't.
+ *  Null when the site doc has no `nav` list (the menu lives in the site's
+ *  code), so pages fall back to their own front matter. Anything shaped
+ *  otherwise means no navigation, never a throw.
+ *  ponytail: "/" is skipped because the store doesn't know the home slug;
+ *  the editor pins home on its own. */
+async function siteNav(adapter: ContentAdapter, locale: string): Promise<string[] | null> {
+  try {
+    if (!(await adapter.exists(SITE_SLUG, locale))) return null;
+    const { nav, cta } = adapter.parse(await adapter.readRaw(SITE_SLUG, locale)).meta;
+    if (!Array.isArray(nav)) return null;
+    const out: string[] = [];
+    const visit = (item: unknown) => {
+      if (!item || typeof item !== "object") return;
+      const { href, external, children } = item as Record<string, unknown>;
+      if (typeof href === "string" && external !== true && /^\/[^/]/.test(href)) {
+        const slug = href.split(/[?#]/)[0].replace(/^\/|\/$/g, "");
+        if (slug && !out.includes(slug)) out.push(slug);
+      }
+      if (Array.isArray(children)) children.forEach(visit);
+    };
+    nav.forEach(visit);
+    visit(cta);
+    return out;
+  } catch {
+    return null;
+  }
 }
 
 /** Read/draft/publish operations over an adapter. Storage-agnostic. Every read
@@ -48,8 +80,10 @@ export interface ContentStore {
   /** Promote the draft to published (via the adapter), clear it, run onPublish.
    *  With `baseVersion`, throws `ConflictError` if the draft moved since. */
   publish(slug: string, baseVersion?: string, locale?: string): Promise<void>;
-  /** Create a new published page in a locale. Throws if it already exists. */
-  createPage(slug: string, page: PageContent, locale?: string): Promise<void>;
+  /** Create a new page in a locale, published, or with `opts.draft` as a draft
+   *  only (it lists with `published: false` until its first publish). Throws
+   *  if the slug already has published content or a draft. */
+  createPage(slug: string, page: PageContent, locale?: string, opts?: { draft?: boolean }): Promise<void>;
   /** Seed a draft translation of an existing page from `fromLocale`'s content
    *  (copies structure + text as a starting point). No-op if `toLocale` already
    *  has content or a draft. */
@@ -102,20 +136,44 @@ export function createStore(
       // of an existing default page). Independent reads, bounded to FANOUT_LIMIT
       // concurrent adapter calls (unbounded Promise.all over every slug can open
       // hundreds of requests against a rate-limited GitHub/Notion adapter).
-      const slugs = await adapter.listSlugs(defaultLocale);
-      return mapLimit(slugs, FANOUT_LIMIT, async (slug) => {
+      // Draft-only pages (never published) join the set from the adapter's
+      // draft listing, read from their draft since they have no published file.
+      const [slugs, draftSlugs, nav] = await Promise.all([
+        adapter.listSlugs(defaultLocale),
+        adapter.listDraftSlugs?.(defaultLocale) ?? [],
+        siteNav(adapter, defaultLocale),
+      ]);
+      const published = new Set(slugs);
+      // The site doc is never a page, even once a write gave it a slice array.
+      const all = [...slugs, ...draftSlugs.filter((s) => !published.has(s))].filter((s) => s !== SITE_SLUG);
+      return mapLimit(all, FANOUT_LIMIT, async (slug) => {
         const [raw, hasDraft, pageLocales] = await Promise.all([
-          adapter.readRaw(slug, defaultLocale),
+          published.has(slug) ? adapter.readRaw(slug, defaultLocale) : adapter.readDraftRaw(slug, defaultLocale).then((r) => r ?? ""),
           adapter.hasDraft(slug, locale),
           adapter.listLocales(slug),
         ]);
         const meta = adapter.parse(raw).meta;
         const title = typeof meta.title === "string" ? meta.title : slug;
-        return { slug, title, hasDraft, locales: pageLocales };
+        // Front matter is author-written: a wrongly typed value is dropped, not
+        // coerced. The site doc's menu decides `nav`/`navOrder` when it has
+        // one; a page's own front matter only counts on a site without it.
+        const inNav = nav?.indexOf(slug) ?? -1;
+        return {
+          slug,
+          title,
+          hasDraft,
+          locales: pageLocales,
+          ...(inNav >= 0 && { nav: true, navOrder: inNav }),
+          ...(!nav && typeof meta.nav === "boolean" && { nav: meta.nav }),
+          ...(!nav && Number.isFinite(meta.navOrder) && { navOrder: meta.navOrder as number }),
+          ...(typeof meta.system === "boolean" && { system: meta.system }),
+          ...(typeof meta.noindex === "boolean" && { noindex: meta.noindex }),
+          ...(!published.has(slug) && { published: false }),
+        };
       });
     },
 
-    listSlugs: (locale) => adapter.listSlugs(locale ?? defaultLocale),
+    listSlugs: async (locale) => (await adapter.listSlugs(locale ?? defaultLocale)).filter((s) => s !== SITE_SLUG),
 
     exists: (slug, locale = defaultLocale) => adapter.exists(slug, locale),
 
@@ -135,6 +193,7 @@ export function createStore(
     currentVersion: (slug, locale) => readVersion(slug, locale),
 
     async saveDraft(slug, page, baseVersion, locale = defaultLocale) {
+      if (slug === SITE_SLUG) assertSafeNav(page.meta);
       if (baseVersion !== undefined) {
         // Draft-precedence: compare against what the editor actually loaded.
         // ponytail: this pre-check is still a read-then-write with a TOCTOU
@@ -167,9 +226,11 @@ export function createStore(
       await opts.onPublish?.(slug, locale);
     },
 
-    async createPage(slug, page, locale = defaultLocale) {
-      if (await adapter.exists(slug, locale)) throw new Error(`typren: page "${slug}" already exists`);
-      await adapter.writeRaw(slug, adapter.serialize(page), locale);
+    async createPage(slug, page, locale = defaultLocale, opts = {}) {
+      if ((await adapter.exists(slug, locale)) || (await adapter.hasDraft(slug, locale)))
+        throw new Error(`typren: page "${slug}" already exists`);
+      const raw = adapter.serialize(page);
+      await (opts.draft ? adapter.writeDraftRaw(slug, raw, locale) : adapter.writeRaw(slug, raw, locale));
     },
 
     async createTranslation(slug, fromLocale, toLocale) {

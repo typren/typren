@@ -19,31 +19,30 @@
     "build": "bun run --filter '*' build",
     "check:scaffold": "bun run --filter typren check:scaffold",
     "check:migrations": "bun test scripts/check-migrations.test.mjs && node scripts/check-migrations.mjs",
-    "test:security-gate": "bun test scripts/check-security-review.test.mjs",
-    "check:security-review": "node scripts/check-security-review.mjs",
+    "check:audit": "bun audit --audit-level=high --prod",
     "test:tag-published": "bun test scripts/tag-published.test.mjs",
     "test:publish-unpublished": "bun test scripts/publish-unpublished.test.mjs",
     "api-surface:generate": "node scripts/gen-api-surface.mjs",
     "check:workflows": "bun test scripts/check-workflows.test.mjs && node scripts/check-workflows.mjs",
     "check:api-surface": "node scripts/gen-api-surface.mjs && git diff --exit-code -- etc/api-surface || (echo 'API surface snapshot is stale: run bun run api-surface:generate, commit etc/api-surface and add a changeset.' >&2; exit 1)",
-    "verify": "bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:api-surface && bun run check:workflows && bun run check:migrations && bun run test:security-gate && bun run test:tag-published && bun run test:publish-unpublished",
+    "verify": "bun run build && bun run typecheck && bun run lint && bun run test:coverage && bun run coverage:new && bun run check:scaffold && bun run check:api-surface && bun run check:workflows && bun run check:migrations && bun run check:audit && bun run test:tag-published && bun run test:publish-unpublished",
     "prepare": "husky"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",
-    "@commitlint/cli": "^21.2.3",
-    "@commitlint/config-conventional": "^21.2.3",
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
     "@eslint/js": "^10.0.1",
-    "@next/eslint-plugin-next": "^16.4.0",
+    "@next/eslint-plugin-next": "^16.4.3",
     "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "^5.0.4",
-    "eslint": "^10.12.0",
+    "eslint": "^10.13.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "husky": "^9.1.7",
     "jsdom": "^30.1.2",
     "lint-staged": "^17.6.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.2",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^5.0.4"
   },
   "lint-staged": {
@@ -51,6 +50,6 @@
   },
   "dependencies": {
     "@types/react-dom": "^19.3.0",
-    "next": "^16.4.0"
+    "next": "^16.4.3"
   }
 }

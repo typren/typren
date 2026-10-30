@@ -1,6 +1,6 @@
 ---
 title: "@typren/contract-tests reference"
-description: Conformance suite factories for ContentAdapter, static-host routing, the editor API and preview-bridge.
+description: Conformance suite factories for ContentAdapter, static-host routing, the studio API and preview-bridge.
 category: Reference
 order: 58
 ---
@@ -25,14 +25,14 @@ runtime dependencies.
 | `createBareUrlStaticHostRoutingContractSuite` | `(name: string, run: StaticHostRunner) => void` | Same contract for Next's bare-URL export shape (`trailingSlash: false`). |
 | `StaticHostRunner` | `(req: { path: string; query?: string; redirects?: Record<string, string>; storeDown?: boolean }) => Promise<StaticHostOutcome>` | The thing under test: your router's decision function. `query` is raw (no leading `"?"`); `redirects` is the store's full key→target map for that case; `storeDown: true` makes every lookup reject. |
 | `StaticHostOutcome` | `{ status: 301; location: string } \| { serve: string }` | A redirect or a resolved object path to serve. |
-| `createRouteContractSuite` | `(getHandler: () => ApiHandler, seed?: RouteContractSeed) => void` | Conformance suite for the editor's HTTP API (`createTyprenApi`'s routes). |
+| `createRouteContractSuite` | `(getHandler: () => ApiHandler, seed?: RouteContractSeed) => void` | Conformance suite for the studio's HTTP API (`createTyprenApi`'s routes). |
 | `ApiHandler` | `(request: Request) => Promise<Response>` | |
 | `RouteContractSeed` | `{ basePath?: string; baseUrl?: string }` | `basePath` must match the handler under test's own `basePath`. |
 | `ROUTE_CONTRACT` | `RouteFixture[]` | Every documented route (method, path template, body keys, query params, description) for `createTyprenApi`. Kept in sync with `routes.ts`'s own doc comment by hand, not generated. |
 | `RouteFixture` | `{ method: "GET" \| "POST" \| "PUT" \| "DELETE"; path: string; body?: string[]; query?: string[]; description: string }` | One route's expected shape. |
 | `createPreviewBridgeContractSuite` | `(initPreviewBridge: InitPreviewBridge) => void` | Conformance suite for the preview-bridge `postMessage` protocol. |
 | `InitPreviewBridge` | `() => () => void` | Mounts the bridge, returns its teardown. |
-| `BridgeMessage` | type | The union of message shapes the bridge sends/receives (`select`, `edit`, `theme`, `scrollTo`). |
+| `BridgeMessage` | type | The union of message shapes the bridge sends/receives (`select`, `edit`, `theme`, `scrollTo`, `rects`, `hover`). |
 | `BRIDGE_MESSAGE_FIXTURES` | `BridgeMessage[]` | Fixtures the suite round-trips. |
 
 ### `ContentAdapterContractSeed`
@@ -106,7 +106,7 @@ createStaticHostRoutingContractSuite("my router", async ({ path, query, redirect
 );
 ```
 
-For the editor's HTTP API (see `packages/core/src/api/routes.contract.test.ts`):
+For the studio's HTTP API (see `packages/core/src/api/routes.contract.test.ts`):
 
 ```ts
 import { createRouteContractSuite } from "@typren/contract-tests";

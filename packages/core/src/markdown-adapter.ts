@@ -50,7 +50,25 @@ export type MarkdownAdapterOptions = {
  *  (the `.typren/` settings dir, a collection's dir-overlap guard). Kept off
  *  `ContentAdapter` itself (see that interface's doc comment) since neither
  *  the GitHub nor Notion adapter has a real filesystem path to report. */
-export type MarkdownAdapter = ContentAdapter & { readonly root: string };
+export type MarkdownAdapter = ContentAdapter & {
+  readonly root: string;
+  /** Absolute path of a page's published file, slug- and locale-checked like
+   *  every read. A git-backed host commits exactly this file. */
+  pageFile(slug: string, locale?: string): string;
+  /** Absolute path of a folder's marker file, checked like `pageFile`. A
+   *  git-backed host commits it so an empty folder survives a clone. */
+  folderFile(folder: string, locale?: string): string;
+  /** Absolute path of a page's draft file, checked like `pageFile`. */
+  draftFile(slug: string, locale?: string): string;
+  listFolders(locale?: string): Promise<string[]>;
+  createFolder(folder: string, locale?: string): Promise<void>;
+  deleteFolder(folder: string, locale?: string): Promise<void>;
+};
+
+/** The file that keeps an empty page folder (see `createFolder`). A name of
+ *  Typren's own, not `.gitkeep`: a `.gitkeep` a developer placed means
+ *  nothing to the editor, and deleting a folder must never remove one. */
+export const FOLDER_MARKER = ".typren-folder";
 
 // BCP-47-ish: a primary subtag of 2-3 letters, then any number of 2-8
 // alphanumeric extension subtags. The `locales` allowlist itself becomes a
@@ -73,10 +91,21 @@ export function createMarkdownAdapter({
     if (!SAFE_LOCALE.test(loc)) throw new Error(`typren: unsafe locale "${loc}" (expected a BCP-47-ish code)`);
   }
   // Slugs flow in from client actions and become filesystem paths. Reject
-  // anything that isn't a plain slug so "../" can't escape the content dir.
-  const SAFE_SLUG = /^[a-z0-9][a-z0-9-]*$/i;
+  // anything that isn't a plain slug, or plain segments joined by "/" (a
+  // nested page, `event/1`), so "../" can't escape the content dir.
+  const SAFE_SEGMENT = /^[a-z0-9][a-z0-9-]*$/i;
+  const SAFE_SLUG = /^[a-z0-9][a-z0-9-]*(\/[a-z0-9][a-z0-9-]*)*$/i;
+  // A nested slug's first segment is a directory beside the locale and draft
+  // directories, so it must not be one of them: `es/about` would otherwise be
+  // the Spanish `about`, and `drafts/x` a draft under a dotless draftSubdir.
+  // Lowercased, since a case-insensitive filesystem would still collide.
+  const draftRel = draftDir === undefined ? "" : path.relative(contentDir, draftDir);
+  const reserved = new Set(
+    [...locales.filter((l) => l !== defaultLocale), draftSubdir, draftRel.split(path.sep)[0]].map((s) => s.toLowerCase())
+  );
   const safe = (slug: string) => {
-    if (!SAFE_SLUG.test(slug)) throw new Error(`typren: unsafe slug "${slug}"`);
+    if (!SAFE_SLUG.test(slug) || (slug.includes("/") && reserved.has(slug.split("/")[0].toLowerCase())))
+      throw new Error(`typren: unsafe slug "${slug}"`);
     return slug;
   };
   // The locale is also a path segment (a trust boundary), so the allowlist check
@@ -113,13 +142,41 @@ export function createMarkdownAdapter({
   };
   // A custom draftDir inside contentDir is checked from contentDir, so a linked
   // `.drafts` cannot become its own trusted root.
-  const draftRel = draftDir === undefined ? "" : path.relative(contentDir, draftDir);
   const draftRootOutside = draftRel === ".." || draftRel.startsWith(`..${path.sep}`) || path.isAbsolute(draftRel);
   const draftRoot = (loc: string) => (loc === defaultLocale && draftRootOutside ? draftDir! : contentDir);
   const pageFile = (slug: string, loc = defaultLocale) =>
     contained(path.join(localeDir(loc), `${safe(slug)}.md`), contentDir);
   const draftFile = (slug: string, loc = defaultLocale) =>
     contained(path.join(localeDraftDir(loc), `${safe(slug)}.md`), draftRoot(loc));
+
+  // Every `.md` under `dir` as a slug, nested ones joined by "/". Dirent
+  // types are not followed, so a symlinked file or directory is never listed.
+  // Directories that are not slug segments (`.drafts`, `.git`) are skipped,
+  // and so are the reserved ones at the top (locale and draft directories).
+  // Files whose names aren't valid slugs (site_backup.md, "About Us.md") can
+  // never be addressed through the slug guard, so they are skipped rather
+  // than letting safe() throw later and take the whole listing down.
+  // ponytail: a synchronous full walk per listing; cache or index it once a
+  // content tree is large enough for the Pages list to feel slow.
+  // `pick` maps a file name to what it contributes to its directory's
+  // prefix, or null to skip it.
+  const walk = (dir: string, pick: (name: string) => string | null, prefix = ""): string[] =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      if (e.isFile()) {
+        const name = pick(e.name);
+        return name === null ? [] : [prefix + name];
+      }
+      if (!e.isDirectory() || !SAFE_SEGMENT.test(e.name) || (!prefix && reserved.has(e.name.toLowerCase()))) return [];
+      return walk(path.join(dir, e.name), pick, `${prefix}${e.name}/`);
+    });
+  const pageName = (name: string) =>
+    name.endsWith(".md") && SAFE_SEGMENT.test(name.slice(0, -3)) ? name.slice(0, -3) : null;
+  // A folder lives beside the locale and draft directories even at the top,
+  // so unlike a page its first segment is always checked against them.
+  const folderFile = (folder: string, loc = defaultLocale) => {
+    if (reserved.has(safe(folder).split("/")[0].toLowerCase())) throw new Error(`typren: unsafe slug "${folder}"`);
+    return contained(path.join(localeDir(loc), folder, FOLDER_MARKER), contentDir);
+  };
 
   const parse = (raw: string): PageContent => {
     const { data, content } = parseMatter(raw);
@@ -142,21 +199,16 @@ export function createMarkdownAdapter({
     locales,
     defaultLocale,
     root: path.resolve(contentDir),
+    pageFile,
+    folderFile,
+    draftFile,
     parse,
     serialize,
 
     async listSlugs(locale = defaultLocale) {
       const dir = contained(localeDir(locale), contentDir);
       if (!fs.existsSync(dir)) return []; // a locale with no content yet
-      return fs
-        .readdirSync(dir, { withFileTypes: true })
-        .filter((e) => e.isFile() && e.name.endsWith(".md"))
-        .map((e) => e.name.replace(/\.md$/, ""))
-        // A shared content dir can hold files whose names aren't valid slugs
-        // (site_backup.md, "About Us.md"). They can never be addressed through
-        // the slug guard anyway, so skip them here rather than letting safe()
-        // throw below and take the whole listing down with them.
-        .filter((slug) => SAFE_SLUG.test(slug))
+      return walk(dir, pageName)
         // Only pages that actually carry a slice array: skips site.md, legal
         // bodies, etc. without a hardcoded exclude list. Collections opt out:
         // every .md in a collection dir is a record, slices or not.
@@ -200,6 +252,32 @@ export function createMarkdownAdapter({
     },
     async hasDraft(slug, locale) {
       return fs.existsSync(draftFile(slug, locale));
+    },
+    async listDraftSlugs(locale = defaultLocale) {
+      const dir = contained(localeDraftDir(locale), draftRoot(locale));
+      return fs.existsSync(dir) ? walk(dir, pageName).sort((a, b) => a.localeCompare(b)) : [];
+    },
+    async listFolders(locale = defaultLocale) {
+      const dir = contained(localeDir(locale), contentDir);
+      if (!fs.existsSync(dir)) return [];
+      return walk(dir, (name) => (name === FOLDER_MARKER ? "" : null))
+        .filter(Boolean)
+        .map((f) => f.slice(0, -1))
+        .sort((a, b) => a.localeCompare(b));
+    },
+    async createFolder(folder, locale) {
+      const file = folderFile(folder, locale);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      if (!fs.existsSync(file)) fs.writeFileSync(file, "");
+    },
+    async deleteFolder(folder, locale) {
+      const file = folderFile(folder, locale);
+      const dir = path.dirname(file);
+      if (!fs.existsSync(dir)) return;
+      if (fs.readdirSync(dir).some((name) => name !== FOLDER_MARKER))
+        throw new Error(`typren: folder "${folder}" is not empty`);
+      if (fs.existsSync(file)) fs.rmSync(file);
+      fs.rmdirSync(dir);
     },
   };
 }

@@ -57,7 +57,8 @@ export function makeCollectionActions(
   // ponytail: onPublish/onSaveDraft omitted: their (slug, locale[, version])
   // signature can't identify a collection for revalidation or review-queue
   // triage. Add a per-section hook if a host needs collection revalidation.
-  return makeActions({ ...config, adapter, onPublish: undefined, onSaveDraft: undefined }, { collectionId }) as PageActions;
+  // withCommit too: the local site records only its own adapters' writes.
+  return makeActions({ ...config, adapter, onPublish: undefined, onSaveDraft: undefined, withCommit: undefined }, { collectionId }) as PageActions;
 }
 
 export function buildCollectionActions(config: CmsConfig): Record<string, PageActions> {

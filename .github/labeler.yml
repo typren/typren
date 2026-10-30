@@ -9,7 +9,7 @@
 
 "area: editor":
   - changed-files:
-      - any-glob-to-any-file: "packages/editor/**"
+      - any-glob-to-any-file: "packages/studio/**"
 
 "type: docs":
   - changed-files:

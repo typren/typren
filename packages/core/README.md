@@ -13,7 +13,7 @@ ContentStore      draft/publish, locale fallback, version-checked writes
 makeActions()     auth-gated handlers, called from your Server Actions
 ```
 
-`@typren/editor` (the React UI that calls these actions) is not published yet.
+`@typren/studio` (the React UI that calls these actions) is not published yet.
 This package is useful on its own if you're building your own admin UI, or
 scripting content some other way.
 
@@ -36,7 +36,7 @@ const actions = makeActions({
   auth: localAuth(), // dev-only by default; see @typren/core/auth/* for production
   registry: {},      // slice name -> component, owned by your app
   defaults: {},       // starter props inserted when a slice is added
-  previewPath: "/editor/preview",
+  previewPath: "/studio/preview",
 });
 
 // In a Next.js Server Action, or anywhere else you can call an async function:

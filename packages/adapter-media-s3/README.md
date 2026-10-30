@@ -36,7 +36,7 @@ const mediaAdapter = createS3MediaAdapter({
 Pass it as `mediaAdapter` to whatever wires up `@typren/core` (`makeActions`, the
 media library UI).
 
-> **Security:** `publicBaseUrl` must be a separate origin from the site/editor. Media
+> **Security:** `publicBaseUrl` must be a separate origin from the site/studio. Media
 > uploads allow SVG, and `inline` disposition does not neutralize script an SVG can
 > carry; a shared origin risks stored XSS against the site's or editor's cookies.
 

@@ -1,5 +1,11 @@
 # @typren/forms
 
+## 0.2.2
+
+### Patch Changes
+
+- ddc554b: Declare a Node.js `engines` floor of `^22.23.4 || ^24.22.1 || >=26.12.1`, the releases that fix the 2026-10-21 Node.js security advisory (Brotli decoder out-of-bounds write, TLS hostname check bypasses). Installing on an older Node now prints an engine warning; nothing fails unless the consumer enables `engine-strict`.
+
 ## 0.2.1
 
 ### Patch Changes

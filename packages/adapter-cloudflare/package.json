@@ -1,6 +1,6 @@
 {
   "name": "@typren/adapter-cloudflare",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "description": "Cloudflare Workers + Static Assets host adapter for typren: a Worker (directory-index rewrite + bare→slash canonicalization + KV-backed redirect lookup, fail-open) and a `typren-cloudflare` CLI that inits the wrangler config, bootstraps the KV namespace, and diff-syncs @typren/core's redirects() into it. Not IaC: it never creates a zone or account.",
   "keywords": [
     "cms",
@@ -10,6 +10,9 @@
     "redirects"
   ],
   "license": "Apache-2.0",
+  "engines": {
+    "node": "^22.23.4 || ^24.22.1 || >=26.12.1"
+  },
   "private": false,
   "type": "module",
   "sideEffects": false,
@@ -39,10 +42,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@typren/core": "^0.5.0"
+    "@typren/core": "^0.6.0"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@typren/contract-tests": "workspace:*",
     "typescript": "^6.0.3"
   },

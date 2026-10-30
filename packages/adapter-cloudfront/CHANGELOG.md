@@ -1,5 +1,28 @@
 # @typren/adapter-cloudfront
 
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies [ac50d55]
+  - @typren/core@0.6.0
+
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [c1dbf54]
+  - @typren/core@0.6.0
+
+## 0.4.1
+
+### Patch Changes
+
+- ddc554b: Declare a Node.js `engines` floor of `^22.23.4 || ^24.22.1 || >=26.12.1`, the releases that fix the 2026-10-21 Node.js security advisory (Brotli decoder out-of-bounds write, TLS hostname check bypasses). Installing on an older Node now prints an engine warning; nothing fails unless the consumer enables `engine-strict`.
+- Updated dependencies [6da1d23]
+- Updated dependencies [ddc554b]
+  - @typren/core@0.5.4
+
 ## 0.4.0
 
 ### Minor Changes

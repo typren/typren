@@ -1,6 +1,6 @@
 {
   "name": "@typren/adapter-media-s3",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "description": "S3-compatible media adapter for typren: one MediaAdapter over any S3 API-compatible object store (Cloudflare R2, Supabase Storage, AWS S3, MinIO). Edge-compatible, fetch + WebCrypto only, no node:fs or sharp.",
   "keywords": [
     "cms",
@@ -12,6 +12,9 @@
     "minio"
   ],
   "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": "^22.23.4 || ^24.22.1 || >=26.12.1"
+  },
   "private": false,
   "type": "module",
   "sideEffects": false,
@@ -36,10 +39,10 @@
     "aws4fetch": "^1.0.20"
   },
   "peerDependencies": {
-    "@typren/core": "^0.5.3"
+    "@typren/core": "^0.6.0"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@typren/core": "workspace:*",
     "typescript": "^6.0.3"
   },

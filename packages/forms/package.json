@@ -1,6 +1,6 @@
 {
   "name": "@typren/forms",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Form handling for typren sites: a canonical submission model with server-authoritative validation, honeypot plus pluggable spam verification, a web-standard Request/Response handler, and pluggable delivery sinks (webhook, HubSpot, Google Sheets, JSONL file).",
   "keywords": [
     "cms",
@@ -10,6 +10,9 @@
     "hubspot"
   ],
   "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": "^22.23.4 || ^24.22.1 || >=26.12.1"
+  },
   "private": false,
   "type": "module",
   "sideEffects": false,
@@ -43,7 +46,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "typescript": "^6.0.3"
   },
   "repository": {

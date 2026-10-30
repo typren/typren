@@ -14,7 +14,7 @@ guide that explains the reasoning; this page is the checklist form.
       fallback. (`localAuth()` also refuses a dev server that isn't bound to
       loopback, but it is still never a production adapter, and it must never sit
       behind a reverse proxy, tunnel or forwarded port: a same-host forwarder
-      can rewrite `Host` to loopback and expose the editor's writes.)
+      can rewrite `Host` to loopback and expose the studio's writes.)
 - [ ] Every email allowlist entry is backed by an identity provider that
       actually sends a **verified**-email signal (OIDC `email_verified`,
       Clerk's primary-email verification status, Better Auth
@@ -48,8 +48,8 @@ guide that explains the reasoning; this page is the checklist form.
       `writeDraftRaw` writes the live content must set
       `draftsWriteThrough: true` (the Notion adapter does), or a
       draft-only role can publish.
-- [ ] If you renamed `adminRoute`, the old `/editor/**` path still serves the
-      editor unless your proxy opts in: call `typrenBlocksDirectEditorAccess(url)`
+- [ ] If you renamed `adminRoute`, the real `/studio/**` path still serves the
+      studio unless your proxy opts in: call `typrenBlocksDirectStudioAccess(url)`
       from `@typren/core/proxy` ahead of `typrenProxyRewrite` and return a 404
       when it is true. Renaming alone hides nothing.
 
@@ -80,7 +80,7 @@ See [security-model](./security-model.md) and
 ## Media
 
 - [ ] `publicBaseUrl` (fs or S3-compatible media adapter) is a **separate
-      origin** from the site and the editor — a same-origin stored SVG can
+      origin** from the site and the studio — a same-origin stored SVG can
       run with the site's own cookies and DOM, defeating the sanitizer
       below.
 - [ ] SVG uploads are rejected by default; `allowSvg: true` is only set when

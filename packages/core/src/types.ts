@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import type { AuthAdapter } from "./auth-adapter";
+import type { GitRepo } from "./git";
 import type { I18nConfig } from "./i18n";
 import type { Section } from "./sections";
 import type { SettingsAdapter } from "./settings";
@@ -21,8 +22,23 @@ export type PageContent = {
 export type LocalizedPage = PageContent & { locale: string; isFallback: boolean };
 
 /** Summary row for the page picker. `locales` is which locales this page exists
- *  in (translation status); `hasDraft` is for the currently-listed locale. */
-export type PageInfo = { slug: string; title: string; hasDraft: boolean; locales: string[] };
+ *  in (translation status); `hasDraft` is for the currently-listed locale.
+ *  `nav`/`navOrder`/`system`/`noindex` mirror the page's front matter and are
+ *  present only when set there with the right type; the editor groups pages
+ *  by them. Without front matter, `nav`/`navOrder` come from the site doc's
+ *  header navigation (`site.md`'s `nav` and `cta` links), in its order. `published` is false for a page that exists only as a draft (never
+ *  published); absent means published. */
+export type PageInfo = {
+  slug: string;
+  title: string;
+  hasDraft: boolean;
+  locales: string[];
+  nav?: boolean;
+  navOrder?: number;
+  system?: boolean;
+  noindex?: boolean;
+  published?: boolean;
+};
 
 /** One row of a collection's list view. A record IS a `PageContent` with
  *  `slices: []` (see collection.ts). `meta` is the schema-shaped prop bag,
@@ -84,7 +100,7 @@ export type SliceSchema = Record<string, FieldDef>;
  *  them during processUpload), but can't retroactively know them for files
  *  that were already sitting in the media dir before this feature existed. */
 export type MediaAsset = {
-  id: string; // adapter-defined stable key (fs adapter: the filename)
+  id: string; // adapter-defined stable key (fs adapter: the path under the media dir)
   url: string; // public URL, e.g. "/img/foo-a1b2c3d4.webp"
   name: string; // display name (original upload filename, not the storage key)
   size: number; // bytes
@@ -92,7 +108,17 @@ export type MediaAsset = {
   height?: number;
   mime: string; // "image/webp" | "image/avif" | "image/svg+xml" | ...
   createdAt: string; // ISO 8601, for "newest first" sorting
+  /** Folder the asset sits in, "/"-joined ("events/2025"); "" or absent at
+   *  the root. Only adapters with folder support set it. */
+  folder?: string;
 };
+
+/** One asset's public URL before and after a move or rename. */
+export type MediaMove = { from: string; to: string };
+
+/** Where one asset URL is referenced: a page (or "settings") in a locale,
+ *  and how many times. */
+export type MediaUse = { slug: string; locale: string; count: number };
 
 /** A file that has already passed validation + web-optimization (see
  *  media.ts's processUpload) and is ready to persist. Adapters never see
@@ -116,8 +142,24 @@ export interface MediaAdapter {
   /** `file` is already validated + converted (see media.ts). Adapters own
    *  collision-free key assignment (the fs adapter appends a random suffix
    *  unconditionally rather than check-then-write). */
-  upload(file: PreparedFile): Promise<MediaAsset>;
+  /** `folder` (see `MediaAsset.folder`) is only passed to adapters with
+   *  folder support; others ignore it. */
+  upload(file: PreparedFile, folder?: string): Promise<MediaAsset>;
   delete(id: string): Promise<void>;
+  /** Optional folder support: implement all five or none. Folder paths are
+   *  "/"-joined and validated by the adapter, like ids. */
+  listFolders?(): Promise<string[]>;
+  createFolder?(folder: string): Promise<void>;
+  /** Refuses a folder that still holds assets, so nothing referenced goes
+   *  missing as a side effect. */
+  deleteFolder?(folder: string): Promise<void>;
+  /** Moves an asset into `folder` ("" for the root), renaming it to `name`
+   *  when given (the extension is kept). `from` is its old public URL, so
+   *  callers can rewrite references to it. */
+  move?(id: string, folder: string, name?: string): Promise<{ from: string; to: MediaAsset }>;
+  /** Renames or moves a whole folder to the path `to`; returns the old and new
+   *  public URL of every asset it carried. */
+  renameFolder?(folder: string, to: string): Promise<MediaMove[]>;
 }
 
 /**
@@ -153,6 +195,17 @@ export interface ContentAdapter {
   writeDraftRaw(slug: string, raw: string, locale?: string, opts?: { expectedVersion?: string }): Promise<void>;
   deleteDraft(slug: string, locale?: string): Promise<void>;
   hasDraft(slug: string, locale?: string): Promise<boolean>;
+  /** Slugs with a draft in a locale, published or not. Optional: without it,
+   *  a page that exists only as a draft is left out of `listPages`. */
+  listDraftSlugs?(locale?: string): Promise<string[]>;
+  /** Page folders kept on their own, with no page inside required: paths
+   *  like `event` or `docs/guides`. Folders that hold pages are implied by
+   *  their slugs and need not be listed. The three folder methods are
+   *  optional together; the folder path is validated like a slug. */
+  listFolders?(locale?: string): Promise<string[]>;
+  createFolder?(folder: string, locale?: string): Promise<void>;
+  /** Refuses (rejects) unless the folder holds nothing but its own marker. */
+  deleteFolder?(folder: string, locale?: string): Promise<void>;
   /** True when `writeDraftRaw` writes the live content (no separate draft
    *  storage, e.g. Notion). `makeActions` then gates draft writes as
    *  "publish", since a draft save publishes. */
@@ -177,8 +230,11 @@ export interface CmsConfig {
    *  without an entry auto-detect their control. Keyed by slice name. */
   fieldSchema?: Record<string, SliceSchema>;
   adapter: ContentAdapter;
-  /** Route the editor iframes for live preview, e.g. "/editor/preview". */
+  /** Route the editor iframes for live preview, e.g. "/studio/preview". */
   previewPath: string;
+  /** Slug of the page the site serves at "/". It keeps its slug: a rename
+   *  refuses it. Default "home". */
+  homeSlug?: string;
   /** Pluggable auth (preferred over `authorize`). Resolved via `resolveAuth`,
    *  which both the action guard and the layout gate share. */
   auth?: AuthAdapter;
@@ -197,10 +253,29 @@ export interface CmsConfig {
    *  the HTTP response is sent. Keep it fast (a marker-file write, not a
    *  network call). store.saveDraft is synchronous and does not await this. */
   onSaveDraft?(slug: string, locale: string, version: string): void;
+  /** Optional rename side-effect, awaited after `renamePage` moved the page's
+   *  files in every locale (the local studio commits the move here). With
+   *  `git` set, a rename on a detached HEAD is refused before anything moves,
+   *  and a throw moves the page back before it propagates. */
+  onRename?(slug: string, newSlug: string): void | Promise<void>;
+  /** The local git checkout the content lives in (the local studio). The
+   *  HTTP API then serves `GET /git` (commits a push would send) and
+   *  `POST /git/push`. Committing stays the host's call, from `onPublish`. */
+  git?: GitRepo;
+  /** Wraps a page or media write that lands as one change (a page delete,
+   *  duplicate or published create; a media upload, delete or move), with a
+   *  one-line description of it. The local site commits every file the
+   *  write touched here (see `createLocalSiteConfig`); without it the write
+   *  just runs. */
+  withCommit?<T>(message: string, write: () => Promise<T>): Promise<T>;
   /** Optional media library. Omit to disable media management. Image-typed
    *  fields (see FieldDef) still render, just as a plain text input with no
    *  "Browse library" button. */
   mediaAdapter?: MediaAdapter;
+  /** Called after a media move, once references in content are rewritten,
+   *  for references the content adapter can't see (a site's source code).
+   *  The local studio rewrites the site's files here. */
+  onMediaMove?(moves: MediaMove[]): void | Promise<void>;
   /** Accept SVG uploads (sanitized). Off by default: an SVG is a document, so
    *  serve media from a separate origin or with `Content-Security-Policy:
    *  sandbox` before turning this on. See docs/site/media-storage.md. */

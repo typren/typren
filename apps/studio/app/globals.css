@@ -1,0 +1,50 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* @typren/studio ships Tailwind utility classes, not compiled CSS, and
+   Tailwind skips node_modules unless told otherwise. */
+@source "../node_modules/@typren/studio/src/**/*.{ts,tsx}";
+
+@import "@typren/core/theme.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* The studio is Typren's own chrome, so it shows theme.css's defaults: it
+   defines no shadcn colour tokens, which every --typren-* token would
+   otherwise read first. A palette change goes on --typren-* (or on shadcn
+   names here, which theme.css then picks up). */
+@theme inline {
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+/* An app shell, not a document: it never page-scrolls, and no rubber-band
+   bounce or scroll chaining. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+:root {
+  color-scheme: light dark;
+  --radius: 0.625rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--typren-border);
+    outline-color: color-mix(in oklch, var(--typren-ring) 50%, transparent);
+  }
+  body {
+    background: var(--typren-app-bg);
+    color: var(--typren-fg);
+  }
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+}

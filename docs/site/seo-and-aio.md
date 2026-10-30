@@ -9,6 +9,40 @@ Everything in this guide lives under the `@typren/core/seo` subpath, kept
 separate from the main entry so a non-Next consumer of `@typren/core` isn't
 forced to pull in `next/server` or Next's `Metadata` types.
 
+## Site Settings and `SeoConfig`
+
+Site Settings (brand name, logo, SEO title template, description, social
+image) are saved in the settings doc, editable in the studio and in the
+studio. The SEO layer applies them through one pure function, so a saved value
+changes what the site renders:
+
+```ts
+import { resolveSeoConfig } from "@typren/core/seo";
+
+const seo = await resolveSeoConfig(codeSeoConfig, settingsStore, locale);
+// then pass `seo` to buildRootMetadata, buildMetadata, organizationJsonLd, ...
+```
+
+`withSiteSettings(config, settings)` is the same merge without the read, for
+when you already hold the settings. It merges field by field; a saved value
+that is non-empty wins, and the code value is the fallback:
+
+| Settings field      | `SeoConfig` field it overrides | Surfaces                                                      |
+| ------------------- | ------------------------------ | ------------------------------------------------------------- |
+| `brand.name`        | `siteName`                     | OpenGraph `siteName`, Organization and WebSite JSON-LD `name` |
+| `seo.titleTemplate` | `titleTemplate`                | root `<title>` template                                       |
+| `seo.description`   | `defaultDescription`           | root description, OpenGraph and Twitter                       |
+| `seo.ogImage`       | `defaultOgImage`               | root OpenGraph image                                          |
+| `brand.logo`        | `organization.logo`            | Organization JSON-LD `logo`                                   |
+
+`brand.logoDark` is for dark admin surfaces and has no SEO surface. The
+`SeoConfig` fields settings do not carry (`siteUrl`, `entityDescription`,
+`defaultTitle`, `bareTitleSlugs`, `sameAs`, and so on) stay code-only. Because
+the read is async and the builders are synchronous, resolve the config once
+per request and pass the result in; a site that never calls
+`resolveSeoConfig` keeps rendering from its code config alone. `typren init`
+scaffolds a `seo.ts` that does this.
+
 ## Page metadata
 
 ```ts

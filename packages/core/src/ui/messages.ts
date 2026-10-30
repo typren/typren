@@ -23,6 +23,20 @@ export const defaultMessages: Messages = {
   "shell.unsaved": "Unsaved changes",
   "shell.upToDate": "Up to date",
   "shell.draftSaved": "Draft saved",
+  "shell.saving": "Saving…",
+  "shell.savedJustNow": "Saved just now",
+  "shell.savedAgo": "Saved {ago}",
+  "shell.justNow": "just now",
+  "shell.notSaved": "Not saved",
+  "shell.notSavedConflict": "Not saved: changed elsewhere",
+  "shell.history": "Version history",
+  "shell.historyFailed": "Couldn’t load the history.",
+  "shell.noHistory": "No versions yet.",
+  "shell.historyDraft": "Draft",
+  "shell.historyDraftSaved": "saved {ago}",
+  "shell.historyNotPushed": "Not pushed yet",
+  "shell.review": "Review",
+  "shell.nothingToReview": "Nothing to review yet. Edits save as a draft, then show here.",
   "shell.publishing": "Publishing…",
   "shell.publishFailed": "Publish failed: {error}",
   "shell.properties": "Properties",
@@ -57,12 +71,20 @@ export const defaultMessages: Messages = {
 
   // Settings section (SDUI shell, distinct from the legacy `site.*` keys above)
   "settings.title": "Settings",
-  "settings.blurb": "Brand, SEO and theme — saved as a draft, live once published.",
+  "settings.blurb": "Site name, logo and SEO defaults — saved as a draft; the site's metadata and structured data use them once published.",
   "settings.advanced": "Advanced",
   "settings.advancedBlurb":
     "Locale allowlist, routing mode and the admin route reparameterize what the next boot trusts — saving here writes immediately, but needs a redeploy to take effect.",
   "settings.saveAdvanced": "Save advanced settings",
   "settings.adminRouteChanged": "Admin route change pending — redeploy for it to take effect.",
+
+  // Style section
+  "style.title": "Style",
+  "style.blurb": "Brand colours, type and shape for the site. Saved as a draft, live once published.",
+  "style.colors": "Colours",
+  "style.typography": "Typography",
+  "style.shape": "Radius and spacing",
+  "style.reset": "Reset",
 
   // Collections section
   "collection.new": "New {label}",
