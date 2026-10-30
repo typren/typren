@@ -74,14 +74,14 @@ above alias onto these.
 | `--typren-fill-track` | none | the recessed track under a toggle group's thumb |
 | `--typren-fill-subtle-hover` / `-selected` | none | rows, tiles and menu items; selected is a stronger step of the hover tint |
 | `--typren-fill-accent` (`-hover`, `-pressed`) | `--primary` | primary buttons, focus rings, checkboxes |
-| `--typren-stroke-control` / `-control-strong` | none | the control elevation border (3:1 against the surface, WCAG 1.4.11) and its stronger edge |
+| `--typren-stroke-control` / `-control-strong` | none | the hairline every control draws, and a stronger stroke for handles and swatch hovers |
 | `--typren-stroke-card` / `--typren-stroke-divider` | `--border` | panel outlines, hairlines |
 | `--typren-stroke-flyout` | none | menus, popovers, dialogs |
 | `--typren-bg-base` | `--sidebar` | the frame |
 | `--typren-layer` | `--background` | content panels raised on the frame |
 | `--typren-card-bg` | none | cards inside a panel |
 | `--typren-smoke` | none | the scrim behind a dialog |
-| `--typren-elevation` / `-accent` | none | the elevation border as an inset box-shadow |
+| `--typren-elevation` / `-input` / `-accent` | none | the control hairline as an inset box-shadow; hover changes the fill and focus adds the ring |
 | `--typren-shadow-flyout` | none | the shadow under a menu or popover |
 
 The accent defaults to coral darkened in light (white text 5.3:1) and

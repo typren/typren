@@ -2,4 +2,4 @@
 "@typren/core": minor
 ---
 
-Text fields draw one even 3:1 border instead of WinUI's darker bottom edge. `--typren-elevation-input` changed; override it to restore the old look.
+Every control (inputs, buttons, selects, accent buttons) draws one even hairline instead of WinUI's darker bottom or top edge. Hover changes the fill and focus adds the ring. `--typren-stroke-control-edge` is removed; override `--typren-elevation*` to restore the old look.
