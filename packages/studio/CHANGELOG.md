@@ -1,5 +1,27 @@
 # @typren/studio
 
+## 0.7.0
+
+### Minor Changes
+
+- 3e12c15: `clientHost(client, site, uploadPath)` binds `TyprenStudioHost` to the content API's HTTP client, and `STUDIO_SECTIONS` is the default rail it uses, so the local studio and the cloud's connected studio share one wiring.
+  
+  `EmptyState`, `Skeleton` and `Button` are exported too, so a host's own states around the studio (connecting, unreachable) look like the studio's.
+  
+  Uploads go through `host.media.upload` when the host provides one, and `clientHost` wires it to the HTTP client, so the connected studio's uploads carry its pairing token instead of failing with 401.
+- def96cd: `TyprenStudioHost.exit` (`{ label, onExit }`) gives rail level 0 a Back link to the level above the site, such as the cloud account's Sites overview. Without it level 0 is unchanged.
+- 69d7b0b: Fixes found embedding the studio in a Next App Router host. `@typren/studio` and `@typren/studio/ui` now start with `"use client"`, so server components can import `Skeleton`, `Button`, `Card` and the rest. `MediaGrid` renders Delete only with `onDelete` and not `readOnly`, and takes `copyUrl` for the URL its Copy action writes. New `MenuGroup`, `MenuLabel`, `MenuSeparator`, `DialogHeader` and `DialogDescription` exports. The studio's theme choice now also toggles `dark` on `<html>`, so host content follows it.
+- 2d7cd2c: `TyprenStudioHost` gains `renderSection(id)`, which paints `host: true` custom sections inside the studio's own panel (without it they still show the "not available" notice), and `sharedMedia`, a read-only second image source the picker switches to beside the site's library.
+- f45cc98: The rail's head (lockup or Back) and its content carry `data-typren-rail-head` and `data-typren-rail`, so a host swapping one studio for another, such as a cloud org shell and a site's studio, can slide the same parts with a view transition.
+- ebc0fba: `StudioShell` renders the studio's top bar, rail and main panel for a host level with no site, such as a cloud account's Sites, Domains, Billing and Members, so a host never forks the shell for its own pages.
+- 46e23fb: Adds `@typren/studio/ui`, the studio's primitives (Button, Input, Select, Dialog, Menu, Card, Avatar, Skeleton, Sheet, TopBarButton and more) for a host app that must look like the studio, and `@typren/studio/tokens.css`, which loads core's `--typren-*` tokens plus shadcn-name aliases onto them so utility classes like `bg-background` resolve to studio tokens. `MediaGrid` takes an optional `extraActions` prop for per-asset host actions beside Copy and Delete.
+
+### Patch Changes
+
+- Updated dependencies [3467588]
+- Updated dependencies [68f90fb]
+  - @typren/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

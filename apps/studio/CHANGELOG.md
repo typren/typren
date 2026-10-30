@@ -1,5 +1,22 @@
 # @typren/studio-local
 
+## 0.2.2
+
+### Patch Changes
+
+- 3e12c15: Reads the studio's initial props through core's `loadStudioProps` and binds the studio through `@typren/studio`'s `clientHost`, the same code the connected studio uses. Started with `typren studio --local`.
+- Updated dependencies [3467588]
+- Updated dependencies [3e12c15]
+- Updated dependencies [68f90fb]
+- Updated dependencies [def96cd]
+- Updated dependencies [69d7b0b]
+- Updated dependencies [2d7cd2c]
+- Updated dependencies [f45cc98]
+- Updated dependencies [ebc0fba]
+- Updated dependencies [46e23fb]
+  - @typren/core@0.7.0
+  - @typren/studio@0.7.0
+
 ## 0.2.1
 
 ### Patch Changes
