@@ -16,7 +16,12 @@
     "./element": {
       "types": "./dist/element.d.ts",
       "default": "./dist/element.js"
-    }
+    },
+    "./ui": {
+      "types": "./dist/ui.d.ts",
+      "default": "./dist/ui.js"
+    },
+    "./tokens.css": "./dist/tokens.css"
   },
   "files": [
     "dist",
