@@ -109,6 +109,9 @@ export interface TyprenStudioHost {
    *  seam this package has, no plugin framework: the host renders whatever it
    *  wants and @typren/studio just gives it a mount point. */
   topBarSlot?: ReactNode;
+  /** The level above the site, e.g. the cloud account's Sites overview:
+   *  rail level 0 shows it as its Back link. Omit and level 0 has none. */
+  exit?: { label: string; onExit: () => void };
   /** Rail entries, core's `resolveSections()`-compatible list, grouped at
    *  rail level 0 in config order. Pages always sits in the Website group.
    *  Omit for Website → Pages only. "custom" sections aren't rendered by

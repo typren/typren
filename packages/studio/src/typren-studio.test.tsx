@@ -111,6 +111,19 @@ describe("TyprenStudio rail", () => {
     expect(screen.queryByText("Not in navigation")).toBeNull();
   });
 
+  it("offers the host's exit as level 0's back link, and Website's back once drilled in", async () => {
+    const onExit = vi.fn();
+    const user = userEvent.setup();
+    mount({ host: { ...host, exit: { label: "Sites", onExit } } });
+    expect(screen.queryByText("Typren")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Sites" }));
+    expect(onExit).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Pages" }));
+    expect(screen.queryByRole("button", { name: "Sites" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Website" })).toBeTruthy();
+  });
+
   it("switches the preview locale among the site's locales, and remembers the pick", async () => {
     const user = userEvent.setup();
     const bootstrap = (locales: string[]) =>

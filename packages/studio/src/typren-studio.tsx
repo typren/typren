@@ -800,7 +800,9 @@ function Shell({
                 onNavigateSection?.(null);
               },
             }
-          : null
+          : host.exit
+            ? { label: host.exit.label, onBack: host.exit.onExit }
+            : null
       }
       device={
         active.kind === "pages" ||
