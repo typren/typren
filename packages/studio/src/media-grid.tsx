@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef } from "react";
-import { Copy, ImageOff, Trash2, Upload } from "lucide-react";
+import { Copy, ImageOff, MoreHorizontal, Trash2, Upload } from "lucide-react";
 import type { MediaAsset } from "@typren/core";
 import { Button } from "./primitives/button";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "./primitives/menu";
 import { SearchInput } from "./primitives/search-input";
 import { useMediaUrl } from "./media-url";
 
@@ -25,6 +26,7 @@ export function MediaGrid({
   onQueryChange,
   onSelect,
   onDelete,
+  extraActions,
   onUploadFiles,
   busy = false,
   readOnly = false,
@@ -37,6 +39,9 @@ export function MediaGrid({
   onQueryChange?: (q: string) => void;
   onSelect?: (asset: MediaAsset) => void; // picker mode
   onDelete?: (id: string) => void; // library mode
+  /** Library mode: a host's own per-asset actions (Replace, Rename, ...),
+   *  listed in a menu between Copy and Delete. */
+  extraActions?: (asset: MediaAsset) => { label: string; onSelect: () => void }[];
   onUploadFiles: (files: FileList) => void; // both: drag/drop + file-picker upload
   busy?: boolean;
   /** Drops every upload affordance (a source the studio only lists). */
@@ -119,6 +124,22 @@ export function MediaGrid({
                     >
                       <Copy />
                     </Button>
+                    {extraActions && (
+                      <Menu>
+                        <MenuTrigger
+                          render={<Button variant="ghost" size="icon-sm" className="typren-concentric" aria-label={`More actions for ${a.name}`} />}
+                        >
+                          <MoreHorizontal />
+                        </MenuTrigger>
+                        <MenuContent align="center">
+                          {extraActions(a).map((x) => (
+                            <MenuItem key={x.label} onClick={x.onSelect}>
+                              {x.label}
+                            </MenuItem>
+                          ))}
+                        </MenuContent>
+                      </Menu>
+                    )}
                     <Button
                       variant="destructive"
                       size="icon-sm"
