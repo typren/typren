@@ -100,6 +100,8 @@ describe("Frame motion", () => {
     rerender(frame({ level: 1, view: "pages" }));
     const moved = animate.mock.contexts as Element[];
     expect(moved).toHaveLength(2);
+    // A host's cross-studio transition slides the same two parts by these marks.
+    expect(moved).toEqual([document.querySelector("[data-typren-rail-head]"), document.querySelector("[data-typren-rail]")]);
     for (const still of [screen.getByRole("button", { name: "Collapse sidebar" }), screen.getByRole("group", { name: "Studio theme" })])
       expect(moved.some((el) => el.contains(still))).toBe(false);
   });

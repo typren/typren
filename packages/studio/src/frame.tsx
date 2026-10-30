@@ -973,8 +973,10 @@ export function Frame({
                 <Menu />
               </TopBarButton>
               {/* Only the lockup or Back slides and fades: the collapse button
-                  beside it, like the rail's theme picker, stays still. */}
-              <span ref={slide.head} className="hidden min-w-0 md:flex">
+                  beside it, like the rail's theme picker, stays still. It and
+                  the rail's content carry data-typren-rail-*, so a host moving
+                  between two studios (a view transition) can slide the same parts. */}
+              <span ref={slide.head} data-typren-rail-head className="hidden min-w-0 md:flex">
                 {head}
               </span>
               {!collapsed && railToggle("ml-auto hidden md:inline-flex")}
@@ -1125,6 +1127,7 @@ export function Frame({
                 {/* The scroller sizes its content to fit-content, so a long title would widen it; pin the rail's own width. */}
                 <div
                   ref={slide.rail}
+                  data-typren-rail
                   className="w-72"
                   onClick={() => setRailOpen(false)}
                 >
