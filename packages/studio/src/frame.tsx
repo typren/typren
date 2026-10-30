@@ -744,8 +744,14 @@ export function Frame({
   const [live, setLive] = useState("");
   // tokens.css puts the shadcn-name aliases on `body` and scopes host dark to
   // `<html>`, so host content around the shell follows the toggle. No cleanup:
-  // the choice persists past unmount.
+  // the choice persists past unmount. The first pass renders light before the
+  // stored choice loads, so it never clears a dark class the host set before
+  // paint.
+  const themeSynced = useRef(false);
   useEffect(() => {
+    const first = !themeSynced.current;
+    themeSynced.current = true;
+    if (first && !dark) return;
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
   // Below `md` the rail is a drawer over the content, so the main area keeps

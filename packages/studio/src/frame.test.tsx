@@ -612,4 +612,14 @@ describe("Frame theme", () => {
     expect(html.classList.contains("dark")).toBe(true);
     html.classList.remove("dark");
   });
+
+  it("leaves a host's pre-paint dark class alone on the first light pass", () => {
+    const html = document.documentElement;
+    html.classList.add("dark");
+    const { rerender } = render(frame());
+    expect(html.classList.contains("dark")).toBe(true);
+    rerender(<Frame back={null} level={1} rail={<p>rail</p>} device="desktop" onDevice={() => {}} dark onToggleTheme={() => {}}><p>main</p></Frame>);
+    rerender(frame());
+    expect(html.classList.contains("dark")).toBe(false);
+  });
 });
