@@ -1,3 +1,5 @@
+"use client";
+
 // `@typren/studio/ui`: the studio's primitives, for a host app (the cloud
 // dashboard) that must look like the studio. They read `--typren-*` tokens, so
 // load `@typren/studio/tokens.css` too.

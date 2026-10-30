@@ -1,3 +1,5 @@
+"use client";
+
 // @typren/studio: the studio UI layer of the seam documented in the root
 // README: ContentAdapter -> ContentStore -> makeActions(config) -> studio UI
 // (here). The shell is spec'd in docs/editor-v3.md. Onboarding stays out of
