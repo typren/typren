@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { SharedMediaProvider } from "./image-picker-field";
 import { MediaOriginProvider, siteOrigin } from "./media-url";
 import type {
   CollectionRecordInfo,
@@ -56,6 +57,7 @@ import {
   type TemplatesView,
 } from "./site-rail";
 import { EmptyState } from "./primitives/empty";
+import { ScrollArea } from "./primitives/scroll-area";
 import type { TyprenStudioHost } from "./types";
 
 export type { TyprenStudioHost };
@@ -190,7 +192,9 @@ export function TyprenStudio(props: Readonly<TyprenStudioProps>) {
   return (
     <CmsIntlProvider messages={props.messages}>
       <MediaOriginProvider origin={siteOrigin(props.host)}>
-        <Shell {...props} />
+        <SharedMediaProvider value={props.host.sharedMedia}>
+          <Shell {...props} />
+        </SharedMediaProvider>
       </MediaOriginProvider>
     </CmsIntlProvider>
   );
@@ -753,6 +757,8 @@ function Shell({
             previewSrc={(v) => previewSrc(host, homeSlug, v, locale)}
             device={device}
           />
+        ) : (active.raw as { host?: true }).host && host.renderSection?.(active.id) != null ? (
+          <ScrollArea className="min-h-0 flex-1">{host.renderSection(active.id)}</ScrollArea>
         ) : (
           <EmptyState
             icon={<Construction />}

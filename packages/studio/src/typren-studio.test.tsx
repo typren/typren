@@ -181,6 +181,17 @@ describe("TyprenStudio rail", () => {
     expect(iconOf(screen.getByText(/isn.t available in the studio yet/))).toBeTruthy();
   });
 
+  it("a host custom entry renders the host's screen, else the notice", () => {
+    const sections = [{ kind: "custom" as const, id: "domains", label: "Domains", host: true as const }];
+    const view = render(
+      <TyprenStudio host={{ ...host, sections, renderSection: (id) => <p>host:{id}</p> }} pages={pages} sectionId="domains" onNavigate={() => {}} onReload={() => {}} />,
+    );
+    expect(screen.getByText("host:domains")).toBeTruthy();
+    view.unmount();
+    mount({ host: { ...host, sections }, sectionId: "domains" });
+    expect(screen.getByText(/isn.t available in the studio yet/)).toBeTruthy();
+  });
+
   it("asks for a page when none is open", () => {
     mount();
     expect(iconOf(screen.getByText("Select a page to edit, or add a new one."))).toBeTruthy();
