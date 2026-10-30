@@ -4,6 +4,8 @@
 // scope: core never gave it a `SectionKind`.
 
 export { TyprenStudio, type TyprenStudioProps } from "./typren-studio";
+export { StudioShell, type StudioShellEntry } from "./studio-shell";
+export type { RailBack } from "./frame";
 export type { TemplatesView } from "./site-rail";
 export type { TyprenStudioHost, TyprenStudioSettingsActions } from "./types";
 export { clientHost, STUDIO_SECTIONS } from "./client-host";

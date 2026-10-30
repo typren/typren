@@ -1023,7 +1023,7 @@ function Shell({
 }
 
 /** The rounded frame non-preview entries render in, matching the preview's. */
-function Panel({ children }: Readonly<{ children: ReactNode }>) {
+export function Panel({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className="typren-surface-1 flex min-h-0 min-w-0 flex-1 rounded-[var(--typren-radius-card)] border border-[var(--typren-stroke-card)] bg-[var(--typren-layer)]">
       <div className="flex min-w-0 flex-1 overflow-hidden rounded-[inherit]">
