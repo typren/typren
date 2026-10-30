@@ -1,5 +1,13 @@
 # @typren/adapter-cloudflare
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [3467588]
+- Updated dependencies [68f90fb]
+  - @typren/core@0.7.0
+
 ## 0.2.3
 
 ### Patch Changes
