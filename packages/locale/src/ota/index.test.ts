@@ -1006,6 +1006,17 @@ describe("loadMessages manifest verification", () => {
   describe("insecureDevMode", () => {
     afterEach(() => vi.unstubAllGlobals());
 
+    it.each([
+      ["a Capacitor https shell", { protocol: "https:", port: "" }],
+      ["a capacitor: scheme", { protocol: "capacitor:", port: "" }],
+      ["http without a port", { protocol: "http:", port: "" }],
+    ])("is ignored on localhost for %s", async (_name, loc) => {
+      vi.stubGlobal("location", { hostname: "localhost", ...loc });
+      const r = await run(unsignedManifest(remoteHash), { insecureDevMode: true });
+      expect(r.result).toBe(baked);
+      expect(r.messages[0]).toContain("insecureDevMode ignored");
+    });
+
     it("on localhost accepts an unsigned manifest without writing the sequence", async () => {
       const r = await run(unsignedManifest(remoteHash), { insecureDevMode: true, publicKeys: [] });
       expect(r.result).toEqual(remote);

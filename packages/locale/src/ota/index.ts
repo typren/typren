@@ -205,7 +205,7 @@ export interface LoadMessagesOptions {
    */
   publicKeys: readonly TrustedKey[];
   /**
-   * Accept unsigned manifests and skip the expiry and sequence checks. Honored only when location.hostname is "localhost" or "127.0.0.1"; anywhere else it is ignored and reported through onError. Never enable it in a production build: hybrid shells can serve production from localhost.
+   * Accept unsigned manifests and skip the expiry and sequence checks. Honored only on a plain-http dev server (location.protocol "http:", a non-empty location.port, and location.hostname "localhost" or "127.0.0.1"); anywhere else it is ignored and reported through onError. Never enable it in a production build: hybrid shells can serve production from localhost.
    */
   insecureDevMode?: boolean;
   /**
@@ -330,9 +330,11 @@ export async function loadMessages(options: LoadMessagesOptions): Promise<Catalo
     const manifest = (await fetchImpl(manifestUrl)) as Manifest;
 
     const host = (globalThis as { location?: { hostname?: string } }).location?.hostname;
-    const devMode = insecureDevMode === true && (host === "localhost" || host === "127.0.0.1");
+    const loc = (globalThis as { location?: { protocol?: string; port?: string } }).location;
+    const devMode =
+      insecureDevMode === true && (host === "localhost" || host === "127.0.0.1") && loc?.protocol === "http:" && !!loc.port;
     if (insecureDevMode === true && !devMode) {
-      onError?.(new Error("ota insecureDevMode ignored: only honored on localhost or 127.0.0.1"));
+      onError?.(new Error("ota insecureDevMode ignored: only honored on an http://localhost:<port> or http://127.0.0.1:<port> dev server"));
     }
     if (!devMode) {
       const reject = (reason: string): Catalog => {

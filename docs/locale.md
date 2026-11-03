@@ -123,10 +123,12 @@ key it writes an unsigned manifest and warns.
 
 `insecureDevMode: true` accepts unsigned manifests and skips the expiry and
 sequence checks, for local development against a dev server. It is honored only
-when `location.hostname` is `localhost` or `127.0.0.1`, and otherwise ignored
-and reported. Hybrid shells (Capacitor, Electron, and similar) can serve a
-production build from localhost, so gate the flag on a dev-build constant and
-never leave it on in a release.
+on a plain-http dev server: `location.protocol` is `http:`, `location.port` is
+non-empty and `location.hostname` is `localhost` or `127.0.0.1`. Otherwise it
+is ignored and reported. Hybrid shells (Capacitor serves production from
+`localhost` over `capacitor:` or `https:` with no port, Electron and similar
+may differ) are excluded by the protocol and port checks, but still gate the
+flag on a dev-build constant and never leave it on in a release.
 
 The device also keeps a placeholder gate: an OTA value whose `{var}` set
 differs from the baked string for the same key is dropped and the baked value
