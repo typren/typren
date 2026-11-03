@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -91,6 +91,94 @@ describe("main (verb router)", () => {
       rmSync(configDir, { recursive: true, force: true });
       rmSync(outDir, { recursive: true, force: true });
     }
+  });
+
+  it("keys --help prints the keys help and the global help lists the verb", async () => {
+    await main(["keys", "--help"]);
+    expect(logSpy.mock.calls.flat().join("\n")).toContain("usage: typren-locale keys");
+    logSpy.mockClear();
+    await main([]);
+    expect(logSpy.mock.calls.flat().join("\n")).toContain("keys       Create or rotate the manifest signing key.");
+  });
+
+  it("keys with a bad action or a missing --config exits 2", async () => {
+    await main(["keys", "bogus", "--config", "c.json"]);
+    expect(process.exitCode).toBe(2);
+    process.exitCode = undefined;
+    await main(["keys", "init"]);
+    expect(process.exitCode).toBe(2);
+    expect(errorSpy.mock.calls.flat().join("\n")).toContain("--config <path> is required");
+  });
+
+  it("keys --json reports a usage error as one JSON line on stdout", async () => {
+    await main(["keys", "--json"]);
+    expect(process.exitCode).toBe(2);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toMatchObject({ ok: false });
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it("keys init writes the public key and --json prints exactly one JSON line", async () => {
+    const repo = withTmpDir();
+    mkdirSync(join(repo, ".git"));
+    const configPath = join(repo, "locale.config.json");
+    writeFileSync(configPath, JSON.stringify({ app: "demo", source: { type: "files", dir: "." } }));
+    try {
+      await main(["keys", "init", "--config", configPath, "--json"]);
+      expect(process.exitCode).toBe(0);
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      const out = JSON.parse(logSpy.mock.calls[0]![0] as string) as { ok: boolean; secret: string };
+      expect(out.ok).toBe(true);
+      expect(out.secret).toBeTruthy();
+      expect(JSON.parse(readFileSync(configPath, "utf8")).publicKeys).toHaveLength(1);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("keys init prints the secret once in human mode", async () => {
+    const repo = withTmpDir();
+    mkdirSync(join(repo, ".git"));
+    const configPath = join(repo, "locale.config.json");
+    writeFileSync(configPath, JSON.stringify({ app: "demo", source: { type: "files", dir: "." } }));
+    try {
+      await main(["keys", "init", "--config", configPath]);
+      expect(logSpy.mock.calls.flat().join("\n")).toContain("TYPREN_SIGNING_KEY=");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  describe("bake --expires-in-days", () => {
+    beforeEach(() => {
+      vi.stubEnv("CI", "");
+      vi.stubEnv("TYPREN_SIGNING_KEY", "");
+    });
+    afterEach(() => vi.unstubAllEnvs());
+
+    it.each(["0", "-3", "abc"])("rejects %s with exit 2", async (days) => {
+      await main(["bake", "--config", "c.json", "--out", "o", "--expires-in-days", days]);
+      expect(process.exitCode).toBe(2);
+      expect(errorSpy.mock.calls.flat().join("\n")).toContain("--expires-in-days must be a positive number");
+    });
+
+    it("passes a valid value through and bakes an unsigned manifest locally", async () => {
+      const dir = withTmpDir();
+      const sourceDir = join(dir, "src");
+      mkdirSync(sourceDir);
+      writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Greeting: "Hi" }));
+      const configPath = join(dir, "config.json");
+      writeFileSync(configPath, JSON.stringify({ app: "demo", source: { type: "files", dir: sourceDir } }));
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await main(["bake", "--config", configPath, "--out", join(dir, "out"), "--expires-in-days", "7"]);
+        expect(process.exitCode).toBeFalsy();
+        const manifest = JSON.parse(readFileSync(join(dir, "out", "manifest", "demo.json"), "utf8")) as { issuedAt: string; expiresAt: string };
+        expect((Date.parse(manifest.expiresAt) - Date.parse(manifest.issuedAt)) / 86_400_000).toBeCloseTo(7, 0);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   it("rejects an invalid --filename-style before touching the filesystem", async () => {
