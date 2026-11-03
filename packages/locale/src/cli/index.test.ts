@@ -354,7 +354,8 @@ describe("main (verb router)", () => {
       process.exitCode = undefined;
       await main(["rename", "onlyone", "--dir", dir, "--json"]);
       expect(process.exitCode).toBe(2);
-      expect(JSON.parse(stdout().split("\n").at(-1)!)).toMatchObject({ ok: false, exitCode: 2 });
+      expect(JSON.parse(stdout())).toEqual({ ok: false, error: "expected 2 positional argument(s), got 1" });
+      expect(errorSpy.mock.calls.flat().join("\n")).toContain("typren-locale rename: expected 2 positional");
     });
 
     it("rename and prune-aliases reject an unknown flag with a suggestion and exit 2", async () => {

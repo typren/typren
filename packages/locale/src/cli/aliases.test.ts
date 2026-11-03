@@ -337,16 +337,30 @@ describe("printAliasVerbResult", () => {
 
   const ok = (extra: object): AliasVerbResult => ({ ok: true, verb: "rename", aliasesPath: "/x/_aliases.json", changedFiles: ["/x/en.json"], pruned: [], ...extra }) as AliasVerbResult;
 
-  it("prints JSON only on stdout with exit codes 0/1/2", () => {
+  it("prints success JSON on stdout only, exit 0", () => {
     printAliasVerbResult(ok({}), { json: true });
     expect(process.exitCode).toBe(0);
-    expect(JSON.parse(log.mock.calls[0]![0] as string).ok).toBe(true);
-    for (const exitCode of [1, 2] as const) {
-      printAliasVerbResult({ ok: false, verb: "rename", exitCode, problems: ["p"] }, { json: true });
-      expect(process.exitCode).toBe(exitCode);
-    }
-    expect(log).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(log.mock.calls[0]![0] as string)).toMatchObject({ ok: true, verb: "rename" });
     expect(err).not.toHaveBeenCalled();
+  });
+
+  it("prints a refusal as {ok:false,verb,problems} on stdout, exit 1, nothing on stderr", () => {
+    printAliasVerbResult({ ok: false, verb: "rename", exitCode: 1, problems: ["p"] }, { json: true });
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual({ ok: false, verb: "rename", problems: ["p"] });
+    expect(err).not.toHaveBeenCalled();
+  });
+
+  it("reports usage errors through fail(): stderr line plus {ok:false,error} JSON, exit 2", () => {
+    printAliasVerbResult({ ok: false, verb: "rename", exitCode: 2, problems: ["a", "b"] }, { json: true });
+    expect(process.exitCode).toBe(2);
+    expect(err).toHaveBeenCalledWith("typren-locale rename: a; b");
+    expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual({ ok: false, error: "a; b" });
+    err.mockClear();
+    log.mockClear();
+    printAliasVerbResult({ ok: false, verb: "deprecate", exitCode: 2, problems: ["x"] }, { json: false });
+    expect(err).toHaveBeenCalledWith("typren-locale deprecate: x");
+    expect(log).not.toHaveBeenCalled();
   });
 
   it("prints human lines per verb", () => {

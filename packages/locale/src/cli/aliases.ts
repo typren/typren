@@ -6,6 +6,7 @@ import { normalizeLocaleKey } from "../build/provider";
 import { merge, UNSAFE_KEYS } from "../delta";
 import type { Catalog } from "../types";
 import { parseStrictArgs, type FlagSpec } from "./args";
+import { fail, printJson } from "./output";
 
 export type AliasVerb = "rename" | "deprecate" | "prune-aliases";
 
@@ -287,15 +288,15 @@ function run(verb: AliasVerb, args: string[], deps: { now?: Date }): AliasVerbRe
 }
 
 export function printAliasVerbResult(result: AliasVerbResult, opts: { json: boolean }): void {
-  process.exitCode = result.ok ? 0 : result.exitCode;
-  if (opts.json) {
-    console.log(JSON.stringify(result));
-    return;
-  }
   if (!result.ok) {
+    if (result.exitCode === 2) return fail(result.verb, result.problems.join("; "), opts.json);
+    process.exitCode = result.exitCode;
+    if (opts.json) return printJson({ ok: false, verb: result.verb, problems: result.problems });
     for (const p of result.problems) console.error(`typren-locale ${result.verb}: ${p}`);
     return;
   }
+  process.exitCode = 0;
+  if (opts.json) return printJson(result);
   const n = result.changedFiles.length;
   if (result.verb === "prune-aliases") {
     console.log(`typren-locale prune-aliases: pruned ${result.pruned.length} alias(es)`);

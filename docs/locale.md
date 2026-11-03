@@ -302,7 +302,9 @@ exception and still accepts flags it does not mirror.
 
 For the three alias verbs, exit `1` means the edit was refused (for example
 the key is absent, or the target exists without `--force`); nothing is
-written.
+written. With `--json` a refusal prints `{ "ok": false, "verb", "problems": [...] }`;
+usage errors and failures use the shared `{ "ok": false, "error" }` shape like
+every other verb.
 
 The CLI honors `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`: when a proxy variable is
 set it re-executes itself with `NODE_USE_ENV_PROXY=1`, because Node's `fetch`
