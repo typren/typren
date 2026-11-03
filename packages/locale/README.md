@@ -27,6 +27,10 @@ await buildCatalogs("./locales", {
 
 Manifests are signed (ES256) and devices only accept ones signed by a key in `publicKeys`. Run `npx typren-locale keys init --config locale.config.json` once, store the printed value as the `TYPREN_SIGNING_KEY` CI secret, and pass `publicKeys: readPublicKeys("locale.config.json")` (from `@typren/locale/build`, embedded at build time) to `loadMessages`. Or run `typren-locale bake`, which does the signing for you.
 
+## Renaming keys
+
+Put an `_aliases.json` next to your catalogs (or use `typren-locale rename <old> <new>`) so installed builds keep resolving a renamed key until they update. `bake` serves each old key as a copy of its replacement, and `t()` accepts an alias resolver for the in-app fallback. See [Key migration](https://github.com/typren/typren/blob/develop/docs/locale.md#key-migration).
+
 See the [full reference](https://github.com/typren/typren/blob/develop/docs/site/reference-locale.md) for every export, build/OTA option and the Vue integration.
 
 ## CLI

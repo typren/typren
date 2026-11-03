@@ -147,7 +147,8 @@ official `vue-i18n` (`setLocaleMessage`, which is reactive on its own), and
 one for a `vue-composable` RESULT instance (below). All are additive and
 fail-safe the same way the client underneath them is — a locale whose
 messages aren't loaded yet, or an OTA call that reports no change, just
-leaves the store untouched. i18next and React adapters are planned, same
+leaves the store untouched. An i18next missing-key adapter exists (see
+[Key migration](#key-migration)); a React adapter is still planned, same
 shape, not built yet.
 
 ### The vue-composable instance path
@@ -236,18 +237,27 @@ to what's here.
 
 ## CLI
 
-The package ships a `typren-locale` bin with eight verbs and a compat layer:
+The package ships a `typren-locale` bin with eleven verbs and a compat layer:
 
-- `pull --config <path> [--out <dir>] [--filename-style dash|underscore]` —
-  provider → normalized locale files on disk.
-- `bake --config <path> --out <dir> [--expires-in-days <n>]` — `buildCatalogs`:
-  hashed catalogs, signed manifest, precomputed deltas, publish gates.
-- `keys init|rotate --config <path> [--out <file>] [--json]` — generates an
+- `pull --config <path> [--out <dir>] [--filename-style dash|underscore]
+  [--emit-aliases] [--aliases <path>] [--default-locale <tag>]` —
+  provider → normalized locale files on disk. `--emit-aliases` also writes
+  the alias copies into the output (see [Key migration](#key-migration)).
+- `bake --config <path> --out <dir> [--expires-in-days <n>] [--aliases <path>]
+  [--default-locale <tag>]` — `buildCatalogs`: alias copies, publish gates,
+  hashed catalogs, precomputed deltas, signed manifest. Alias copies are
+  added before the gates and hashing, so the signed manifest covers them.
+- `keys init|rotate --config <path> [--out <file>]` — generates an
   ES256 key pair, adds the public key to the config's `publicKeys`, and prints
   the private key once for the `TYPREN_SIGNING_KEY` CI secret (or writes it to
   `--out`, mode 600, refused inside the repository). `rotate` adds a key and
-  keeps the old ones trusted. With `--json` the result is one JSON line on
-  stdout.
+  keeps the old ones trusted.
+- `rename <old> <new> [--dir <dir>] [--remove-after <date>] [--force]`
+  — moves a key in every locale file and records the alias.
+- `deprecate <key> [--dir <dir>] [--remove-after <date>] [--force]`
+  — removes a key from every locale file and records it as decommissioned.
+- `prune-aliases [--dir <dir>] [--older-than <date>]` — drops
+  aliases whose `removeAfter` is before the cutoff (default today).
 - `diff <dirA> <dirB>` — per-locale *content* comparison (exit 1 on any
   difference). Filename and formatting differences are deliberately
   invisible; this is the migration-verification tool.
@@ -286,10 +296,101 @@ top-level `ok`. Exit codes are `0` ok, `1` problems found, `2` usage error or
 failure. Unknown flags are rejected with a suggestion; `compat` is the
 exception and still accepts flags it does not mirror.
 
+For the three alias verbs, exit `1` means the edit was refused (for example
+the key is absent, or the target exists without `--force`); nothing is
+written.
+
 The CLI honors `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`: when a proxy variable is
 set it re-executes itself with `NODE_USE_ENV_PROXY=1`, because Node's `fetch`
 ignores them otherwise. This needs Node 22.21+ or 24.5+; on older Node the
 variable is a no-op and requests go direct.
+
+## Key migration
+
+Renaming or removing a key in the source breaks every installed build that
+still calls the old one. An `_aliases.json` next to the catalogs lets old
+builds keep working while new code moves to the new key.
+
+### `_aliases.json`
+
+```json
+{
+  "home.title": { "to": "home.heading", "since": "1.4.0" },
+  "legacy.banner": { "to": null, "since": "1.4.0", "removeAfter": "2027-06-01" }
+}
+```
+
+Each key is an old key path. `to` is the replacement key path, or `null` for a
+decommissioned key. `since` is a free-form non-empty string (a version or a
+date). `removeAfter` is an optional `YYYY-MM-DD` date that `prune-aliases`
+honors. Validation rules, enforced by `parseAliases` and `validateAliases`:
+
+- keys and targets are valid dotted paths (no empty segment, no `__proto__`,
+  `constructor` or `prototype`), and unknown fields are rejected;
+- an alias may not point at itself or at another alias (no chains);
+- the old key must be gone from every locale catalog, and no parent of it may
+  be a string leaf in any locale;
+- every non-null target must exist as a string in the default locale.
+
+The default locale is the explicit `--default-locale` (or
+`BuildOptions.defaultLocale`), else the locale closest to `"en"` over the sorted
+locales. The `files` source provider ignores `_aliases.json`.
+
+### Runtime
+
+```ts
+import { createAliasResolver, t } from "@typren/locale";
+
+const resolver = createAliasResolver(aliases, { onDeprecatedKey: (oldKey, newKey) => track(oldKey, newKey) });
+t(catalog, "home.title", undefined, resolver); // reads home.heading
+```
+
+`t(catalog, key, args, resolver)` reads a renamed key from its target and falls
+back to the old key if the target is absent. A decommissioned key renders as
+itself. The first lookup of each aliased key warns once through `console.warn`
+outside production (`NODE_ENV !== "production"`; the `warn` option overrides
+it, and the default is silent in production). `onDeprecatedKey` fires once per old key in
+every mode, which is the production telemetry hook; an error it throws is
+swallowed.
+
+### vue-i18n and i18next
+
+```ts
+import { createVueI18nMissingHandler, createI18nextParseMissingKeyHandler } from "@typren/locale";
+
+i18n.global.setMissingHandler(createVueI18nMissingHandler(i18n.global, resolver));
+
+i18next.init({
+  parseMissingKeyHandler: createI18nextParseMissingKeyHandler((k, o) => i18next.t(k, o), resolver),
+});
+```
+
+Both adapters use structural types, so there is no new dependency. The vue-i18n
+adapter returns the target key's translation; when the stored message is
+precompiled (a function or AST rather than a string) it falls back to the
+instance's `t(target, {}, { locale })`. One caveat: an i18next
+`appendNamespaceToMissingKey` prefix breaks the key lookup; in that case use
+`pull --emit-aliases` instead.
+
+### Build and OTA
+
+`bake` always serves alias copies: each old key is written into every locale
+catalog as a copy of its target's string, before the publish gates and
+hashing. Old builds therefore keep resolving the old key over OTA with no code
+change. Because the copy is a changed string at the old key, a placeholder
+change across a rename fails the delta gate; rename and change placeholders in
+separate releases.
+
+An installed build whose baked bundle lacks the copies sees a catalog hash
+that differs from the manifest's, so it costs one OTA fetch to get them. To
+avoid that, bake the app bundle from `pull --emit-aliases` output (or call
+`applyAliasCopies` on the catalogs) so the baked catalog already holds them.
+`--emit-aliases` is pull-only because `bake` always applies copies.
+
+A decommissioned key (`to: null`) is removed from the catalogs, and installed
+builds keep their baked copy because the OTA merge never removes keys (see the
+no-remove rule above). That is the intended behavior: nothing breaks on an old
+build.
 
 ## Hosting
 

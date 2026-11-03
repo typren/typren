@@ -14,6 +14,7 @@ import { runCompatDownload, printCompatResult, COMPAT_HELP } from "./compat";
 import { scanCommand, SCAN_HELP } from "./scan";
 import { checkCommand, CHECK_HELP } from "./check";
 import { lintCommand, LINT_HELP } from "./lint";
+import { runAliasVerb, printAliasVerbResult, RENAME_HELP, DEPRECATE_HELP, PRUNE_ALIASES_HELP } from "./aliases";
 
 const VERB_HELP: Record<string, string> = {
   pull: PULL_HELP,
@@ -25,21 +26,27 @@ const VERB_HELP: Record<string, string> = {
   scan: SCAN_HELP,
   check: CHECK_HELP,
   lint: LINT_HELP,
+  rename: RENAME_HELP,
+  deprecate: DEPRECATE_HELP,
+  "prune-aliases": PRUNE_ALIASES_HELP,
 };
 const KNOWN_VERBS = new Set(Object.keys(VERB_HELP));
 
 const GLOBAL_HELP = `typren-locale: build-time CLI for @typren/locale
 
 Usage:
-  typren-locale pull --config <path> [--out <dir>] [--filename-style dash|underscore]
-  typren-locale bake --config <path> --out <dir> [--build-version <v>] [--expires-in-days <n>]
-  typren-locale keys init|rotate --config <path> [--out <file>] [--json]
+  typren-locale pull --config <path> [--out <dir>] [--filename-style dash|underscore] [--emit-aliases [--aliases <path>]]
+  typren-locale bake --config <path> --out <dir> [--build-version <v>] [--expires-in-days <n>] [--aliases <path>]
+  typren-locale keys init|rotate --config <path> [--out <file>]
   typren-locale diff <dirA> <dirB>
   typren-locale doctor --config <path>
   typren-locale compat lokalise2 file download [options]
   typren-locale scan [--locales <dir|file> | --config <path>] [--default-locale <id>] [--preset <name>]... [--key-pattern <re>]... [--allow-unused] <src...>
   typren-locale check [--locales <dir|file> | --config <path>] [--default-locale <id>] [--format i18next]
   typren-locale lint --format <icu|vue-i18n|i18next|typren> [--to typren] [--locales ...]
+  typren-locale rename <old> <new> [--dir <dir>] [--remove-after <date>] [--force]
+  typren-locale deprecate <key> [--dir <dir>] [--remove-after <date>] [--force]
+  typren-locale prune-aliases [--dir <dir>] [--older-than <date>]
   typren-locale --version
   typren-locale <verb> --help
 
@@ -52,6 +59,9 @@ Usage:
   scan       Find catalogue keys the source never references.
   check      Missing, empty and extra values per locale vs the default.
   lint       Per-value syntax and placeholder checks for a message format.
+  rename     Rename a key in every locale file and record an alias for the old one.
+  deprecate  Remove a key from every locale file and record it as decommissioned.
+  prune-aliases  Drop aliases whose removeAfter date has passed.
 
   --version, -v   Print the installed @typren/locale version.
   --help, -h      Show this help, or a verb's help with "<verb> --help".
@@ -104,6 +114,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   if (verb === "scan") return scanCommand(rest);
   if (verb === "check") return checkCommand(rest);
   if (verb === "lint") return lintCommand(rest);
+  if (verb === "rename" || verb === "deprecate" || verb === "prune-aliases") {
+    printAliasVerbResult(await runAliasVerb(verb, rest), { json: rest.includes("--json") });
+    return;
+  }
 
   if (verb === "compat") {
     const json = rest.includes("--json");
@@ -116,8 +130,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   }
 
   const specs = {
-    pull: { strings: ["config", "out", "filename-style"] },
-    bake: { strings: ["config", "out", "build-version", "expires-in-days"] },
+    pull: { strings: ["config", "out", "filename-style", "aliases", "default-locale"], booleans: ["emit-aliases"] },
+    bake: { strings: ["config", "out", "build-version", "expires-in-days", "aliases", "default-locale"] },
     keys: { strings: ["config", "out"] },
     diff: {},
     doctor: { strings: ["config"] },
@@ -134,7 +148,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     if (filenameStyle !== undefined && filenameStyle !== "dash" && filenameStyle !== "underscore") {
       return fail("pull", `--filename-style must be "dash" or "underscore", got "${filenameStyle}"`, json);
     }
-    printPullResult(await runPull({ configPath, outDir: args.strings.out, filenameStyle }), { json });
+    const result = await runPull({
+      configPath,
+      outDir: args.strings.out,
+      filenameStyle,
+      emitAliases: args.booleans.has("emit-aliases"),
+      aliasesPath: args.strings.aliases,
+      defaultLocale: args.strings["default-locale"],
+    });
+    printPullResult(result, { json });
     return;
   }
 
@@ -146,7 +168,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     if (expiresInDays !== undefined && !(expiresInDays > 0)) {
       return fail("bake", `--expires-in-days must be a positive number, got "${days}"`, json);
     }
-    printBakeResult(await runBake({ configPath, outDir, buildVersion: args.strings["build-version"], expiresInDays }), { json });
+    const result = await runBake({
+      configPath,
+      outDir,
+      buildVersion: args.strings["build-version"],
+      expiresInDays,
+      aliasesPath: args.strings.aliases,
+      defaultLocale: args.strings["default-locale"],
+    });
+    printBakeResult(result, { json });
     return;
   }
 

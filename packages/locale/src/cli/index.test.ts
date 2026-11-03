@@ -324,6 +324,96 @@ describe("main (verb router)", () => {
       expect(logSpy.mock.calls.flat().join("\n")).toContain(`typren-locale ${verb}`);
     });
   });
+
+  describe("alias verbs and flags", () => {
+    const stdout = () => logSpy.mock.calls.flat().join("\n");
+    let dir: string;
+    beforeEach(() => {
+      dir = withTmpDir();
+      writeFileSync(join(dir, "en.json"), JSON.stringify({ home: { title: "Home" } }));
+    });
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    it("rename is dispatched, renames the key and exits 0", async () => {
+      await main(["rename", "home.title", "home.heading", "--dir", dir]);
+      expect(process.exitCode).toBe(0);
+      expect(JSON.parse(readFileSync(join(dir, "en.json"), "utf8"))).toEqual({ home: { heading: "Home" } });
+      expect(stdout()).toContain('"home.title"');
+    });
+
+    it("rename --json prints the result JSON on stdout only", async () => {
+      await main(["rename", "home.title", "home.heading", "--dir", dir, "--json"]);
+      expect(JSON.parse(stdout())).toMatchObject({ ok: true, verb: "rename" });
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it("rename of a missing key exits 1; bad usage exits 2", async () => {
+      await main(["rename", "nope.key", "other.key", "--dir", dir]);
+      expect(process.exitCode).toBe(1);
+      expect(errorSpy.mock.calls.flat().join("\n")).toContain("absent from every locale file");
+      process.exitCode = undefined;
+      await main(["rename", "onlyone", "--dir", dir, "--json"]);
+      expect(process.exitCode).toBe(2);
+      expect(JSON.parse(stdout().split("\n").at(-1)!)).toMatchObject({ ok: false, exitCode: 2 });
+    });
+
+    it("rename and prune-aliases reject an unknown flag with a suggestion and exit 2", async () => {
+      await main(["rename", "home.title", "home.heading", "--dri", dir]);
+      expect(process.exitCode).toBe(2);
+      expect(errorSpy.mock.calls.flat().join("\n")).toContain("did you mean --dir?");
+      process.exitCode = undefined;
+      await main(["prune-aliases", "--dir", dir, "--force"]);
+      expect(process.exitCode).toBe(2);
+      expect(JSON.parse(readFileSync(join(dir, "en.json"), "utf8"))).toEqual({ home: { title: "Home" } });
+    });
+
+    it("deprecate and prune-aliases are dispatched", async () => {
+      await main(["deprecate", "home.title", "--dir", dir, "--remove-after", "2026-01-01", "--json"]);
+      expect(JSON.parse(stdout())).toMatchObject({ ok: true, verb: "deprecate" });
+      logSpy.mockClear();
+      await main(["prune-aliases", "--dir", dir, "--older-than", "2027-01-01", "--json"]);
+      expect(JSON.parse(stdout())).toMatchObject({ ok: true, verb: "prune-aliases", pruned: ["home.title"] });
+      expect(process.exitCode).toBe(0);
+    });
+
+    it("each new verb has its own --help", async () => {
+      for (const v of ["rename", "deprecate", "prune-aliases"]) {
+        logSpy.mockClear();
+        await main([v, "--help"]);
+        expect(stdout()).toContain(`usage: typren-locale ${v}`);
+      }
+    });
+
+    it("global help lists the new verbs", async () => {
+      await main([]);
+      expect(stdout()).toContain("typren-locale prune-aliases");
+    });
+
+    it("forwards --aliases, --default-locale and --emit-aliases to pull and bake", async () => {
+      vi.stubEnv("CI", "");
+      vi.stubEnv("TYPREN_SIGNING_KEY", "");
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const extra = withTmpDir();
+      const aliasesPath = join(extra, "custom-aliases.json");
+      writeFileSync(aliasesPath, JSON.stringify({ "home.old": { to: "home.title", since: "2026-01-01" } }));
+      const configPath = join(extra, "config.json");
+      writeFileSync(configPath, JSON.stringify({ app: "demo", source: { type: "files", dir } }));
+      const out = join(extra, "out");
+
+      await main(["pull", "--config", configPath, "--out", out, "--emit-aliases", "--aliases", aliasesPath, "--default-locale", "en"]);
+      expect(process.exitCode).toBeUndefined();
+      expect(JSON.parse(readFileSync(join(out, "en.json"), "utf8")).home.old).toBe("Home");
+
+      await main(["bake", "--config", configPath, "--out", join(out, "baked"), "--aliases", aliasesPath, "--default-locale", "en"]);
+      expect(process.exitCode).toBeUndefined();
+      expect(stdout()).toContain("1 alias(es) served");
+
+      await main(["bake", "--config", configPath, "--out", join(out, "baked2"), "--aliases", aliasesPath, "--default-locale", "zz"]);
+      expect(process.exitCode).toBe(2);
+      rmSync(extra, { recursive: true, force: true });
+      vi.unstubAllEnvs();
+    });
+  });
 });
 
 describe("envProxyReexecEnv", () => {

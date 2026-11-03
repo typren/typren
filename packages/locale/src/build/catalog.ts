@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { applyAliasCopies, validateAliases, type AliasMap } from "../aliases";
 import { assertNoHtml } from "../no-html";
 import { canonicalize, hashCatalog } from "../canonicalize";
 import { diff, isPlaceholderCompatible, merge } from "../delta";
@@ -23,6 +24,10 @@ export interface BuildOptions {
   signingKey?: SigningKey;
   /** Days until the manifest's expiresAt. Default 30. */
   expiresInDays?: number;
+  /** Served as copies of their targets so old builds keep resolving old keys over OTA. */
+  aliases?: AliasMap;
+  /** The default catalog alias targets are checked against; defaults per validateAliases. */
+  defaultLocale?: string;
 }
 
 export interface BuildResult {
@@ -147,6 +152,13 @@ export async function buildCatalogs(
   const deltaHistorySize = options.deltaHistorySize ?? 5;
   const provider = resolveProvider(source);
   const catalogsByLang = await provider.loadSource();
+  if (options.aliases) {
+    const problems = validateAliases(options.aliases, catalogsByLang, options.defaultLocale);
+    if (problems.length) throw new Error(`buildCatalogs: invalid aliases for ${options.app}: ${problems.join("; ")}`);
+    for (const lang of Object.keys(catalogsByLang)) {
+      catalogsByLang[lang] = applyAliasCopies(catalogsByLang[lang]!, options.aliases);
+    }
+  }
 
   const manifestPath = joinInside(outDir, "manifest", `${options.app}.json`);
   let prevSequence = 0;

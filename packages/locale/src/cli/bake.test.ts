@@ -30,6 +30,31 @@ describe("runBake", () => {
     rmSync(outDir, { recursive: true, force: true });
   });
 
+  it("picks up the default alias file and serves copies", async () => {
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Greeting: "Hi" }));
+    writeFileSync(join(sourceDir, "_aliases.json"), JSON.stringify({ Hello: { to: "Greeting", since: "2026-01-01" } }));
+    const result = await runBake({ configPath, outDir, buildVersion: "v1", env: {} });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.aliasCount).toBe(1);
+    const file = join(outDir, "catalog", "demo", "en", `${result.hashes.en}.json`);
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ Greeting: "Hi", Hello: "Hi" });
+  });
+
+  it("errors when an explicit alias path is missing", async () => {
+    const missing = join(sourceDir, "nope.json");
+    expect(await runBake({ configPath, outDir, aliasesPath: missing, env: {} })).toEqual({ ok: false, error: `alias file not found: ${missing}` });
+  });
+
+  it("errors on invalid aliases and on an unreadable alias file", async () => {
+    writeFileSync(join(sourceDir, "_aliases.json"), JSON.stringify({ Hello: { to: "Missing", since: "2026-01-01" } }));
+    const bad = await runBake({ configPath, outDir, env: {} });
+    expect(bad.ok).toBe(false);
+    writeFileSync(join(sourceDir, "_aliases.json"), "{");
+    const broken = await runBake({ configPath, outDir, env: {} });
+    expect(broken.ok).toBe(false);
+  });
+
   it("runs the gated publish and reports app/locales/hashes/delta count", async () => {
     const result = await runBake({ configPath, outDir, buildVersion: "v1", env: {} });
     expect(result.ok).toBe(true);
@@ -38,6 +63,7 @@ describe("runBake", () => {
     expect(result.locales).toEqual(["en"]);
     expect(result.hashes.en).toMatch(/^[0-9a-f]{64}$/);
     expect(result.deltaCount).toBe(0);
+    expect(result.aliasCount).toBe(0);
     expect(existsSync(join(outDir, "manifest", "demo.json"))).toBe(true);
   });
 
@@ -96,6 +122,17 @@ describe("runBake", () => {
       expect(days).toBe(7);
       expect(result.expiresAt).toBe(manifest.expiresAt);
       expect(result.sequence).toBe(manifest.sequence);
+    });
+
+    it("signs a manifest whose hashes cover the alias copies", async () => {
+      const key = await withKeys();
+      writeFileSync(join(sourceDir, "_aliases.json"), JSON.stringify({ Hello: { to: "Greeting", since: "2026-01-01" } }));
+      const result = await runBake({ configPath, outDir, env: { [SIGNING_KEY_ENV]: key.secret } });
+      expect(result).toMatchObject({ ok: true, signedKid: key.kid, aliasCount: 1 });
+      const manifest = JSON.parse(readFileSync(join(outDir, "manifest", "demo.json"), "utf8"));
+      expect(await verifyManifestSignature(manifest, [{ kid: key.kid, jwk: key.publicJwk }])).toEqual({ ok: true });
+      const catalog = JSON.parse(readFileSync(join(outDir, "catalog", "demo", "en", `${manifest.apps.demo.en.hash}.json`), "utf8"));
+      expect(catalog).toEqual({ Greeting: "Hi", Hello: "Hi" });
     });
 
     it("rejects a kid that is not in publicKeys", async () => {
@@ -160,7 +197,7 @@ describe("runBake", () => {
     expect(process.exitCode).toBe(2);
 
     process.exitCode = 0;
-    const base = { ok: true as const, app: "demo", locales: ["en"], hashes: { en: "abc" }, deltaCount: 0, sequence: 5, expiresAt: "2030-01-01T00:00:00.000Z" };
+    const base = { ok: true as const, app: "demo", locales: ["en"], hashes: { en: "abc" }, deltaCount: 0, aliasCount: 0, sequence: 5, expiresAt: "2030-01-01T00:00:00.000Z" };
     printBakeResult({ ...base, signedKid: "k1" });
     printBakeResult({ ...base, signedKid: null });
     expect(process.exitCode).toBeFalsy();

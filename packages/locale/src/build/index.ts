@@ -15,3 +15,4 @@ export { createNodePurifier } from "./node-purifier";
 export { resolveProvider } from "./resolve-provider";
 export type { FilenameStyle, WriteLocaleFilesOptions } from "./write-locale-files";
 export { writeLocaleFiles } from "./write-locale-files";
+export { ALIASES_FILE, readAliasesFile } from "./aliases-file";
