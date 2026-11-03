@@ -1,9 +1,30 @@
+import { readFileSync } from "node:fs";
+import { parseTrustedKeys } from "../sign";
+import type { TrustedKey } from "../types";
 import type { SourceConfig } from "./provider";
 
 /** The committed build-config file shape ({ app, source }). No secret values; ${VAR} placeholders are resolved at run time. */
 export interface BuildConfig {
   app: string;
   source: SourceConfig;
+  /** Public keys the app embeds to verify signed manifests; written by `typren-locale keys init`. */
+  publicKeys?: TrustedKey[];
+}
+
+/** Build-time helper for apps to embed the trusted keys. Reads only the config file, never the env or a secret. */
+export function readPublicKeys(configPath: string): TrustedKey[] {
+  const fix = `run \`typren-locale keys init --config ${configPath}\``;
+  let raw: { publicKeys?: unknown };
+  try {
+    raw = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch (error) {
+    throw new Error(`readPublicKeys: cannot read ${configPath} (${(error as Error).message}); ${fix}`, { cause: error });
+  }
+  try {
+    return parseTrustedKeys(raw?.publicKeys);
+  } catch (error) {
+    throw new Error(`readPublicKeys: ${configPath} has no valid publicKeys (${(error as Error).message}); ${fix}`, { cause: error });
+  }
 }
 
 const ENV_VAR_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;

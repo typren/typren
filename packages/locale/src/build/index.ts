@@ -1,7 +1,9 @@
 export type { BuildOptions, BuildResult, PublishedDelta } from "./catalog";
 export { buildCatalogs, writeDelta } from "./catalog";
 export type { BuildConfig } from "./config";
-export { resolveConfigEnv, collectEnvVarNames } from "./config";
+export { resolveConfigEnv, collectEnvVarNames, readPublicKeys } from "./config";
+export { generateSigningKey, parseSigningKey, signManifest, SIGNING_KEY_ENV } from "../sign";
+export type { SigningKey } from "../sign";
 export type { FilesSourceConfig, LocaleSourceProvider, SourceConfig } from "./provider";
 export { normalizeLocaleKey } from "./provider";
 export { createFsSourceProvider } from "./fs-provider";
