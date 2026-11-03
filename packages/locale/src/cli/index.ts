@@ -9,6 +9,7 @@ import { runBake, printBakeResult, BAKE_HELP } from "./bake";
 import { diffLocaleDirs, printDiffResult, DIFF_HELP } from "./diff";
 import { runDoctor, printDoctorResult, DOCTOR_HELP } from "./doctor";
 import { runCompatDownload, printCompatResult, COMPAT_HELP } from "./compat";
+import { runAliasVerb, printAliasVerbResult, RENAME_HELP, DEPRECATE_HELP, PRUNE_ALIASES_HELP } from "./aliases";
 
 const VERB_HELP: Record<string, string> = {
   pull: PULL_HELP,
@@ -16,6 +17,9 @@ const VERB_HELP: Record<string, string> = {
   diff: DIFF_HELP,
   doctor: DOCTOR_HELP,
   compat: COMPAT_HELP,
+  rename: RENAME_HELP,
+  deprecate: DEPRECATE_HELP,
+  "prune-aliases": PRUNE_ALIASES_HELP,
 };
 const KNOWN_VERBS = new Set(Object.keys(VERB_HELP));
 
@@ -27,6 +31,9 @@ Usage:
   typren-locale diff <dirA> <dirB>
   typren-locale doctor --config <path>
   typren-locale compat lokalise2 file download [options]
+  typren-locale rename <old> <new> [--dir <dir>] [--force] [--json]
+  typren-locale deprecate <key> [--remove-after <date>] [--json]
+  typren-locale prune-aliases [--older-than <date>] [--json]
   typren-locale --version
   typren-locale <verb> --help
 
@@ -35,6 +42,9 @@ Usage:
   diff       Content-compare two locale directories (migration verification).
   doctor     Validate a build config and dry-run its gates.
   compat     lokalise2-compatible "file download" shim.
+  rename     Rename a key in every locale file and record an alias for the old one.
+  deprecate  Remove a key from every locale file and record it as decommissioned.
+  prune-aliases  Drop aliases whose removeAfter date has passed.
 
   --version, -v   Print the installed @typren/locale version.
   --help, -h      Show this help, or a verb's help with "<verb> --help".
@@ -91,7 +101,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     if (filenameStyleRaw !== undefined && filenameStyleRaw !== "dash" && filenameStyleRaw !== "underscore") {
       return badArgs("pull", `--filename-style must be "dash" or "underscore", got "${filenameStyleRaw}"`);
     }
-    const result = await runPull({ configPath, outDir: stringFlag(flags, "out"), filenameStyle: filenameStyleRaw });
+    const result = await runPull({
+      configPath,
+      outDir: stringFlag(flags, "out"),
+      filenameStyle: filenameStyleRaw,
+      emitAliases: flags["emit-aliases"] !== undefined,
+      aliasesPath: stringFlag(flags, "aliases"),
+      defaultLocale: stringFlag(flags, "default-locale"),
+    });
     printPullResult(result);
     return;
   }
@@ -101,7 +118,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     const configPath = stringFlag(flags, "config");
     const outDir = stringFlag(flags, "out");
     if (!configPath || !outDir) return badArgs("bake", "--config <path> and --out <dir> are required");
-    const result = await runBake({ configPath, outDir, buildVersion: stringFlag(flags, "build-version") });
+    const result = await runBake({
+      configPath,
+      outDir,
+      buildVersion: stringFlag(flags, "build-version"),
+      aliasesPath: stringFlag(flags, "aliases"),
+      defaultLocale: stringFlag(flags, "default-locale"),
+    });
     printBakeResult(result);
     return;
   }
@@ -121,6 +144,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     if (!configPath) return badArgs("doctor", "--config <path> is required");
     const result = await runDoctor(configPath);
     printDoctorResult(configPath, result);
+    return;
+  }
+
+  if (verb === "rename" || verb === "deprecate" || verb === "prune-aliases") {
+    printAliasVerbResult(await runAliasVerb(verb, rest), { json: rest.includes("--json") });
     return;
   }
 
