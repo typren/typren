@@ -1,3 +1,4 @@
+import type { AliasResolver } from "./aliases";
 import type { Catalog } from "./types";
 
 /**
@@ -34,9 +35,19 @@ export function interpolate(template: string, args?: Record<string, string | num
   });
 }
 
-/** resolve + interpolate; unknown key returns `{ value: key }` so a missing translation renders as its own key instead of throwing. */
-export function t(catalog: Catalog, key: string, args?: Record<string, string | number>): { value: string } {
-  const found = resolve(catalog, key);
+/**
+ * resolve + interpolate; unknown key returns `{ value: key }` so a missing translation renders as its own key instead of throwing.
+ * With an `aliases` resolver, a renamed key is read from its target (falling back to an old-key copy) and a decommissioned key renders as itself.
+ */
+export function t(
+  catalog: Catalog,
+  key: string,
+  args?: Record<string, string | number>,
+  aliases?: AliasResolver,
+): { value: string } {
+  const target = aliases?.lookup(key);
+  if (target === null) return { value: key };
+  const found = (typeof target === "string" && resolve(catalog, target)) || resolve(catalog, key);
   if (!found) return { value: key };
   return { value: interpolate(found.value, args) };
 }
