@@ -245,3 +245,80 @@ describe("writeDelta", () => {
     expect(delta.changed).toEqual({ B: "new {var}" });
   });
 });
+
+describe("buildCatalogs aliases", () => {
+  let sourceDir: string;
+  let outDir: string;
+
+  beforeEach(() => {
+    sourceDir = withTmpDir();
+    outDir = withTmpDir();
+  });
+
+  afterEach(() => {
+    rmSync(sourceDir, { recursive: true, force: true });
+    rmSync(outDir, { recursive: true, force: true });
+  });
+
+  const readCatalog = (path: string): Catalog => JSON.parse(readFileSync(path, "utf8"));
+
+  it("serves alias copies in the written catalog and the hash covers them", async () => {
+    const en: Catalog = { Menu: { Open: "Open" } };
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify(en));
+    const aliases = { "Menu.Start": { to: "Menu.Open", since: "2026-01-01" } };
+
+    const result = await buildCatalogs(sourceDir, { app: "demo", buildVersion: "v1", outDir, aliases });
+
+    const expected: Catalog = { Menu: { Open: "Open", Start: "Open" } };
+    expect(readCatalog(result.catalogPaths.en!)).toEqual(expected);
+    expect(result.manifest.apps.demo!.en!.hash).toBe(await hashCatalog(expected));
+  });
+
+  it("throws on invalid aliases and writes nothing", async () => {
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Menu: { Open: "Open" } }));
+    await expect(
+      buildCatalogs(sourceDir, { app: "demo", buildVersion: "v1", outDir, aliases: { "Menu.Start": { to: "Menu.Missing", since: "2026-01-01" } } }),
+    ).rejects.toThrow(/invalid aliases for demo/);
+    expect(existsSync(join(outDir, "catalog"))).toBe(false);
+    expect(existsSync(join(outDir, "manifest"))).toBe(false);
+  });
+
+  it("a delta across a rename keeps the old key and carries the new value", async () => {
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Menu: { Open: "Open" } }));
+    await buildCatalogs(sourceDir, { app: "demo", buildVersion: "v1", outDir });
+
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Menu: { Begin: "Open" } }));
+    const result = await buildCatalogs(sourceDir, {
+      app: "demo",
+      buildVersion: "v2",
+      outDir,
+      aliases: { "Menu.Open": { to: "Menu.Begin", since: "2026-01-01" } },
+    });
+
+    expect(result.deltaPaths).toHaveLength(1);
+    const delta = JSON.parse(readFileSync(result.deltaPaths[0]!, "utf8"));
+    expect(delta.removed ?? []).not.toContain("Menu.Open");
+    expect(readCatalog(result.catalogPaths.en!)).toEqual({ Menu: { Begin: "Open", Open: "Open" } });
+  });
+
+  it("a rename whose new value changed its {var} set fails the placeholder gate", async () => {
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Menu: { Open: "Hi {name}" } }));
+    await buildCatalogs(sourceDir, { app: "demo", buildVersion: "v1", outDir });
+
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Menu: { Begin: "Hi {user}" } }));
+    await expect(
+      buildCatalogs(sourceDir, { app: "demo", buildVersion: "v2", outDir, aliases: { "Menu.Open": { to: "Menu.Begin", since: "2026-01-01" } } }),
+    ).rejects.toThrow(/placeholder/);
+  });
+
+  it("a decommissioned key gets no copy", async () => {
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Menu: { Open: "Open" } }));
+    const result = await buildCatalogs(sourceDir, {
+      app: "demo",
+      buildVersion: "v1",
+      outDir,
+      aliases: { "Menu.Gone": { to: null, since: "2026-01-01" } },
+    });
+    expect(readCatalog(result.catalogPaths.en!)).toEqual({ Menu: { Open: "Open" } });
+  });
+});

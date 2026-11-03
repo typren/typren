@@ -1,4 +1,5 @@
 import { buildCatalogs } from "../build";
+import { aliasesPathFor, readAliasesFile } from "../build/aliases-file";
 import { readConfigFile } from "./config-file";
 
 export interface BakeOptions {
@@ -13,10 +14,12 @@ export interface BakeOptions {
    * for real once the publish pipeline picks a convention.
    */
   buildVersion?: string;
+  aliasesPath?: string;
+  defaultLocale?: string;
 }
 
 export type BakeResult =
-  | { ok: true; app: string; locales: string[]; hashes: Record<string, string>; deltaCount: number }
+  | { ok: true; app: string; locales: string[]; hashes: Record<string, string>; deltaCount: number; aliasCount: number }
   | { ok: false; error: string };
 
 /**
@@ -35,13 +38,33 @@ export async function runBake(opts: BakeOptions): Promise<BakeResult> {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 
+  let aliases;
+  try {
+    const path = aliasesPathFor(config.source, opts.aliasesPath);
+    aliases = path ? readAliasesFile(path) : undefined;
+    if (opts.aliasesPath && !aliases) return { ok: false, error: `alias file not found: ${path}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+
   const buildVersion = opts.buildVersion ?? new Date().toISOString();
   try {
-    const result = await buildCatalogs(config.source, { app: config.app, buildVersion, outDir: opts.outDir });
+    const result = await buildCatalogs(config.source, {
+      app: config.app,
+      buildVersion,
+      outDir: opts.outDir,
+      aliases,
+      defaultLocale: opts.defaultLocale,
+    });
     const hashes = Object.fromEntries(
       Object.entries(result.manifest.apps[config.app] ?? {}).map(([lang, entry]) => [lang, entry.hash]),
     );
-    return { ok: true, app: config.app, locales: Object.keys(hashes), hashes, deltaCount: result.deltaPaths.length };
+    return {
+      ok: true,
+      app: config.app,
+      locales: Object.keys(hashes), hashes, deltaCount: result.deltaPaths.length,
+      aliasCount: aliases ? Object.keys(aliases).length : 0,
+    };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -53,7 +76,7 @@ export function printBakeResult(result: BakeResult): void {
     process.exitCode = 1;
     return;
   }
-  console.log(`typren-locale bake: app "${result.app}", ${result.locales.length} locale(s), ${result.deltaCount} delta(s) written.`);
+  console.log(`typren-locale bake: app "${result.app}", ${result.locales.length} locale(s), ${result.deltaCount} delta(s) written${result.aliasCount > 0 ? `, ${result.aliasCount} alias(es) served` : ""}.`);
   for (const locale of result.locales) console.log(`  ${locale}: ${result.hashes[locale]}`);
 }
 
@@ -66,5 +89,7 @@ export const BAKE_HELP = `usage: typren-locale bake --config <path> --out <dir> 
   --config <path>          Build config file (required).
   --out <dir>               Output directory (required).
   --build-version <v>       Release id stamped into the manifest (default: an ISO timestamp).
+  --aliases <path>          Alias file (default <dir>/_aliases.json for a files source; aliased old keys are always served as copies).
+  --default-locale <tag>    Default catalog alias targets are checked against.
   --help                    Show this help.
 `;
