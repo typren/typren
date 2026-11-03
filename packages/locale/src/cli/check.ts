@@ -68,14 +68,14 @@ export function checkCatalogs(loaded: LoadedCatalogs, opts: { pluralFamilies?: b
     }
     const missing = baseKeys
       .filter((k) => {
-        if (k in cat) return false;
+        if (Object.hasOwn(cat, k)) return false;
         const f = familyOf(k);
         return !(f && have.has(f));
       })
       .sort();
     const extra = Object.keys(cat)
       .filter((k) => {
-        if (k in base) return false;
+        if (Object.hasOwn(base, k)) return false;
         return !familyOf(k);
       })
       .sort();

@@ -22,6 +22,15 @@ function basic() {
 }
 
 describe("runCheck", () => {
+  it("reports Object.prototype names as missing and extra", async () => {
+    write("en.json", { toString: "a", valueOf: "b" });
+    write("fr.json", { hasOwnProperty: "c" });
+    const r = await runCheck({ locales: dir, defaultLocale: "en" });
+    const fr = r.locales.find((l) => l.locale === "fr")!;
+    expect(fr.missing).toEqual(["toString", "valueOf"]);
+    expect(fr.extra).toEqual(["hasOwnProperty"]);
+  });
+
   it("reports missing, empty and extra per locale", async () => {
     basic();
     const r = await runCheck({ locales: dir, defaultLocale: "en" });
