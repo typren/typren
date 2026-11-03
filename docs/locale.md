@@ -198,7 +198,7 @@ to what's here.
 
 ## CLI
 
-The package ships a `typren-locale` bin with four verbs and a compat layer:
+The package ships a `typren-locale` bin with seven verbs and a compat layer:
 
 - `pull --config <path> [--out <dir>] [--filename-style dash|underscore]` —
   provider → normalized locale files on disk.
@@ -214,6 +214,33 @@ The package ships a `typren-locale` bin with four verbs and a compat layer:
   shape (underscore filenames by default), not a byte-identical mirror of the
   vendor CLI. Suits `alias lokalise2='typren-locale compat lokalise2'` for
   build scripts mid-migration.
+- `scan [--locales <dir|file> | --config <path>] [--preset <name>]... [--key-pattern <re>]... [--allow-unused] <src...>` —
+  finds catalogue keys the source never references. Presets (`vue-i18n`,
+  `i18next`, `react-intl`, `typren`) recognise each library's call shapes, and
+  `--key-pattern` adds a regex whose first group is the key. A key built from a
+  dynamic prefix (`t(\`nav.${x}\`)`) is reported separately and never as unused.
+  Exits 1 on unused keys unless `--allow-unused`.
+- `check [--locales ...] [--format i18next]` — per locale, the keys that are
+  missing, empty or extra relative to the default locale. With
+  `--format i18next`, plural families (`key_one`, `key_other`) are compared as
+  one unit, so a language with different plural categories is not flagged.
+- `lint --format <icu|vue-i18n|i18next|typren> [--to typren]` — per-value syntax
+  and placeholder-parity checks against the chosen format's profile. `--to typren`
+  also flags every feature typren's flat `{var}` runtime would render
+  incorrectly, so it works as a migration-readiness gate.
+
+`scan`, `check` and `lint` take their catalogs from `--locales` (a directory or
+file of `<locale>.json`) or from a build config's `source` via `--config`.
+The default locale is resolved in this order: `--default-locale`, the build
+config's optional `defaultLocale` field, then the only catalog when exactly one
+exists; otherwise the verb fails and asks for it.
+
+### Machine output and exit codes
+
+Every verb accepts `--json` and prints one JSON document on stdout with a
+top-level `ok`. Exit codes are `0` ok, `1` problems found, `2` usage error or
+failure. Unknown flags are rejected with a suggestion; `compat` is the
+exception and still accepts flags it does not mirror.
 
 The CLI honors `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`: when a proxy variable is
 set it re-executes itself with `NODE_USE_ENV_PROXY=1`, because Node's `fetch`

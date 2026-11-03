@@ -22,6 +22,12 @@ await buildCatalogs("./locales", { app: "site", buildVersion: process.env.GIT_SH
 
 See the [full reference](https://github.com/typren/typren/blob/develop/docs/site/reference-locale.md) for every export, build/OTA option and the Vue integration.
 
+## CLI
+
+`typren-locale` ships `pull`, `bake`, `diff`, `doctor`, `compat`, plus the key
+tooling `scan` (unused keys), `check` (missing/empty/extra values) and `lint`
+(syntax and placeholders). Every verb takes `--json`. See [docs/locale.md](https://github.com/typren/typren/blob/develop/docs/locale.md#cli).
+
 ## License
 
 Apache-2.0 — see [LICENSE](./LICENSE).
