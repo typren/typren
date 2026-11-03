@@ -16,7 +16,16 @@ Core primitives shared by the build and runtime sides: catalog resolution/interp
 | `Catalog`, `Manifest`, `ManifestEntry`, `Delta` (types) | — | Shared shapes: `Catalog` is a nested `Record<string, string \| Catalog>`; `Manifest` is `{ v: 1; buildVersion: string; apps: Record<string, Record<string, ManifestEntry>> }`; `Delta` is `{ changed: Record<string, string>; removed: string[] }`. |
 | `resolve(catalog, key)` | `(catalog: Catalog, key: string) => { value: string } \| undefined` | Dot-path lookup, e.g. `"Namespace.KeyName"`. |
 | `interpolate(template, args?)` | `(template: string, args?: Record<string, string \| number>) => string` | Flat single-brace `{var}` substitution only (no ICU plural/select, no `{{ }}`). A missing arg leaves the placeholder literal instead of throwing. |
-| `t(catalog, key, args?)` | `(catalog: Catalog, key: string, args?) => { value: string }` | `resolve` + `interpolate`; an unknown key returns `{ value: key }` instead of throwing. |
+| `t(catalog, key, args?, aliases?)` | `(catalog: Catalog, key: string, args?, aliases?: AliasResolver) => { value: string }` | `resolve` + `interpolate`; an unknown key returns `{ value: key }` instead of throwing. With an `aliases` resolver a renamed key reads from its target (falling back to the old key) and a decommissioned key renders as itself. |
+| `AliasEntry`, `AliasMap` (types) | `{ to: string \| null; since: string; removeAfter?: string }`, `Record<string, AliasEntry>` | One `_aliases.json` entry, and the whole file. `to: null` decommissions the key. |
+| `AliasResolverOptions`, `AliasResolver` (types) | `{ warn?: boolean; onDeprecatedKey?(oldKey, newKey) }`, `{ lookup(key): string \| null \| undefined }` | `lookup` returns `undefined` for an unaliased key, `null` for a decommissioned one, else the target. |
+| `parseAliases(raw, label?)` | `(raw: unknown, label?: string) => AliasMap` | Validates the parsed JSON shape. |
+| `validateAliases(aliases, catalogs, defaultLocale?)` | `(aliases: AliasMap, catalogs: Record<string, Catalog>, defaultLocale?: string) => string[]` | Cross-checks aliases against catalogs; returns problems (empty when valid). Default locale: explicit, else closest to `"en"` over sorted locales. |
+| `applyAliasCopies(catalog, aliases)` | `(catalog: Catalog, aliases: AliasMap) => Catalog` | Returns a catalog with each old key added as a copy of its target string. Decommissioned aliases add nothing. |
+| `createAliasResolver(aliases, options?)` | `(aliases: AliasMap, options?: AliasResolverOptions) => AliasResolver` | Warns once per old key outside production (`warn` overrides); `onDeprecatedKey` fires once per old key in every mode and its errors are swallowed. |
+| `createVueI18nMissingHandler(i18n, resolver)` | `(i18n: VueI18nMessagesLike, resolver: AliasResolver) => VueI18nMissingHandler` | A vue-i18n `missing` handler that resolves aliased keys. Structural types, no vue-i18n import. |
+| `createI18nextParseMissingKeyHandler(translate, resolver)` | `(translate: (key, options?) => string, resolver: AliasResolver) => I18nextParseMissingKeyHandler` | An i18next `parseMissingKeyHandler` that resolves aliased keys. Structural types, no i18next import. |
+| `VueI18nMessagesLike`, `VueI18nMissingHandler`, `I18nextParseMissingKeyHandler` (types) | — | The structural shapes the two adapters take and return. |
 | `getClosestLocale(supported, requested, overrides?)` | `(supported: string[], requested: string, overrides?: Record<string, string>) => string` | Fallback order: exact match → `overrides` remap → `en-US`/`en-GB` kept distinct (never collapsed to a single `"en"`) → language-only match → `supported[0]` as the last resort. |
 | `canonicalize(catalog)` | `(catalog: Catalog) => string` | Deterministic serialization (NFC-normalized strings, `\r\n`/`\r` folded to `\n`, keys sorted, unsafe keys dropped) shared by every hash producer/consumer. |
 | `hashCatalog(catalog)` | `(catalog: Catalog) => Promise<string>` | Full untruncated sha256 hex of the canonical form, via `crypto.subtle` (WebCrypto, so it runs identically in Node ≥18, browsers and Bun). |
@@ -27,6 +36,7 @@ Core primitives shared by the build and runtime sides: catalog resolution/interp
 
 #### Errors
 
+- `parseAliases`: throws `` <label>: <problem>[; <problem>...] `` for a non-object file, an invalid key path, an unknown field, a bad `to`, `since` or `removeAfter`, a self-alias, or a chain. `createAliasResolver` throws the same way.
 - `getClosestLocale`: throws `` getClosestLocale: supported must be non-empty `` when `supported` is an empty array.
 - `assertNoHtml`: throws `` assertNoHtml: dangerous content found[ in <label>] at: <dot-path>[, <dot-path>...] `` listing every offending leaf.
 
@@ -40,7 +50,9 @@ The CI-side build: ingest, publish gates, and content-addressed output.
 |---|---|---|
 | `buildCatalogs(source, options)` | `(source: string \| SourceConfig \| LocaleSourceProvider, options: BuildOptions) => Promise<BuildResult>` | Reads every locale from `source`, runs the publish gates (no dotted keys, `assertNoHtml`) on each, hashes via `hashCatalog`, and writes `<outDir>/catalog/<app>/<lang>/<hash>.json` (exact canonical bytes, so a published file re-hashes to its own filename) plus `<outDir>/manifest/<app>.json`. Also precomputes `<outDir>/delta/<app>/<lang>/<fromHash>-<toHash>.json` for every still-on-disk release in the last `deltaHistorySize` builds, tracked via a rolling `<outDir>/manifest/<app>.history.json`. A history entry whose catalog file was since pruned is skipped (that release falls back to a full-catalog fetch); if history exists and every prior catalog is missing, that's warned rather than silently emitting zero deltas. |
 | `writeDelta(fromCatalog, toCatalog, destPath?)` | `(fromCatalog: Catalog, toCatalog: Catalog, destPath?: string) => Promise<PublishedDelta>` | Computes the flat delta via `diff`, gates it on `isPlaceholderCompatible` per changed key, stamps it with `additiveHash` (the hash of `merge(from, delta, {allowRemove:false})`), and optionally writes it to `destPath`. |
-| `BuildOptions` (type) | `{ app: string; buildVersion: string; outDir?: string; deltaHistorySize?: number }` | See table below. |
+| `BuildOptions` (type) | `{ app: string; buildVersion: string; outDir?: string; deltaHistorySize?: number; aliases?: AliasMap; defaultLocale?: string }` | See table below. |
+| `ALIASES_FILE` | `"_aliases.json"` | The file name the CLI and the `files` provider agree on; the provider never reads it as a locale. |
+| `readAliasesFile(path)` | `(path: string) => AliasMap \| undefined` | Parsed alias file, or `undefined` when none exists at `path`. Throws on invalid JSON or a malformed entry. |
 | `BuildResult` (type) | `{ manifest: Manifest; manifestPath: string; catalogPaths: Record<string, string>; deltaPaths: string[] }` | |
 | `PublishedDelta` (type) | `Delta & { additiveHash: string }` | The on-disk delta file shape. |
 | `BuildConfig` (type) | `{ app: string; source: SourceConfig }` | The committed build-config file shape; carries `"${VAR}"` placeholders, no secret values. |
@@ -65,11 +77,14 @@ The CI-side build: ingest, publish gates, and content-addressed output.
 | `buildVersion` | `string` | required | |
 | `outDir` | `string` | `"dist"` (relative to cwd) | |
 | `deltaHistorySize` | `number` | `5` | How many past releases to keep precomputed delta files for. |
+| `aliases` | `AliasMap` | none | Validated, then every old key is added to every locale catalog as a copy of its target, before the gates and hashing. |
+| `defaultLocale` | `string` | closest to `"en"` over sorted locales | The catalog alias targets are checked against. |
 
 #### Errors
 
 - `writeDelta`: throws `` writeDelta: incompatible {var} placeholder set for keys: <keys> — version-pin instead of shipping this delta to old builds `` when a changed key's placeholder set differs from the string it replaces.
 - `buildCatalogs`: throws `` buildCatalogs: keys containing "." are not representable (flatten uses "." as the path separator) in <app>/<lang>: <keys> `` for any dotted object key; throws `` buildCatalogs: unsafe locale key "<lang>" escaped the provider contract `` if a provider somehow yields `__proto__`/`constructor`/`prototype` as a locale key; propagates `assertNoHtml`'s error for any dangerous catalog content.
+- `buildCatalogs`: with `aliases`, throws `` buildCatalogs: invalid aliases for <app>: <problem>[; <problem>...] `` when `validateAliases` reports anything (old key still present, target missing from the default locale, leaf collision, no catalogs).
 - `resolveConfigEnv`: throws `` resolveConfigEnv: missing required env var "<name>" (referenced at <path>) `` for any unresolved `"${VAR}"` reference.
 - `resolveProvider`: throws `` resolveProvider: unknown source type "<type>" `` for an unrecognized `SourceConfig.type`.
 
