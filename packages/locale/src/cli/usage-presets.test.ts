@@ -105,3 +105,12 @@ describe("findKeyRefs review fixes", () => {
     expect(refs.map((r) => r.key).sort()).toEqual(["menu.close", "menu.open", "nav.home"]);
   });
 });
+
+describe("i18next namespace pattern", () => {
+  it("scans long whitespace runs in linear time", () => {
+    const src = `useTranslation(${" ".repeat(50_000)}x`;
+    const start = performance.now();
+    findKeyRefs(src, ["i18next"]);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+});

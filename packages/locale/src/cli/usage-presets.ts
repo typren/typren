@@ -28,7 +28,7 @@ const SITES: Record<UsagePresetName, RegExp[]> = {
 };
 
 const I18NEXT_KEY_PREFIX = /\bkeyPrefix\s*:\s*(['"])([\w.-]+)\1/;
-const I18NEXT_NS = /\b(?:useTranslation|withTranslation)\s*\(\s*\[?\s*(['"])([\w.-]+)\1/;
+const I18NEXT_NS = /\b(?:useTranslation|withTranslation)\s*\(\s*(?:\[\s*)?(['"])([\w.-]+)\1/;
 
 function readKeyArg(source: string, index: number): { key: string; dynamic: boolean } | undefined {
   const quote = source[index];
