@@ -135,6 +135,9 @@ export interface VueComposableOtaClientOptions {
   transform?(catalog: Catalog, locale: string): Catalog;
   fetchImpl?: LoadMessagesOptions["fetchImpl"];
   storage?: LoadMessagesOptions["storage"];
+  /** Passed through to loadMessages. */
+  publicKeys: LoadMessagesOptions["publicKeys"];
+  insecureDevMode?: boolean;
   /** Alert-not-silent hook, passed through to `loadMessages` and also fired on any failure in `apply` itself. */
   onError?(error: unknown): void;
 }
@@ -213,7 +216,7 @@ export function createVueComposableOtaClient(
   getInstance: () => VueComposableI18nInstance | null | undefined,
   options: VueComposableOtaClientOptions,
 ): VueComposableOtaClient {
-  const { app, buildVersion, manifestUrl, catalogUrl, deltaUrl, bakedCatalogFor, transform, fetchImpl, storage, onError } =
+  const { app, buildVersion, manifestUrl, catalogUrl, deltaUrl, bakedCatalogFor, transform, fetchImpl, storage, onError, publicKeys, insecureDevMode } =
     options;
 
   // Monotonic generation: every apply invalidates all in-flight ones before
@@ -250,6 +253,8 @@ export function createVueComposableOtaClient(
         fetchImpl,
         storage,
         onError,
+        publicKeys,
+        insecureDevMode,
       });
       if (gen !== generation) return; // a newer apply superseded this one
       if (merged === baked) return; // fail-to-baked or no change: leave the instance alone
