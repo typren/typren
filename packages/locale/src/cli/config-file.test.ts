@@ -86,4 +86,36 @@ describe("readConfigFile", () => {
       delete process.env.TMS_TOKEN;
     }
   });
+
+  it("resolve() uses app and publicKeys raw, and never interpolates the signing key", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        app: "${TYPREN_SIGNING_KEY}",
+        source: { type: "files", dir: "${LEAK_DIR}" },
+        publicKeys: [{ kid: "${TYPREN_SIGNING_KEY}" }],
+      }),
+    );
+    const result = readConfigFile(file);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.envVarNames).toEqual(["LEAK_DIR"]);
+
+    process.env.TYPREN_SIGNING_KEY = "s3cret";
+    process.env.LEAK_DIR = "/srv";
+    try {
+      const resolved = result.resolve();
+      expect(resolved.app).toBe("${TYPREN_SIGNING_KEY}");
+      expect(resolved.publicKeys).toEqual([{ kid: "${TYPREN_SIGNING_KEY}" }]);
+      writeFileSync(file, JSON.stringify({ app: "demo", source: { type: "files", dir: "${TYPREN_SIGNING_KEY}" } }));
+      const inSource = readConfigFile(file);
+      if (!inSource.ok) throw new Error("unreachable");
+      expect(() => inSource.resolve()).toThrow(/missing required env var "TYPREN_SIGNING_KEY"/);
+      expect(JSON.stringify(resolved)).not.toContain("s3cret");
+    } finally {
+      delete process.env.TYPREN_SIGNING_KEY;
+      delete process.env.LEAK_DIR;
+    }
+  });
 });

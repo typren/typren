@@ -84,13 +84,13 @@ export function parseTrustedKeys(value: unknown): TrustedKey[] {
   const err = new Error("publicKeys must be a non-empty array of { kid, jwk } or { kid, spki } entries (unique kids; jwk is an EC P-256 public key)");
   if (!Array.isArray(value) || value.length === 0) throw err;
   const seen = new Set<string>();
-  return value.map((entry) => {
+  return value.map((entry, index) => {
     if (!entry || typeof entry !== "object" || !isStr(entry.kid) || seen.has(entry.kid)) throw err;
     seen.add(entry.kid);
     const { kid, jwk, spki } = entry as { kid: string; jwk?: JsonWebKey; spki?: unknown };
     if (isStr(spki)) return { kid, spki };
     if (jwk && typeof jwk === "object" && "d" in jwk) {
-      throw new Error(`publicKeys entry "${kid}" contains a PRIVATE key; remove it from the config and rotate`);
+      throw new Error(`publicKeys entry ${index} contains a PRIVATE key; remove it from the config and rotate`);
     }
     if (jwk && typeof jwk === "object" && jwk.kty === "EC" && jwk.crv === "P-256" && isStr(jwk.x) && isStr(jwk.y)) {
       return { kid, jwk: { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y } };

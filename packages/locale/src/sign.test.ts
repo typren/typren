@@ -80,6 +80,7 @@ describe("parseTrustedKeys", () => {
 
   it("rejects a private jwk and strips extra members", () => {
     expect(() => parseTrustedKeys([{ kid: "a", jwk: { ...jwk, d: "secret" } }])).toThrow(/PRIVATE key/);
+    expect(() => parseTrustedKeys([{ kid: "leaky-kid", jwk: { ...jwk, d: "secret" } }])).toThrow(/^(?!.*leaky-kid)/);
     expect(parseTrustedKeys([{ kid: "a", jwk: { ...jwk, ext: true } }])[0]).toEqual({ kid: "a", jwk });
   });
 

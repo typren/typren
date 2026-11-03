@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { parseTrustedKeys } from "../sign";
+import { parseTrustedKeys, SIGNING_KEY_ENV } from "../sign";
 import type { TrustedKey } from "../types";
 import type { SourceConfig } from "./provider";
 
@@ -35,14 +35,15 @@ const ENV_VAR_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
  * Recursively interpolates `${VAR}` placeholders in every string leaf of
  * `config` against `env` (defaults to `process.env`). Throws a clear error
  * naming the missing var and the dot-path it was referenced at. It never
- * silently sends an empty token to a source. Non-string values pass through
+ * silently sends an empty token to a source. The signing key is never
+ * interpolatable: it is treated as unset so it cannot leak into output. Non-string values pass through
  * unchanged.
  */
 export function resolveConfigEnv<T>(config: T, env: Record<string, string | undefined> = process.env): T {
   function resolveValue(value: unknown, path: string): unknown {
     if (typeof value === "string") {
       return value.replace(ENV_VAR_PATTERN, (_match, name: string) => {
-        const envValue = env[name];
+        const envValue = name === SIGNING_KEY_ENV ? undefined : env[name];
         if (envValue === undefined) {
           throw new Error(`resolveConfigEnv: missing required env var "${name}" (referenced at ${path || "<root>"})`);
         }

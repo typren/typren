@@ -111,6 +111,22 @@ describe("runBake", () => {
       return key;
     };
 
+    it("never interpolates the signing key into app or publicKeys", async () => {
+      const key = await withKeys((k) => [{ kid: "${TYPREN_SIGNING_KEY}", jwk: k.publicJwk }]);
+      writeFileSync(
+        configPath,
+        JSON.stringify({ app: "${TYPREN_SIGNING_KEY}", source: { type: "files", dir: sourceDir }, publicKeys: [{ kid: "${TYPREN_SIGNING_KEY}", jwk: {} }] }),
+      );
+      process.env[SIGNING_KEY_ENV] = key.secret;
+      try {
+        const result = await runBake({ configPath, outDir, env: { [SIGNING_KEY_ENV]: key.secret } });
+        expect(JSON.stringify(result)).not.toContain(key.secret);
+        expect(existsSync(join(outDir, "manifest", `${key.secret}.json`))).toBe(false);
+      } finally {
+        delete process.env[SIGNING_KEY_ENV];
+      }
+    });
+
     it("signs, and the manifest verifies", async () => {
       const key = await withKeys();
       const result = await runBake({ configPath, outDir, env: { [SIGNING_KEY_ENV]: key.secret }, expiresInDays: 7 });
