@@ -1,9 +1,39 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNodePurifier } from "../build/node-purifier";
 import { hashCatalog } from "../canonicalize";
 import { merge } from "../delta";
-import type { Catalog, Manifest } from "../types";
-import { clearLoadMessagesMemo, injectInto, loadMessages, type KVStorage } from "./index";
+import { generateSigningKey, parseSigningKey, signManifest, type SigningKey } from "../sign";
+import type { Catalog, Manifest, TrustedKey } from "../types";
+import { clearLoadMessagesMemo, injectInto, loadMessages as load, type KVStorage, type LoadMessagesOptions } from "./index";
+
+let signingKey: SigningKey;
+let trusted: TrustedKey[];
+
+beforeAll(async () => {
+  const generated = await generateSigningKey();
+  signingKey = parseSigningKey(generated.secret);
+  trusted = [{ kid: generated.kid, jwk: generated.publicJwk }];
+});
+
+/** Existing cases trust the shared key; new cases override `publicKeys`. */
+const loadMessages = (o: Omit<LoadMessagesOptions, "publicKeys"> & Partial<Pick<LoadMessagesOptions, "publicKeys">>) =>
+  load({ publicKeys: trusted, ...o });
+
+function signed(m: Pick<Manifest, "apps">, over: Partial<Manifest> = {}): Promise<Manifest> {
+  const now = Date.now();
+  return signManifest(
+    {
+      v: 1,
+      buildVersion: BUILD_VERSION,
+      sequence: 1,
+      issuedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + 86_400_000).toISOString(),
+      apps: m.apps,
+      ...over,
+    },
+    signingKey,
+  );
+}
 
 const APP = "site";
 const LANG = "en";
@@ -12,8 +42,12 @@ const MANIFEST_URL = "https://cdn.example/manifest/site.json";
 const catalogUrl = (hash: string) => `https://cdn.example/catalog/site/en/${hash}.json`;
 const deltaUrl = (fromHash: string, toHash: string) => `https://cdn.example/delta/site/en/${fromHash}-${toHash}.json`;
 
-function manifestWithHash(hash: string, deltas?: Record<string, string>): Manifest {
+function unsignedManifest(hash: string, deltas?: Record<string, string>): Manifest {
   return { v: 1, buildVersion: BUILD_VERSION, apps: { [APP]: { [LANG]: { hash, ...(deltas && { deltas }) } } } };
+}
+
+function manifestWithHash(hash: string, deltas?: Record<string, string>, over: Partial<Manifest> = {}): Promise<Manifest> {
+  return signed(unsignedManifest(hash, deltas), over);
 }
 
 function memoryStorage(): KVStorage {
@@ -636,13 +670,13 @@ describe("loadMessages", () => {
     expect(first).toEqual(remote);
     expect(manifestFetches).toBe(1);
     expect(otherFetches).toBe(1);
-    expect(storage.reads).toBe(1);
+    expect(storage.reads).toBe(2); // sequence + cache entry
 
     const second = await loadMessages(opts);
     expect(second).toBe(first); // same object reference, not just equal by value
     expect(manifestFetches).toBe(2); // the manifest poll still happens
     expect(otherFetches).toBe(1); // no new catalog/delta fetch
-    expect(storage.reads).toBe(1); // no new storage read
+    expect(storage.reads).toBe(3); // only the sequence read, never the cache entry
   });
 });
 
@@ -700,10 +734,8 @@ describe("loadMessages with omitted bakedHash", () => {
     const remote: Catalog = { Greeting: { Hello: "Hello {name}" } };
     const remoteHash = await hashCatalog(remote);
 
-    const fetchImpl = async (url: string) => {
-      if (url === MANIFEST_URL) return manifestWithHash(remoteHash);
-      return remote;
-    };
+    const manifest = await manifestWithHash(remoteHash);
+    const fetchImpl = async (url: string) => (url === MANIFEST_URL ? manifest : remote);
 
     const errors: unknown[] = [];
     // Insecure origins expose `crypto` without `subtle`; the internal hash
@@ -837,6 +869,179 @@ describe("loadMessages integrity", () => {
     const first = await loadMessages(opts);
     expect(await loadMessages(opts)).toBe(first);
     expect(await loadMessages({ ...opts, manifestUrl: "https://staging.example/manifest/site.json" })).not.toBe(first);
+  });
+});
+
+describe("loadMessages manifest verification", () => {
+  const baked: Catalog = { Greeting: "Hi {name}" };
+  const remote: Catalog = { Greeting: "Hey {name}" };
+  let remoteHash: string;
+  beforeAll(async () => {
+    remoteHash = await hashCatalog(remote);
+  });
+
+  async function run(manifest: Manifest | (() => Promise<Manifest>), over: Partial<LoadMessagesOptions> = {}) {
+    const errors: unknown[] = [];
+    const fetched: string[] = [];
+    const result = await loadMessages({
+      app: APP,
+      lang: LANG,
+      buildVersion: BUILD_VERSION,
+      bakedCatalog: baked,
+      manifestUrl: MANIFEST_URL,
+      catalogUrl,
+      fetchImpl: async (url) => {
+        fetched.push(url);
+        if (url.startsWith(MANIFEST_URL)) return typeof manifest === "function" ? manifest() : manifest;
+        return remote;
+      },
+      onError: (e) => errors.push(e),
+      ...over,
+    });
+    return { result, errors, fetched, messages: errors.map(String) };
+  }
+
+  it("rejects an unsigned manifest and never fetches the catalog", async () => {
+    const r = await run(unsignedManifest(remoteHash));
+    expect(r.result).toBe(baked);
+    expect(r.fetched).toEqual([MANIFEST_URL]);
+    expect(r.messages[0]).toContain("ota manifest rejected for site/en:");
+  });
+
+  it("rejects a manifest signed by an untrusted key", async () => {
+    const other = await generateSigningKey();
+    const m = await signManifest(await manifestWithHash(remoteHash), parseSigningKey(other.secret));
+    const r = await run(m);
+    expect(r.result).toBe(baked);
+    expect(r.messages[0]).toContain("ota manifest rejected");
+  });
+
+  it("rejects a hash tampered after signing", async () => {
+    const m = await manifestWithHash(remoteHash);
+    m.apps[APP]![LANG]!.hash = "f".repeat(64);
+    const r = await run(m);
+    expect(r.result).toBe(baked);
+    expect(r.messages[0]).toContain("ota manifest rejected");
+  });
+
+  it("rejects when publicKeys is empty", async () => {
+    const r = await run(await manifestWithHash(remoteHash), { publicKeys: [] });
+    expect(r.result).toBe(baked);
+    expect(r.messages[0]).toContain("ota manifest rejected");
+  });
+
+  it("rejects an expired manifest", async () => {
+    const past = new Date(Date.now() - 1000).toISOString();
+    const r = await run(await manifestWithHash(remoteHash, undefined, { expiresAt: past }));
+    expect(r.result).toBe(baked);
+    expect(r.messages[0]).toContain(`expired at ${past}`);
+  });
+
+  it("sequence: equal accepted, lower rejected, higher updates the stored value", async () => {
+    const at = async (n: number) => run(await manifestWithHash(remoteHash, undefined, { sequence: n }));
+    const key = `locale-seq:${APP}:${MANIFEST_URL}`;
+
+    expect((await at(5)).result).toEqual(remote);
+    expect(localStorage.getItem(key)).toBe("5");
+    clearLoadMessagesMemo();
+
+    const low = await at(4);
+    expect(low.result).toBe(baked);
+    expect(low.messages[0]).toContain("sequence 4 is lower than the last accepted 5");
+
+    clearLoadMessagesMemo();
+    expect((await at(5)).result).toEqual(remote);
+    expect(localStorage.getItem(key)).toBe("5");
+
+    clearLoadMessagesMemo();
+    expect((await at(6)).result).toEqual(remote);
+    expect(localStorage.getItem(key)).toBe("6");
+  });
+
+  it("replay protection survives a cache-busting query on the manifest URL", async () => {
+    const at = async (n: number, q: string) => {
+      const m = await manifestWithHash(remoteHash, undefined, { sequence: n });
+      return run(m, { manifestUrl: `${MANIFEST_URL}?t=${q}` });
+    };
+    expect((await at(5, "1")).result).toEqual(remote);
+    clearLoadMessagesMemo();
+    const replay = await at(4, "2");
+    expect(replay.result).toBe(baked);
+    expect(replay.messages[0]).toContain("lower than");
+  });
+
+  it("the memo cannot bypass verification: a replayed lower-sequence manifest at the same hash is rejected", async () => {
+    expect((await run(await manifestWithHash(remoteHash, undefined, { sequence: 5 }))).result).toEqual(remote);
+    const replay = await run(await manifestWithHash(remoteHash, undefined, { sequence: 4 }));
+    expect(replay.result).toBe(baked);
+    expect(replay.messages[0]).toContain("lower than");
+  });
+
+  it("garbage in the stored sequence counts as 0", async () => {
+    localStorage.setItem(`locale-seq:${APP}:${MANIFEST_URL}`, "not-a-number");
+    const r = await run(await manifestWithHash(remoteHash, undefined, { sequence: 1 }));
+    expect(r.result).toEqual(remote);
+    expect(localStorage.getItem(`locale-seq:${APP}:${MANIFEST_URL}`)).toBe("1");
+  });
+
+  describe("insecureDevMode", () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("on localhost accepts an unsigned manifest without writing the sequence", async () => {
+      const r = await run(unsignedManifest(remoteHash), { insecureDevMode: true, publicKeys: [] });
+      expect(r.result).toEqual(remote);
+      expect(r.errors).toEqual([]);
+      expect(localStorage.getItem(`locale-seq:${APP}:${MANIFEST_URL}`)).toBeNull();
+    });
+
+    it("is ignored off localhost: reported, and the unsigned manifest is rejected", async () => {
+      vi.stubGlobal("location", { hostname: "cdn.example" });
+      const r = await run(unsignedManifest(remoteHash), { insecureDevMode: true });
+      expect(r.result).toBe(baked);
+      expect(r.messages[0]).toContain("insecureDevMode ignored");
+      expect(r.messages[1]).toContain("ota manifest rejected");
+    });
+
+    it("is not honored when there is no location global", async () => {
+      vi.stubGlobal("location", undefined);
+      const r = await run(unsignedManifest(remoteHash), { insecureDevMode: true });
+      expect(r.result).toBe(baked);
+      expect(r.messages[0]).toContain("insecureDevMode ignored");
+    });
+  });
+
+  describe("placeholder parity", () => {
+    it("keeps the baked string when the placeholder set changes, and reports it", async () => {
+      const bad: Catalog = { Greeting: "Yo {who}" };
+      const r = await run(await manifestWithHash(await hashCatalog(bad)), {
+        fetchImpl: async (url) => (url === MANIFEST_URL ? manifestWithHash(await hashCatalog(bad)) : bad),
+      });
+      expect(r.result).toEqual(baked);
+      expect(r.messages).toEqual(["Error: ota placeholder gate dropped site/en keys (baked value kept): Greeting"]);
+    });
+
+    it("applies a same-vars value and a new key with vars", async () => {
+      const next: Catalog = { Greeting: "Hello {name}", Fresh: "Hi {a} {b}" };
+      const r = await run(await manifestWithHash(await hashCatalog(next)), {
+        fetchImpl: async (url) => (url === MANIFEST_URL ? manifestWithHash(await hashCatalog(next)) : next),
+      });
+      expect(r.result).toEqual(next);
+      expect(r.errors).toEqual([]);
+    });
+
+    it("also gates the delta path", async () => {
+      const bad: Catalog = { Greeting: "Yo {who}" };
+      const bakedHash = await hashCatalog(baked);
+      const badHash = await hashCatalog(bad);
+      const r = await run(await manifestWithHash(badHash, { [bakedHash]: badHash }), {
+        bakedHash,
+        deltaUrl,
+        fetchImpl: async (url) =>
+          url === MANIFEST_URL ? manifestWithHash(badHash, { [bakedHash]: badHash }) : { changed: bad },
+      });
+      expect(r.result).toEqual(baked);
+      expect(r.messages[0]).toContain("placeholder gate dropped");
+    });
   });
 });
 

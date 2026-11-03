@@ -79,16 +79,54 @@ manifest, never from the payload or storage being checked:
 - Otherwise the full catalog at the remote hash is fetched and must re-hash
   to it.
 
-These are content-address checks against the manifest: they catch corruption,
-a swapped delta or catalog file, and a tampered cache, but not a compromised
-manifest, since there is no cryptographic signature (manifest signing is a
-possible follow-up, not something this package does today). As a second
-line, the HTML allowlist gate re-runs at load on every string the update
+These are content-address checks against the manifest. They catch corruption,
+a swapped delta or catalog file, and a tampered cache; the manifest signature (below) is
+what covers a compromised or replayed manifest.
+
+As a second line, the HTML allowlist gate re-runs at load on every string the update
 changes: a string that fails keeps its baked value and is reported through
 `onError`, while the rest of the update still applies. In the browser the
 gate uses the page's `window`; SSR in Node passes `purifier:
 createNodePurifier()`, or the client cannot run the gate and resolves to baked.
 The verified content is merged additively onto baked, cached, and returned.
+
+### Signed manifests
+
+`bake` signs the manifest with ECDSA P-256 (ES256) when the `TYPREN_SIGNING_KEY`
+env var is set. The signature covers every manifest field except the
+signature itself: `buildVersion`, a monotonic `sequence`, `issuedAt`,
+`expiresAt`, and every catalog and delta hash. It carries a `kid`, the RFC 7638
+thumbprint of the public key. `loadMessages` verifies the manifest before
+doing anything else (memo lookup included):
+
+- The signature must verify against one of the `publicKeys` the app passes in.
+  Those keys are public, committed in the build config (`keys init` writes
+  them) and embedded in the app at build time; the private key lives only in
+  the CI secret.
+- `expiresAt` must be in the future (`bake --expires-in-days`, default 30).
+  Re-bake and republish before it lapses, or devices fall back to their baked
+  catalog.
+- `sequence` must not be lower than the last one this device accepted from the
+  same `manifestUrl` (kept in `storage`). It only ever goes up per app, so a
+  captured older manifest cannot be replayed to roll a device back.
+
+An unsigned, untrusted, expired or replayed manifest resolves to the baked
+catalog and is reported through `onError` (message prefix `ota manifest
+rejected for`). `bake` with `CI=true` and no key exits 2; run locally without a
+key it writes an unsigned manifest and warns.
+
+`insecureDevMode: true` accepts unsigned manifests and skips the expiry and
+sequence checks, for local development against a dev server. It is honored only
+when `location.hostname` is `localhost` or `127.0.0.1`, and otherwise ignored
+and reported. Hybrid shells (Capacitor, Electron, and similar) can serve a
+production build from localhost, so gate the flag on a dev-build constant and
+never leave it on in a release.
+
+The device also keeps a placeholder gate: an OTA value whose `{var}` set
+differs from the baked string for the same key is dropped and the baked value
+kept, reported once per load (`ota placeholder gate dropped`). A new key with
+no baked counterpart is not checked.
+
 Keying the cache by `buildVersion` means a new deploy can never read a stale
 entry left by a previous one — the key itself changes, so there's nothing to
 invalidate by hand.
@@ -97,8 +135,8 @@ Four subpath entries, split by what each one needs to run in:
 
 | Subpath | Contents |
 |---|---|
-| `@typren/locale` | catalog shape, lookup (`resolve`/`t`/`interpolate`), locale fallback (`getClosestLocale`), canonicalization/hashing, delta diff/merge, the publish gates |
-| `@typren/locale/build` | the build pipeline (`buildCatalogs`, `writeDelta`), provider resolution, config env interpolation — Node-only |
+| `@typren/locale` | catalog shape, lookup (`resolve`/`t`/`interpolate`), locale fallback (`getClosestLocale`), canonicalization/hashing, delta diff/merge, manifest signature verification, the publish gates |
+| `@typren/locale/build` | the build pipeline (`buildCatalogs`, `writeDelta`), manifest signing and key helpers, provider resolution, config env interpolation — Node-only |
 | `@typren/locale/ota` | the runtime client (`loadMessages`) and a framework-agnostic `injectInto` helper — browser/edge-safe |
 | `@typren/locale/vue` | injectors that merge an OTA result into a running Vue i18n store |
 
@@ -198,12 +236,18 @@ to what's here.
 
 ## CLI
 
-The package ships a `typren-locale` bin with seven verbs and a compat layer:
+The package ships a `typren-locale` bin with eight verbs and a compat layer:
 
 - `pull --config <path> [--out <dir>] [--filename-style dash|underscore]` —
   provider → normalized locale files on disk.
-- `bake --config <path> --out <dir>` — `buildCatalogs`: hashed catalogs,
-  manifest, precomputed deltas, publish gates.
+- `bake --config <path> --out <dir> [--expires-in-days <n>]` — `buildCatalogs`:
+  hashed catalogs, signed manifest, precomputed deltas, publish gates.
+- `keys init|rotate --config <path> [--out <file>] [--json]` — generates an
+  ES256 key pair, adds the public key to the config's `publicKeys`, and prints
+  the private key once for the `TYPREN_SIGNING_KEY` CI secret (or writes it to
+  `--out`, mode 600, refused inside the repository). `rotate` adds a key and
+  keeps the old ones trusted. With `--json` the result is one JSON line on
+  stdout.
 - `diff <dirA> <dirB>` — per-locale *content* comparison (exit 1 on any
   difference). Filename and formatting differences are deliberately
   invisible; this is the migration-verification tool.
@@ -257,10 +301,36 @@ and deltas are content-addressed and immutable, so cache them forever; the
 manifest is the one file that changes per release, so give it a short TTL (or
 no cache) so clients notice a new build promptly.
 
-Rollback is repointing the manifest at a previous release's hashes — the
-catalog files those hashes name are still sitting in storage, untouched,
-since a hash never gets reused for different content. No data migration, no
-republish of catalogs, just the one small mutable file.
+Rollback is re-baking the previous content, not re-serving an old manifest
+file. Devices refuse a manifest whose `sequence` is lower than the last one they
+accepted, so an old manifest is rejected. Re-baking the previous catalogs
+produces a new manifest with a higher `sequence`; the catalog files for those
+hashes are still in storage, since a hash never gets reused for different
+content.
+
+### Setup without devops
+
+1. `npx typren-locale keys init --config locale.config.json` creates the key
+   pair and writes the public key into the config.
+2. Store only the value after `TYPREN_SIGNING_KEY=` in your CI provider as a
+   secret named `TYPREN_SIGNING_KEY` (the name goes in the secret's name field,
+   not its value). It is shown once.
+3. Commit the config.
+4. In the app, embed the public keys. Either `import { readPublicKeys } from
+   "@typren/locale/build"` in the bundler config and inject the result with
+   `define`, or import the config JSON directly, then pass them to
+   `loadMessages({ ..., publicKeys })`.
+5. Rotate with `keys rotate --config locale.config.json`: ship an app build that
+   embeds the new public key first, then switch the CI secret to the new
+   private key. Remove an old key from `publicKeys` only once no deployed build
+   needs it.
+
+A signature does not bind a manifest to the channel it was published on. Use
+a separate key, with its own config `publicKeys` list and CI secret, for each
+publish channel (production, staging, preview). If one key signs several
+channels, a newer manifest from one can be copied to another and accepted
+there, which pins devices to its `sequence` until the real manifest is
+re-baked. This is a known residual risk of sharing a key across channels.
 
 ## License
 

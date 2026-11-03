@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { collectEnvVarNames, resolveConfigEnv } from "./config";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { collectEnvVarNames, readPublicKeys, resolveConfigEnv } from "./config";
 import type { BuildConfig } from "./config";
 
 describe("resolveConfigEnv", () => {
@@ -41,5 +44,27 @@ describe("collectEnvVarNames", () => {
 
   it("returns an empty list when nothing is referenced", () => {
     expect(collectEnvVarNames({ a: "plain", b: 1 })).toEqual([]);
+  });
+});
+
+describe("readPublicKeys", () => {
+  const write = (content: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "typren-locale-config-"));
+    const path = join(dir, "typren.json");
+    writeFileSync(path, content);
+    return path;
+  };
+  const key = { kid: "k1", jwk: { kty: "EC", crv: "P-256", x: "x", y: "y" } };
+
+  it("returns the validated keys", () => {
+    expect(readPublicKeys(write(JSON.stringify({ app: "a", publicKeys: [key] })))).toEqual([key]);
+  });
+
+  it.each([
+    ["missing keys", () => write(JSON.stringify({ app: "a" }))],
+    ["bad json", () => write("{nope")],
+    ["missing file", () => join(tmpdir(), "typren-does-not-exist", "x.json")],
+  ])("throws with the fix for %s", (_name, make) => {
+    expect(() => readPublicKeys(make())).toThrow(/typren-locale keys init --config/);
   });
 });

@@ -7,6 +7,7 @@ import { parseArgs, parseStrictArgs, suggest } from "./args";
 import { EXIT_FAILURE, errorMessage, fail, printJson } from "./output";
 import { runPull, printPullResult, PULL_HELP } from "./pull";
 import { runBake, printBakeResult, BAKE_HELP } from "./bake";
+import { runKeys, printKeysResult, KEYS_HELP } from "./keys";
 import { diffLocaleDirs, printDiffResult, DIFF_HELP } from "./diff";
 import { runDoctor, printDoctorResult, DOCTOR_HELP } from "./doctor";
 import { runCompatDownload, printCompatResult, COMPAT_HELP } from "./compat";
@@ -17,6 +18,7 @@ import { lintCommand, LINT_HELP } from "./lint";
 const VERB_HELP: Record<string, string> = {
   pull: PULL_HELP,
   bake: BAKE_HELP,
+  keys: KEYS_HELP,
   diff: DIFF_HELP,
   doctor: DOCTOR_HELP,
   compat: COMPAT_HELP,
@@ -30,7 +32,8 @@ const GLOBAL_HELP = `typren-locale: build-time CLI for @typren/locale
 
 Usage:
   typren-locale pull --config <path> [--out <dir>] [--filename-style dash|underscore]
-  typren-locale bake --config <path> --out <dir>
+  typren-locale bake --config <path> --out <dir> [--build-version <v>] [--expires-in-days <n>]
+  typren-locale keys init|rotate --config <path> [--out <file>] [--json]
   typren-locale diff <dirA> <dirB>
   typren-locale doctor --config <path>
   typren-locale compat lokalise2 file download [options]
@@ -41,7 +44,8 @@ Usage:
   typren-locale <verb> --help
 
   pull       Snapshot a source's locales to <locale>.json files (no gates).
-  bake       Gated publish: hash-addressed catalogs, manifest, deltas.
+  bake       Gated publish: hash-addressed catalogs, signed manifest, deltas.
+  keys       Create or rotate the manifest signing key.
   diff       Content-compare two locale directories (migration verification).
   doctor     Validate a build config and dry-run its gates.
   compat     lokalise2-compatible "file download" shim.
@@ -113,7 +117,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 
   const specs = {
     pull: { strings: ["config", "out", "filename-style"] },
-    bake: { strings: ["config", "out", "build-version"] },
+    bake: { strings: ["config", "out", "build-version", "expires-in-days"] },
+    keys: { strings: ["config", "out"] },
     diff: {},
     doctor: { strings: ["config"] },
   };
@@ -136,7 +141,22 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   if (verb === "bake") {
     const outDir = args.strings.out;
     if (!configPath || !outDir) return fail("bake", "--config <path> and --out <dir> are required", json);
-    printBakeResult(await runBake({ configPath, outDir, buildVersion: args.strings["build-version"] }), { json });
+    const days = args.strings["expires-in-days"];
+    const expiresInDays = days === undefined ? undefined : Number(days);
+    if (expiresInDays !== undefined && !(expiresInDays > 0)) {
+      return fail("bake", `--expires-in-days must be a positive number, got "${days}"`, json);
+    }
+    printBakeResult(await runBake({ configPath, outDir, buildVersion: args.strings["build-version"], expiresInDays }), { json });
+    return;
+  }
+
+  if (verb === "keys") {
+    const action = args.positionals[0];
+    if ((action !== "init" && action !== "rotate") || args.positionals.length !== 1) {
+      return fail("keys", "usage: typren-locale keys init|rotate --config <path>", json);
+    }
+    if (!configPath) return fail("keys", "--config <path> is required", json);
+    printKeysResult(await runKeys({ action, configPath, out: args.strings.out }), json);
     return;
   }
 

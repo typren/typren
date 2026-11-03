@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { computed, nextTick, ref, watch } from "vue";
 import { hashCatalog } from "../canonicalize";
-import type { Catalog, Manifest } from "../types";
+import { generateSigningKey, parseSigningKey, signManifest } from "../sign";
+import type { Catalog, Manifest, TrustedKey } from "../types";
 import { clearLoadMessagesMemo, type KVStorage } from "../ota";
 import {
   applyOtaForLocale,
@@ -11,6 +12,25 @@ import {
   type VueComposableOtaClientOptions,
   type VueI18nStoreLike,
 } from "./index";
+
+const generated = await generateSigningKey();
+const signingKey = parseSigningKey(generated.secret);
+const trusted: TrustedKey[] = [{ kid: generated.kid, jwk: generated.publicJwk }];
+
+function signed(m: Pick<Manifest, "apps">, sequence = 1): Promise<Manifest> {
+  const now = Date.now();
+  return signManifest(
+    {
+      v: 1,
+      buildVersion: "b1",
+      sequence,
+      issuedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + 86_400_000).toISOString(),
+      apps: m.apps,
+    },
+    signingKey,
+  );
+}
 
 function makeStore(messages: Record<string, unknown>): VueI18nStoreLike & { calls: number } {
   return {
@@ -27,7 +47,7 @@ function makeStore(messages: Record<string, unknown>): VueI18nStoreLike & { call
 function makeFetch(app: string, locale: string, remote: Catalog) {
   return async (url: string): Promise<unknown> => {
     if (url.includes("manifest")) {
-      return { v: 1, buildVersion: "b1", apps: { [app]: { [locale]: { hash: await hashCatalog(remote) } } } };
+      return signed({ apps: { [app]: { [locale]: { hash: await hashCatalog(remote) } } } });
     }
     return remote;
   };
@@ -38,6 +58,7 @@ const OPTS = {
   buildVersion: "b1",
   locale: "en-GB",
   manifestUrl: "https://cdn/manifest/site.json",
+  publicKeys: trusted,
   catalogUrl: (h: string) => `https://cdn/catalog/site/en-GB/${h}.json`,
 };
 
@@ -237,7 +258,7 @@ function makeClientFetch(app: string, remotes: Record<string, Catalog>) {
       for (const [locale, catalog] of Object.entries(remotes)) {
         apps[app]![locale] = { hash: await hashCatalog(catalog) };
       }
-      return { v: 1, buildVersion: "b1", apps } satisfies Manifest;
+      return signed({ apps });
     }
     const locale = /catalog\/[^/]+\/([^/]+)\//.exec(url)?.[1];
     return remotes[locale!];
@@ -249,6 +270,7 @@ function clientOpts(over: Partial<VueComposableOtaClientOptions>): VueComposable
     app: "site",
     buildVersion: "b1",
     manifestUrl: "https://cdn/manifest/site.json",
+    publicKeys: trusted,
     catalogUrl: (locale, hash) => `https://cdn/catalog/site/${locale}/${hash}.json`,
     bakedCatalogFor: () => ({}),
     storage: memoryStorage(),
@@ -399,7 +421,7 @@ describe("createVueComposableOtaClient", () => {
         },
         fetchImpl: async (url) => {
           if (url.includes("manifest")) {
-            return { v: 1, buildVersion: "b1", apps: { site: { es: { hash: remoteHash, deltas: { [bakedHash]: remoteHash } } } } } satisfies Manifest;
+            return signed({ apps: { site: { es: { hash: remoteHash, deltas: { [bakedHash]: remoteHash } } } } });
           }
           if (url.includes("delta")) {
             return { changed: { Greeting: "Hola v2" }, additiveHash: remoteHash };
@@ -446,11 +468,9 @@ describe("createVueComposableOtaClient", () => {
     const { instance, calls } = makeInstance("fr");
     const remoteEs: Catalog = { Greeting: "Hola v2" };
     const remoteFr: Catalog = { Greeting: "Bonjour v2" };
-    const manifest: Manifest = {
-      v: 1,
-      buildVersion: "b1",
+    const manifest = await signed({
       apps: { site: { es: { hash: await hashCatalog(remoteEs) }, fr: { hash: await hashCatalog(remoteFr) } } },
-    };
+    });
     let releaseStaleManifest!: (value: unknown) => void;
     const staleManifest = new Promise((resolve) => {
       releaseStaleManifest = resolve;
@@ -485,5 +505,27 @@ describe("createVueComposableOtaClient", () => {
     // because bakedCatalogFor is: no cross-locale contamination.
     const cachedEs = JSON.parse(storage.getItem("locale:site:es:b1")!) as { catalog: Catalog };
     expect(cachedEs.catalog).toEqual({ Greeting: "Hola v2" });
+  });
+  it("forwards publicKeys and insecureDevMode: a rejected manifest leaves the instance untouched and reports", async () => {
+    const { instance, calls } = makeInstance("es");
+    const errors: unknown[] = [];
+    const remote: Catalog = { Greeting: "Hola v2" };
+    const fetchImpl = makeClientFetch("site", { es: remote });
+    const run = (over: Partial<VueComposableOtaClientOptions>) =>
+      createVueComposableOtaClient(
+        () => instance,
+        clientOpts({ bakedCatalogFor: () => ({ Greeting: "Hola" }), fetchImpl, onError: (e) => errors.push(e), ...over }),
+      ).apply("es");
+
+    await run({ publicKeys: [] });
+    expect(calls).toEqual([]);
+    expect(String(errors[0])).toContain("ota manifest rejected for site/es");
+
+    const unsigned = async (url: string) =>
+      url.includes("manifest")
+        ? { v: 1, buildVersion: "b1", apps: { site: { es: { hash: await hashCatalog(remote) } } } }
+        : remote;
+    await run({ publicKeys: [], fetchImpl: unsigned, insecureDevMode: true });
+    expect(calls).toEqual([["es", remote]]);
   });
 });
