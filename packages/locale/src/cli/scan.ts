@@ -1,13 +1,16 @@
 import { existsSync, globSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { extname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
+import type { AliasMap } from "../aliases";
+import { ALIASES_FILE, aliasesPathFor, readAliasesFile } from "../build/aliases-file";
 import { loadCatalogs } from "./catalogs";
+import { readConfigFile } from "./config-file";
 import { parseStrictArgs, type FlagSpec } from "./args";
 import { EXIT_OK, EXIT_PROBLEMS, errorMessage, fail, printJson } from "./output";
 import { USAGE_PRESET_NAMES, compileKeyPattern, findKeyRefs, type KeyRef, type UsagePresetName } from "./usage-presets";
 import { pluralFamily } from "./formats";
 
 export const SCAN_FLAGS: FlagSpec = {
-  strings: ["locales", "config", "default-locale"],
+  strings: ["locales", "config", "default-locale", "aliases"],
   lists: ["preset", "key-pattern"],
   booleans: ["allow-unused"],
 };
@@ -23,10 +26,25 @@ export interface ScanOptions {
   /** Raw --key-pattern strings. */
   keyPatterns?: string[];
   allowUnused?: boolean;
+  /** Alias file; default: `_aliases.json` next to the catalogs. */
+  aliases?: string;
+  /** Today, for the removeAfter comparison. Default: the current time. */
+  now?: Date;
+}
+
+export interface DeprecatedRef {
+  /** The alias old key. */
+  key: string;
+  /** Its replacement; null when decommissioned. */
+  to: string | null;
+  removeAfter?: string;
+  /** removeAfter has passed: an error, not a warning. */
+  expired: boolean;
+  refs: { file: string; line: number }[];
 }
 
 export interface ScanResult {
-  /** No unused keys, or --allow-unused. */
+  /** No unused keys (or --allow-unused) and no deprecated key past its removeAfter. */
   ok: boolean;
   defaultLocale: string;
   /** Source files scanned. */
@@ -36,6 +54,8 @@ export interface ScanResult {
   /** Keys covered only by a runtime-built prefix, sorted by key. */
   dynamic: { key: string; prefix: string }[];
   unused: string[];
+  /** Alias old keys still referenced in source, sorted by key. */
+  deprecated: DeprecatedRef[];
 }
 
 const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".vue", ".svelte", ".html"]);
@@ -87,6 +107,42 @@ export function classifyKeys(
   return { used: used.sort(), dynamic: dynamic.sort((a, b) => a.key.localeCompare(b.key)), unused: unused.sort() };
 }
 
+async function loadAliases(opts: ScanOptions): Promise<AliasMap> {
+  let path = opts.aliases;
+  if (!path && opts.locales) path = join(statSync(opts.locales).isDirectory() ? opts.locales : dirname(opts.locales), ALIASES_FILE);
+  else if (!path && opts.config) {
+    const loaded = readConfigFile(opts.config);
+    if (loaded.ok) path = aliasesPathFor(loaded.resolve().source);
+  }
+  const aliases = path ? readAliasesFile(path) : undefined;
+  if (opts.aliases && !aliases) throw new Error(`alias file not found: ${path}`);
+  return aliases ?? {};
+}
+
+export function findDeprecated(
+  aliases: AliasMap,
+  refs: readonly { key: string; dynamic: boolean; line: number; file: string }[],
+  today: string,
+): DeprecatedRef[] {
+  const byKey = new Map<string, DeprecatedRef["refs"]>();
+  for (const r of refs) {
+    if (r.dynamic || !Object.hasOwn(aliases, r.key)) continue;
+    const list = byKey.get(r.key) ?? [];
+    if (!list.some((x) => x.file === r.file && x.line === r.line)) list.push({ file: r.file, line: r.line });
+    byKey.set(r.key, list);
+  }
+  return [...byKey.keys()].sort().map((key) => {
+    const { to, removeAfter } = aliases[key]!;
+    return {
+      key,
+      to,
+      ...(removeAfter ? { removeAfter } : {}),
+      expired: removeAfter !== undefined && removeAfter < today,
+      refs: byKey.get(key)!.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line),
+    };
+  });
+}
+
 export async function runScan(opts: ScanOptions): Promise<ScanResult> {
   const presets = opts.presets ?? [...USAGE_PRESET_NAMES];
   for (const p of presets) {
@@ -102,19 +158,22 @@ export async function runScan(opts: ScanOptions): Promise<ScanResult> {
   });
   const files = collectSourceFiles(opts.sources);
   const keys = Object.keys(catalogs[defaultLocale]!);
-  const known = new Set(keys);
+  const aliases = await loadAliases(opts);
+  const known = new Set([...keys, ...Object.keys(aliases)]);
   if (presets.includes("i18next")) for (const k of keys) known.add(pluralFamily(k)?.base ?? k);
-  const refs = files.flatMap((f) => findKeyRefs(readFileSync(f, "utf8"), presets, patterns, known));
+  const refs = files.flatMap((f) => findKeyRefs(readFileSync(f, "utf8"), presets, patterns, known).map((r) => ({ ...r, file: f })));
   const classified = classifyKeys(keys, refs, {
     pluralSuffixes: presets.includes("i18next"),
   });
-  return { ok: classified.unused.length === 0 || !!opts.allowUnused, defaultLocale, files: files.length, ...classified };
+  const deprecated = findDeprecated(aliases, refs, (opts.now ?? new Date()).toISOString().slice(0, 10));
+  const ok = (classified.unused.length === 0 || !!opts.allowUnused) && !deprecated.some((d) => d.expired);
+  return { ok, defaultLocale, files: files.length, ...classified, deprecated };
 }
 
 export function printScanResult(result: ScanResult, opts: { json: boolean }): void {
   process.exitCode = result.ok ? EXIT_OK : EXIT_PROBLEMS;
   if (opts.json) return printJson(result);
-  const { used, dynamic, unused } = result;
+  const { used, dynamic, unused, deprecated } = result;
   const total = used.length + dynamic.length + unused.length;
   console.log(`typren-locale scan: ${total} key(s) in ${result.defaultLocale}, ${result.files} source file(s)`);
   console.log(`  used ${used.length}, dynamic ${dynamic.length}, unused ${unused.length}`);
@@ -128,7 +187,19 @@ export function printScanResult(result: ScanResult, opts: { json: boolean }): vo
     console.log("  unused:");
     for (const key of unused) console.log(`    ${key}`);
   }
+  if (deprecated.length > 0) {
+    console.log("  deprecated (still referenced):");
+    for (const d of deprecated) {
+      const status = d.expired ? `ERROR, removeAfter ${d.removeAfter} has passed` : `warning${d.removeAfter ? `, removeAfter ${d.removeAfter}` : ""}`;
+      console.log(`    ${d.key} -> ${d.to ?? "(decommissioned)"}  [${status}]`);
+      for (const r of d.refs) console.log(`      ${r.file}:${r.line}`);
+    }
+  }
+  const expired = deprecated.filter((d) => d.expired).length;
   console.log(unused.length > 0 ? `typren-locale scan: ${unused.length} unused key(s).` : "typren-locale scan: no unused keys.");
+  if (deprecated.length > 0) {
+    console.log(`typren-locale scan: ${deprecated.length} deprecated key(s) still referenced${expired > 0 ? `, ${expired} past removeAfter` : ""}.`);
+  }
 }
 
 export async function scanCommand(argv: string[]): Promise<void> {
@@ -151,6 +222,7 @@ export async function scanCommand(argv: string[]): Promise<void> {
       presets: args.lists.preset!.length > 0 ? (args.lists.preset as UsagePresetName[]) : undefined,
       keyPatterns: args.lists["key-pattern"],
       allowUnused: args.booleans.has("allow-unused"),
+      aliases: args.strings.aliases,
     });
     printScanResult(result, { json: args.json });
   } catch (e) {
@@ -181,12 +253,18 @@ export const SCAN_HELP = `usage: typren-locale scan [--locales <dir|file> | --co
                              typren      t(catalog, 'key'), resolve(catalog, 'key')
   --key-pattern <regex>    repeatable; extra reference form, its first capture
                            group is the key
+  --aliases <path>         alias file (default <dir>/_aliases.json next to the
+                           catalogs, or the config's files source)
   --allow-unused           report unused keys but exit 0
   --json                   machine-readable result
 
   Dynamic keys ('a.' + x, \`a.\${x}\`) mark every key starting with that prefix
   as dynamic: listed, never reported unused. The longest prefix wins.
 
-  Exit 0 when no keys are unused (or --allow-unused), 1 when unused keys are
-  found, 2 on a usage error or failure.
+  Alias old keys (_aliases.json) still referenced in source are reported as
+  deprecated, with file and line. That is a warning until the alias's
+  removeAfter date has passed (or when it has none), then an error.
+
+  Exit 0 when no keys are unused (or --allow-unused) and no deprecated key is
+  past its removeAfter, 1 otherwise, 2 on a usage error or failure.
 `;

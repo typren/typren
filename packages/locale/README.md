@@ -36,7 +36,7 @@ See the [full reference](https://github.com/typren/typren/blob/develop/docs/site
 ## CLI
 
 `typren-locale` ships `pull`, `bake`, `diff`, `doctor`, `compat`, plus the key
-tooling `scan` (unused keys), `check` (missing/empty/extra values) and `lint`
+tooling `scan` (unused keys, deprecated keys still referenced), `check` (missing/empty/extra values) and `lint`
 (syntax and placeholders). Every verb takes `--json`. See [docs/locale.md](https://github.com/typren/typren/blob/develop/docs/locale.md#cli).
 
 ## License

@@ -103,6 +103,86 @@ describe("runScan", () => {
   });
 });
 
+describe("deprecated keys", () => {
+  const NOW = new Date("2026-06-01T12:00:00Z");
+  const aliases = (a: object) => w("locales/_aliases.json", JSON.stringify(a));
+  beforeEach(() => {
+    w("src/Legacy.ts", `t('home.oldTitle');\n\nt('home.oldTitle'); t('gone.key');`);
+  });
+
+  it("reports referenced alias keys with refs, as warnings before removeAfter", async () => {
+    aliases({
+      "home.oldTitle": { to: "home.title", since: "2026-01-01", removeAfter: "2026-12-31" },
+      "gone.key": { to: null, since: "2026-01-01" },
+      "never.used": { to: "home.title", since: "2026-01-01" },
+    });
+    const r = await runScan({ ...base(), now: NOW });
+    const legacy = join(dir, "src/Legacy.ts");
+    expect(r.deprecated).toEqual([
+      { key: "gone.key", to: null, expired: false, refs: [{ file: legacy, line: 3 }] },
+      {
+        key: "home.oldTitle",
+        to: "home.title",
+        removeAfter: "2026-12-31",
+        expired: false,
+        refs: [{ file: legacy, line: 1 }, { file: legacy, line: 3 }],
+      },
+    ]);
+    expect(r.unused).toEqual(["old.banner"]);
+    expect(r.ok).toBe(false);
+    expect((await runScan({ ...base(), now: NOW, allowUnused: true })).ok).toBe(true);
+  });
+
+  it("is an error once removeAfter has passed, even with allowUnused", async () => {
+    aliases({ "home.oldTitle": { to: "home.title", since: "2026-01-01", removeAfter: "2026-05-31" } });
+    const r = await runScan({ ...base(), now: NOW, allowUnused: true });
+    expect(r.deprecated[0]).toMatchObject({ key: "home.oldTitle", expired: true });
+    expect(r.ok).toBe(false);
+    const onDay = await runScan({ ...base(), now: new Date("2026-05-31T00:00:00Z"), allowUnused: true });
+    expect(onDay.ok).toBe(true);
+  });
+
+  it("does not report alias keys as unused or deprecated when unreferenced", async () => {
+    aliases({ "never.used": { to: "home.title", since: "2026-01-01" } });
+    const r = await runScan({ ...base(), now: NOW });
+    expect(r.deprecated).toEqual([]);
+    expect(r.unused).not.toContain("never.used");
+  });
+
+  it("reads --aliases from another path and errors when it is missing", async () => {
+    const custom = join(dir, "custom.json");
+    writeFileSync(custom, JSON.stringify({ "home.oldTitle": { to: "home.title", since: "2026-01-01" } }));
+    expect((await runScan({ ...base(), aliases: custom })).deprecated.map((d) => d.key)).toEqual(["home.oldTitle"]);
+    await expect(runScan({ ...base(), aliases: join(dir, "nope.json") })).rejects.toThrow(/alias file not found/);
+  });
+
+  it("finds _aliases.json next to a single locale file", async () => {
+    aliases({ "home.oldTitle": { to: "home.title", since: "2026-01-01" } });
+    const r = await runScan({ sources: [join(dir, "src")], locales: join(dir, "locales/en.json") });
+    expect(r.deprecated).toHaveLength(1);
+  });
+
+  it("prints warnings and errors in human output and sets the exit code", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const result = {
+      ok: false, defaultLocale: "en", files: 1, used: [], dynamic: [], unused: [],
+      deprecated: [{ key: "a", to: "b", expired: true, removeAfter: "2026-01-01", refs: [{ file: "x.ts", line: 2 }] }],
+    };
+    printScanResult(result, { json: false });
+    const out = log.mock.calls.flat().join("\n");
+    expect(out).toContain("a -> b  [ERROR, removeAfter 2026-01-01 has passed]");
+    expect(out).toContain("x.ts:2");
+    expect(out).toContain("1 deprecated key(s) still referenced, 1 past removeAfter");
+    expect(process.exitCode).toBe(1);
+    log.mockClear();
+    printScanResult({ ...result, ok: true, deprecated: [{ ...result.deprecated[0]!, to: null, expired: false }] }, { json: false });
+    expect(log.mock.calls.flat().join("\n")).toContain("a -> (decommissioned)  [warning, removeAfter 2026-01-01]");
+    expect(process.exitCode).toBe(0);
+    vi.restoreAllMocks();
+    process.exitCode = 0;
+  });
+});
+
 describe("collectSourceFiles", () => {
   it("keeps an explicit file of any extension", () => {
     w("notes.txt", "x");
@@ -152,7 +232,7 @@ describe("scanCommand", () => {
     await scanCommand(["--locales", join(dir, "locales"), join(dir, "src"), "--allow-unused", "--json"]);
     expect(process.exitCode).toBe(0);
     const j = JSON.parse(out());
-    expect(Object.keys(j).sort()).toEqual(["defaultLocale", "dynamic", "files", "ok", "unused", "used"]);
+    expect(Object.keys(j).sort()).toEqual(["defaultLocale", "deprecated", "dynamic", "files", "ok", "unused", "used"]);
     expect(j.ok).toBe(true);
   });
 
@@ -187,7 +267,7 @@ describe("scanCommand", () => {
   });
 
   it("printScanResult json sets exit code", () => {
-    printScanResult({ ok: false, defaultLocale: "en", files: 0, used: [], dynamic: [], unused: ["a"] }, { json: true });
+    printScanResult({ ok: false, defaultLocale: "en", files: 0, used: [], dynamic: [], unused: ["a"], deprecated: [] }, { json: true });
     expect(process.exitCode).toBe(1);
   });
 

@@ -273,7 +273,11 @@ The package ships a `typren-locale` bin with eleven verbs and a compat layer:
   `i18next`, `react-intl`, `typren`) recognise each library's call shapes, and
   `--key-pattern` adds a regex whose first group is the key. A key built from a
   dynamic prefix (`t(\`nav.${x}\`)`) is reported separately and never as unused.
-  Exits 1 on unused keys unless `--allow-unused`.
+  Alias old keys from `_aliases.json` (next to the catalogs, or `--aliases <path>`)
+  that source still references come back as `deprecated` with file and line:
+  a warning until the alias's `removeAfter` date has passed (or when it has
+  none), an error after. Exits 1 on unused keys unless `--allow-unused`, and
+  on any expired deprecated key.
 - `check [--locales ...] [--format i18next]` — per locale, the keys that are
   missing, empty or extra relative to the default locale. With
   `--format i18next`, plural families (`key_one`, `key_other`) are compared as
