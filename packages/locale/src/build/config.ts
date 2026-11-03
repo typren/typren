@@ -4,6 +4,8 @@ import type { SourceConfig } from "./provider";
 export interface BuildConfig {
   app: string;
   source: SourceConfig;
+  /** Source-of-truth locale for the key-tooling verbs (scan/check/lint); optional, --default-locale overrides it. */
+  defaultLocale?: string;
 }
 
 const ENV_VAR_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
