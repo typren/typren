@@ -977,6 +977,25 @@ describe("loadMessages manifest verification", () => {
     expect(replay.messages[0]).toContain("lower than");
   });
 
+  it("minSequence rejects a lower manifest even with empty storage", async () => {
+    const r = await run(await manifestWithHash(remoteHash, undefined, { sequence: 4 }), { minSequence: 5 });
+    expect(r.result).toBe(baked);
+    expect(r.messages[0]).toContain("build-time minimum 5");
+    expect((await run(await manifestWithHash(remoteHash, undefined, { sequence: 5 }), { minSequence: 5 })).result).toEqual(remote);
+  });
+
+  it("without persistent storage, repeated calls in one process still enforce monotonicity", async () => {
+    vi.stubGlobal("localStorage", undefined);
+    try {
+      expect((await run(await manifestWithHash(remoteHash, undefined, { sequence: 5 }))).result).toEqual(remote);
+      const replay = await run(await manifestWithHash(remoteHash, undefined, { sequence: 4 }));
+      expect(replay.result).toBe(baked);
+      expect(replay.messages[0]).toContain("lower than");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("garbage in the stored sequence counts as 0", async () => {
     localStorage.setItem(`locale-seq:${APP}:${MANIFEST_URL}`, "not-a-number");
     const r = await run(await manifestWithHash(remoteHash, undefined, { sequence: 1 }));

@@ -108,7 +108,13 @@ doing anything else (memo lookup included):
   catalog.
 - `sequence` must not be lower than the last one this device accepted from the
   same `manifestUrl` (kept in `storage`). It only ever goes up per app, so a
-  captured older manifest cannot be replayed to roll a device back.
+  captured older manifest cannot be replayed to roll a device back. This
+  protection is only as durable as `storage`: on a first run or after cleared
+  storage the replay window is the manifest's expiry. Pass `minSequence` (the
+  sequence of the manifest current at build time) to set a floor that survives
+  that. Without persistent storage (SSR, workers) the last accepted sequence is
+  only kept in memory for the life of the process, so there the guarantees come
+  from `minSequence` plus the expiry.
 
 An unsigned, untrusted, expired or replayed manifest resolves to the baked
 catalog and is reported through `onError` (message prefix `ota manifest

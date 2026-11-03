@@ -38,14 +38,18 @@ function createMemoryStorage(): KVStorage {
  * `localStorage` itself can throw in some private-mode browsers, not just
  * reading/writing it, so the probe is guarded too.
  */
-function defaultStorage(): KVStorage {
+function defaultStorage(): KVStorage | undefined {
   try {
     if (typeof localStorage !== "undefined") return localStorage;
   } catch {
     // fall through to memory
   }
-  return createMemoryStorage();
+  return undefined;
 }
+
+// Last accepted sequence per seqKey while no persistent storage is available,
+// so repeated calls in one process (SSR, workers) still enforce monotonicity.
+const memorySequences = new Map<string, number>();
 
 // Cache reads/writes get their own try/catch, separate from the outer
 // fail-to-baked guard in loadMessages: a private-window write failure (quota
@@ -157,6 +161,7 @@ function memoSet(key: string, catalog: Catalog): void {
  */
 export function clearLoadMessagesMemo(): void {
   memoCache.clear();
+  memorySequences.clear();
 }
 
 export interface LoadMessagesOptions {
@@ -203,6 +208,10 @@ export interface LoadMessagesOptions {
    * Accept unsigned manifests and skip the expiry and sequence checks. Honored only when location.hostname is "localhost" or "127.0.0.1"; anywhere else it is ignored and reported through onError. Never enable it in a production build: hybrid shells can serve production from localhost.
    */
   insecureDevMode?: boolean;
+  /**
+   * Build-time floor: a manifest whose sequence is lower is rejected, even on a first run or with cleared storage. Set it to the sequence of the manifest current at build time.
+   */
+  minSequence?: number;
 }
 
 /**
@@ -304,12 +313,15 @@ export async function loadMessages(options: LoadMessagesOptions): Promise<Catalo
     catalogUrl,
     deltaUrl,
     fetchImpl = defaultFetch,
-    storage = defaultStorage(),
+    storage: givenStorage,
     onError,
     purifier,
     publicKeys,
     insecureDevMode,
+    minSequence,
   } = options;
+  const persistent = givenStorage ?? defaultStorage();
+  const storage = persistent ?? createMemoryStorage();
 
   const cacheKey = `locale:${app}:${lang}:${buildVersion}`;
   const label = `${app}/${lang}`;
@@ -332,12 +344,18 @@ export async function loadMessages(options: LoadMessagesOptions): Promise<Catalo
       if (Date.parse(manifest.expiresAt!) <= Date.now()) return reject(`expired at ${manifest.expiresAt}`);
       const seqKey = `locale-seq:${app}:${manifestUrl.split(/[?#]/)[0]}`;
       const stored = Number(safeGet(storage, seqKey));
-      const last = Number.isFinite(stored) ? stored : 0;
+      const last = persistent ? (Number.isFinite(stored) ? stored : 0) : (memorySequences.get(seqKey) ?? 0);
       const sequence = manifest.sequence!;
+      if (minSequence !== undefined && sequence < minSequence) {
+        return reject(`sequence ${sequence} is lower than the build-time minimum ${minSequence}`);
+      }
       if (sequence < last) {
         return reject(`sequence ${sequence} is lower than the last accepted ${last} (replay or rollback)`);
       }
-      if (sequence > last) safeSet(storage, seqKey, String(sequence));
+      if (sequence > last) {
+        if (persistent) safeSet(storage, seqKey, String(sequence));
+        else memorySequences.set(seqKey, sequence);
+      }
     }
 
     const entry = manifest.apps[app]?.[lang];
