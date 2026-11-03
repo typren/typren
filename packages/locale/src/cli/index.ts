@@ -3,12 +3,16 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { parseArgs, stringFlag } from "./args";
+import { parseArgs, parseStrictArgs, suggest } from "./args";
+import { EXIT_FAILURE, errorMessage, fail, printJson } from "./output";
 import { runPull, printPullResult, PULL_HELP } from "./pull";
 import { runBake, printBakeResult, BAKE_HELP } from "./bake";
 import { diffLocaleDirs, printDiffResult, DIFF_HELP } from "./diff";
 import { runDoctor, printDoctorResult, DOCTOR_HELP } from "./doctor";
 import { runCompatDownload, printCompatResult, COMPAT_HELP } from "./compat";
+import { scanCommand, SCAN_HELP } from "./scan";
+import { checkCommand, CHECK_HELP } from "./check";
+import { lintCommand, LINT_HELP } from "./lint";
 
 const VERB_HELP: Record<string, string> = {
   pull: PULL_HELP,
@@ -16,6 +20,9 @@ const VERB_HELP: Record<string, string> = {
   diff: DIFF_HELP,
   doctor: DOCTOR_HELP,
   compat: COMPAT_HELP,
+  scan: SCAN_HELP,
+  check: CHECK_HELP,
+  lint: LINT_HELP,
 };
 const KNOWN_VERBS = new Set(Object.keys(VERB_HELP));
 
@@ -27,6 +34,9 @@ Usage:
   typren-locale diff <dirA> <dirB>
   typren-locale doctor --config <path>
   typren-locale compat lokalise2 file download [options]
+  typren-locale scan [--locales <dir|file> | --config <path>] [--default-locale <id>] [--preset <name>]... [--key-pattern <re>]... [--allow-unused] <src...>
+  typren-locale check [--locales <dir|file> | --config <path>] [--default-locale <id>] [--format i18next]
+  typren-locale lint --format <icu|vue-i18n|i18next|typren> [--to typren] [--locales ...]
   typren-locale --version
   typren-locale <verb> --help
 
@@ -35,9 +45,15 @@ Usage:
   diff       Content-compare two locale directories (migration verification).
   doctor     Validate a build config and dry-run its gates.
   compat     lokalise2-compatible "file download" shim.
+  scan       Find catalogue keys the source never references.
+  check      Missing, empty and extra values per locale vs the default.
+  lint       Per-value syntax and placeholder checks for a message format.
 
   --version, -v   Print the installed @typren/locale version.
   --help, -h      Show this help, or a verb's help with "<verb> --help".
+  --json          Machine-readable result on stdout (every verb).
+
+Exit codes: 0 ok, 1 problems found, 2 usage error or failure.
 `;
 
 function readCliVersion(): string {
@@ -49,11 +65,6 @@ function readCliVersion(): string {
   } catch {
     return "0.0.0";
   }
-}
-
-function badArgs(verb: string, message: string): void {
-  console.error(`typren-locale ${verb}: ${message}`);
-  process.exitCode = 1;
 }
 
 /** `argv` defaults to the real process argv so a direct run needs no change,
@@ -72,8 +83,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     return;
   }
   if (!KNOWN_VERBS.has(verb)) {
-    console.error(`typren-locale: unknown verb "${verb}" (expected one of: ${[...KNOWN_VERBS].join(", ")})`);
-    process.exitCode = 1;
+    const close = suggest(verb, [...KNOWN_VERBS]);
+    const message = `unknown verb "${verb}" (expected one of: ${[...KNOWN_VERBS].join(", ")})${close ? ` did you mean "${close}"?` : ""}`;
+    console.error(`typren-locale: ${message}`);
+    if (argv.includes("--json")) printJson({ ok: false, error: message });
+    process.exitCode = EXIT_FAILURE;
     return;
   }
   if (wantsHelp) {
@@ -83,54 +97,63 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 
   const rest = argv.slice(argv.indexOf(verb) + 1);
 
-  if (verb === "pull") {
-    const { flags } = parseArgs(rest);
-    const configPath = stringFlag(flags, "config");
-    if (!configPath) return badArgs("pull", "--config <path> is required");
-    const filenameStyleRaw = stringFlag(flags, "filename-style");
-    if (filenameStyleRaw !== undefined && filenameStyleRaw !== "dash" && filenameStyleRaw !== "underscore") {
-      return badArgs("pull", `--filename-style must be "dash" or "underscore", got "${filenameStyleRaw}"`);
+  if (verb === "scan") return scanCommand(rest);
+  if (verb === "check") return checkCommand(rest);
+  if (verb === "lint") return lintCommand(rest);
+
+  if (verb === "compat") {
+    const json = rest.includes("--json");
+    const { positionals, flags } = parseArgs(rest.filter((a) => a !== "--json"));
+    if (positionals[0] !== "lokalise2" || positionals[1] !== "file" || positionals[2] !== "download") {
+      return fail("compat", "usage: typren-locale compat lokalise2 file download [options]", json);
     }
-    const result = await runPull({ configPath, outDir: stringFlag(flags, "out"), filenameStyle: filenameStyleRaw });
-    printPullResult(result);
+    printCompatResult(await runCompatDownload({ flags }), { json });
+    return;
+  }
+
+  const specs = {
+    pull: { strings: ["config", "out", "filename-style"] },
+    bake: { strings: ["config", "out", "build-version"] },
+    diff: {},
+    doctor: { strings: ["config"] },
+  };
+  const parsed = parseStrictArgs(rest, specs[verb as keyof typeof specs]);
+  if (!parsed.ok) return fail(verb, parsed.error, parsed.json);
+  const { args } = parsed;
+  const { json } = args;
+  const configPath = args.strings.config;
+
+  if (verb === "pull") {
+    if (!configPath) return fail("pull", "--config <path> is required", json);
+    const filenameStyle = args.strings["filename-style"];
+    if (filenameStyle !== undefined && filenameStyle !== "dash" && filenameStyle !== "underscore") {
+      return fail("pull", `--filename-style must be "dash" or "underscore", got "${filenameStyle}"`, json);
+    }
+    printPullResult(await runPull({ configPath, outDir: args.strings.out, filenameStyle }), { json });
     return;
   }
 
   if (verb === "bake") {
-    const { flags } = parseArgs(rest);
-    const configPath = stringFlag(flags, "config");
-    const outDir = stringFlag(flags, "out");
-    if (!configPath || !outDir) return badArgs("bake", "--config <path> and --out <dir> are required");
-    const result = await runBake({ configPath, outDir, buildVersion: stringFlag(flags, "build-version") });
-    printBakeResult(result);
+    const outDir = args.strings.out;
+    if (!configPath || !outDir) return fail("bake", "--config <path> and --out <dir> are required", json);
+    printBakeResult(await runBake({ configPath, outDir, buildVersion: args.strings["build-version"] }), { json });
     return;
   }
 
   if (verb === "diff") {
-    const { positionals } = parseArgs(rest);
-    const [dirA, dirB] = positionals;
-    if (!dirA || !dirB) return badArgs("diff", "usage: typren-locale diff <dirA> <dirB>");
-    const result = await diffLocaleDirs(dirA, dirB);
-    printDiffResult(dirA, dirB, result);
+    const [dirA, dirB] = args.positionals;
+    if (args.positionals.length !== 2 || !dirA || !dirB) return fail("diff", "usage: typren-locale diff <dirA> <dirB>", json);
+    try {
+      printDiffResult(dirA, dirB, await diffLocaleDirs(dirA, dirB), { json });
+    } catch (e) {
+      fail("diff", errorMessage(e), json);
+    }
     return;
   }
 
-  if (verb === "doctor") {
-    const { flags } = parseArgs(rest);
-    const configPath = stringFlag(flags, "config");
-    if (!configPath) return badArgs("doctor", "--config <path> is required");
-    const result = await runDoctor(configPath);
-    printDoctorResult(configPath, result);
-    return;
-  }
-
-  // verb === "compat"
-  const { positionals, flags } = parseArgs(rest);
-  if (positionals[0] !== "lokalise2" || positionals[1] !== "file" || positionals[2] !== "download") {
-    return badArgs("compat", "usage: typren-locale compat lokalise2 file download [options]");
-  }
-  const result = await runCompatDownload({ flags });
-  printCompatResult(result);
+  // verb === "doctor"
+  if (!configPath) return fail("doctor", "--config <path> is required", json);
+  printDoctorResult(configPath, await runDoctor(configPath), { json });
 }
 
 // Only run when executed directly, not when imported by index.test.ts, same

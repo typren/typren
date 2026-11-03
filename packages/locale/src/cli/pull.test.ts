@@ -75,10 +75,10 @@ describe("runPull", () => {
     expect(!result.ok && result.error).toContain('missing required env var "MISSING_VAR"');
   });
 
-  it("printPullResult sets exit code 1 on failure and 0 on success", () => {
+  it("printPullResult sets exit code 2 on failure and leaves it unset on success", () => {
     process.exitCode = undefined;
     printPullResult({ ok: false, error: "boom" });
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
 
     process.exitCode = undefined;
     printPullResult({ ok: true, app: "demo", outDir, paths: { en: join(outDir, "en.json") } });

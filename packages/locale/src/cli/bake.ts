@@ -1,5 +1,6 @@
 import { buildCatalogs } from "../build";
 import { readConfigFile } from "./config-file";
+import { EXIT_FAILURE, printJson } from "./output";
 
 export interface BakeOptions {
   configPath: string;
@@ -47,10 +48,11 @@ export async function runBake(opts: BakeOptions): Promise<BakeResult> {
   }
 }
 
-export function printBakeResult(result: BakeResult): void {
+export function printBakeResult(result: BakeResult, opts: { json?: boolean } = {}): void {
+  if (!result.ok) process.exitCode = EXIT_FAILURE;
+  if (opts.json) return printJson(result);
   if (!result.ok) {
     console.error(`typren-locale bake: ${result.error}`);
-    process.exitCode = 1;
     return;
   }
   console.log(`typren-locale bake: app "${result.app}", ${result.locales.length} locale(s), ${result.deltaCount} delta(s) written.`);

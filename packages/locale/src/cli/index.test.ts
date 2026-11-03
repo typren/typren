@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,31 +46,31 @@ describe("main (verb router)", () => {
     expect(out).not.toContain("typren-locale: build-time CLI");
   });
 
-  it("an unknown verb errors with exit code 1", async () => {
+  it("an unknown verb errors with exit code 2", async () => {
     await main(["frobnicate"]);
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
     expect(errorSpy.mock.calls.flat().join("\n")).toContain('unknown verb "frobnicate"');
   });
 
-  it("pull without --config fails with exit code 1, not a throw", async () => {
+  it("pull without --config fails with exit code 2, not a throw", async () => {
     await main(["pull"]);
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
     expect(errorSpy.mock.calls.flat().join("\n")).toContain("--config <path> is required");
   });
 
-  it("bake without --out fails with exit code 1", async () => {
+  it("bake without --out fails with exit code 2", async () => {
     await main(["bake", "--config", "whatever.json"]);
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
-  it("diff without two directories fails with exit code 1", async () => {
+  it("diff without two directories fails with exit code 2", async () => {
     await main(["diff", "onlyOneDir"]);
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
   it("compat rejects a subcommand that isn't 'lokalise2 file download'", async () => {
     await main(["compat", "lokalise2", "file", "upload"]);
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
     expect(errorSpy.mock.calls.flat().join("\n")).toContain("lokalise2 file download");
   });
 
@@ -95,8 +95,141 @@ describe("main (verb router)", () => {
 
   it("rejects an invalid --filename-style before touching the filesystem", async () => {
     await main(["pull", "--config", "whatever.json", "--filename-style", "yell"]);
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
     expect(errorSpy.mock.calls.flat().join("\n")).toContain('--filename-style must be "dash" or "underscore"');
+  });
+  it("suggests the closest verb for a typo", async () => {
+    await main(["scna"]);
+    expect(process.exitCode).toBe(2);
+    expect(errorSpy.mock.calls.flat().join("\n")).toContain('did you mean "scan"');
+  });
+
+  it("rejects an unknown flag with a suggestion", async () => {
+    await main(["pull", "--confg", "x"]);
+    expect(process.exitCode).toBe(2);
+    expect(errorSpy.mock.calls.flat().join("\n")).toContain("did you mean --config");
+  });
+
+  it("diff with three directories is a usage error", async () => {
+    await main(["diff", "a", "b", "c"]);
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("--json on diff prints one JSON document and nothing human", async () => {
+    const a = withTmpDir();
+    const b = withTmpDir();
+    writeFileSync(join(a, "en.json"), JSON.stringify({ k: "one" }));
+    writeFileSync(join(b, "en.json"), JSON.stringify({ k: "two" }));
+    try {
+      await main(["diff", a, b, "--json"]);
+      expect(process.exitCode).toBe(1);
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toMatchObject({ ok: false, hasDifferences: true });
+    } finally {
+      rmSync(a, { recursive: true, force: true });
+      rmSync(b, { recursive: true, force: true });
+    }
+  });
+
+  it("diff reports an unreadable directory as exit 2", async () => {
+    await main(["diff", join(tmpdir(), "typren-no-such-a"), join(tmpdir(), "typren-no-such-b"), "--json"]);
+    expect(process.exitCode).toBe(2);
+    expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toMatchObject({ ok: false });
+  });
+
+  it("--json on a failing pull gives {ok:false,error} and exit 2", async () => {
+    await main(["pull", "--config", join(tmpdir(), "typren-missing-config.json"), "--json"]);
+    expect(process.exitCode).toBe(2);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toMatchObject({ ok: false, error: expect.any(String) });
+  });
+
+  it("--json on a succeeding pull prints the result with ok:true", async () => {
+    const sourceDir = withTmpDir();
+    const outDir = join(withTmpDir(), "out");
+    const configPath = join(withTmpDir(), "config.json");
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ k: "v" }));
+    writeFileSync(configPath, JSON.stringify({ app: "demo", source: { type: "files", dir: sourceDir } }));
+    try {
+      await main(["pull", "--config", configPath, "--out", outDir, "--json"]);
+      expect(process.exitCode).toBeUndefined();
+      expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toMatchObject({ ok: true, app: "demo" });
+    } finally {
+      rmSync(sourceDir, { recursive: true, force: true });
+      rmSync(dirname(configPath), { recursive: true, force: true });
+      rmSync(dirname(outDir), { recursive: true, force: true });
+    }
+  });
+
+  it("--json on doctor prints configPath and checks", async () => {
+    const sourceDir = withTmpDir();
+    const configPath = join(withTmpDir(), "config.json");
+    writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ k: "v" }));
+    writeFileSync(configPath, JSON.stringify({ app: "demo", source: { type: "files", dir: sourceDir } }));
+    try {
+      await main(["doctor", "--config", configPath, "--json"]);
+      const out = JSON.parse(logSpy.mock.calls[0]![0] as string) as { configPath: string; checks: unknown[]; ok: boolean };
+      expect(out.configPath).toBe(configPath);
+      expect(out.checks.length).toBeGreaterThan(0);
+      expect(process.exitCode).toBe(out.ok ? 0 : 1);
+    } finally {
+      rmSync(sourceDir, { recursive: true, force: true });
+      rmSync(dirname(configPath), { recursive: true, force: true });
+    }
+  });
+
+  it("doctor --json on a missing config is exit 1 (a failed check), not 2", async () => {
+    await main(["doctor", "--config", join(tmpdir(), "typren-missing-config.json"), "--json"]);
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toMatchObject({ ok: false });
+  });
+
+  it("compat still parses its subcommand when --json comes first", async () => {
+    await main(["compat", "--json", "lokalise2", "file", "download", "--token", "t"]);
+    expect(process.exitCode).toBe(2);
+    const out = JSON.parse(logSpy.mock.calls[0]![0] as string) as { ok: boolean; error: string };
+    expect(out.ok).toBe(false);
+    expect(out.error).not.toContain("usage: typren-locale compat");
+  });
+
+  it("compat --json with a wrong subcommand reports the usage error as JSON", async () => {
+    await main(["compat", "--json", "lokalise2", "file", "upload"]);
+    expect(process.exitCode).toBe(2);
+    expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toMatchObject({ ok: false });
+  });
+
+  describe("scan, check, lint routing", () => {
+    let dir: string;
+    beforeEach(() => {
+      dir = withTmpDir();
+      writeFileSync(join(dir, "en.json"), JSON.stringify({ "home.title": "Welcome, {name}" }));
+      mkdirSync(join(dir, "src"));
+      writeFileSync(join(dir, "src", "a.ts"), 't("home.title");');
+    });
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    it("scan is routed", async () => {
+      await main(["scan", "--locales", dir, "--json", join(dir, "src")]);
+      expect(process.exitCode).toBe(0);
+      expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toMatchObject({ ok: true });
+    });
+
+    it("check is routed", async () => {
+      await main(["check", "--locales", dir, "--json"]);
+      expect(process.exitCode).toBe(0);
+      expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toMatchObject({ ok: true });
+    });
+
+    it("lint is routed", async () => {
+      await main(["lint", "--format", "icu", "--locales", dir, "--json"]);
+      expect(process.exitCode).toBe(0);
+      expect(JSON.parse(logSpy.mock.calls[0]![0] as string)).toMatchObject({ ok: true });
+    });
+
+    it.each(["scan", "check", "lint"])("%s --help prints the verb help", async (verb) => {
+      await main([verb, "--help"]);
+      expect(logSpy.mock.calls.flat().join("\n")).toContain(`typren-locale ${verb}`);
+    });
   });
 });
 

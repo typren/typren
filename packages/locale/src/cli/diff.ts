@@ -1,4 +1,5 @@
 import { createFsSourceProvider } from "../build";
+import { EXIT_OK, EXIT_PROBLEMS, printJson } from "./output";
 import { diff } from "../delta";
 import { resolve } from "../locale";
 import type { Catalog } from "../types";
@@ -58,13 +59,14 @@ export async function diffLocaleDirs(dirA: string, dirB: string): Promise<DiffRe
   return { reports, hasDifferences };
 }
 
-export function printDiffResult(dirA: string, dirB: string, result: DiffReportResult): void {
+export function printDiffResult(dirA: string, dirB: string, result: DiffReportResult, opts: { json?: boolean } = {}): void {
+  process.exitCode = result.hasDifferences ? EXIT_PROBLEMS : EXIT_OK;
+  if (opts.json) return printJson({ ok: !result.hasDifferences, dirA, dirB, ...result });
   console.log(`typren-locale diff: ${dirA} vs ${dirB}`);
   for (const r of result.reports) {
     console.log(`  ${r.locale}: +${r.added} ~${r.changed} -${r.removed}`);
   }
   console.log(result.hasDifferences ? "typren-locale diff: content differs." : "typren-locale diff: content-equal.");
-  process.exitCode = result.hasDifferences ? 1 : 0;
 }
 
 export const DIFF_HELP = `usage: typren-locale diff <dirA> <dirB>

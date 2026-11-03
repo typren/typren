@@ -1,5 +1,6 @@
 import { resolveProvider, writeLocaleFiles, type FilenameStyle } from "../build";
 import { readConfigFile } from "./config-file";
+import { EXIT_FAILURE, printJson } from "./output";
 
 export interface PullOptions {
   configPath: string;
@@ -42,10 +43,11 @@ export async function runPull(opts: PullOptions): Promise<PullResult> {
   return { ok: true, app: config.app, outDir, paths };
 }
 
-export function printPullResult(result: PullResult): void {
+export function printPullResult(result: PullResult, opts: { json?: boolean } = {}): void {
+  if (!result.ok) process.exitCode = EXIT_FAILURE;
+  if (opts.json) return printJson(result);
   if (!result.ok) {
     console.error(`typren-locale pull: ${result.error}`);
-    process.exitCode = 1;
     return;
   }
   const locales = Object.keys(result.paths);

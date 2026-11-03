@@ -57,10 +57,10 @@ describe("runBake", () => {
     expect(result).toEqual({ ok: false, error: expect.stringContaining("not found") });
   });
 
-  it("printBakeResult sets exit code 1 on failure and leaves it unset on success", () => {
+  it("printBakeResult sets exit code 2 on failure and leaves it unset on success", () => {
     process.exitCode = undefined;
     printBakeResult({ ok: false, error: "boom" });
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
 
     process.exitCode = undefined;
     printBakeResult({ ok: true, app: "demo", locales: ["en"], hashes: { en: "abc" }, deltaCount: 0 });

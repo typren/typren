@@ -2,6 +2,7 @@ import { createNodePurifier, resolveProvider } from "../build";
 import { assertNoHtml } from "../no-html";
 import type { Catalog } from "../types";
 import { readConfigFile } from "./config-file";
+import { EXIT_OK, EXIT_PROBLEMS, printJson } from "./output";
 
 export interface DoctorCheck {
   id: string;
@@ -87,13 +88,14 @@ export async function runDoctor(configPath: string): Promise<DoctorResult> {
   return { ok: checks.every((c) => c.status !== "fail"), checks };
 }
 
-export function printDoctorResult(configPath: string, result: DoctorResult): void {
+export function printDoctorResult(configPath: string, result: DoctorResult, opts: { json?: boolean } = {}): void {
+  process.exitCode = result.ok ? EXIT_OK : EXIT_PROBLEMS;
+  if (opts.json) return printJson({ configPath, ...result });
   console.log(`typren-locale doctor: ${configPath}`);
   for (const c of result.checks) {
     console.log(`  [${c.status.padEnd(4)}] ${c.id}${c.message ? `: ${c.message}` : ""}`);
   }
   console.log(result.ok ? "typren-locale doctor: all checks passed." : "typren-locale doctor: one or more checks failed.");
-  process.exitCode = result.ok ? 0 : 1;
 }
 
 export const DOCTOR_HELP = `usage: typren-locale doctor --config <path>
