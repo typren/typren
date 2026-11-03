@@ -24,6 +24,14 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const nested = { home: { title: "Home", sub: "Sub" }, landing: { intro: "Hi" }, other: { a: "A" } };
 
 describe("rename", () => {
+  it("exits 2 when _aliases.json is a symlink", async () => {
+    write("en.json", nested);
+    symlinkSync(file("elsewhere.json"), file("_aliases.json"));
+    const r = await run("rename", "home.title", "home.heading");
+    expect(!r.ok && r.exitCode).toBe(2);
+    expect(!r.ok && r.problems[0]).toContain("symlink");
+  });
+
   it("renames in place within the same parent and records the alias", async () => {
     write("en.json", nested);
     write("fr.json", { home: { title: "Accueil", sub: "S" }, landing: { intro: "Salut" } });

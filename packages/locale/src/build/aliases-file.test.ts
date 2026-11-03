@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -49,5 +49,13 @@ describe("aliases-file", () => {
     expect(aliasesPathFor(files)).toBe(join(dir, ALIASES_FILE));
     const remote = { type: "export-api" } as unknown as Parameters<typeof aliasesPathFor>[0];
     expect(aliasesPathFor(remote)).toBeUndefined();
+  });
+
+  it("refuses to write through a dangling symlink", () => {
+    const path = join(dir, ALIASES_FILE);
+    const target = join(dir, "outside.json");
+    symlinkSync(target, path);
+    expect(() => writeAliasesFile(path, { a: { to: "b", since: "2026-01-01" } })).toThrow(/symlink/);
+    expect(existsSync(target)).toBe(false);
   });
 });

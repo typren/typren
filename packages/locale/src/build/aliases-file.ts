@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseAliases, type AliasMap } from "../aliases";
 import type { SourceConfig } from "./provider";
@@ -28,6 +28,8 @@ export function writeAliasesFile(path: string, aliases: AliasMap): void {
       }),
   );
   mkdirSync(dirname(path), { recursive: true });
+  // A symlink (even a dangling one) would redirect the write outside the locale directory.
+  if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error(`${path} is a symlink; refusing to write through it`);
   writeFileSync(path, `${JSON.stringify(out, null, 2)}\n`);
 }
 
