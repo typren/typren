@@ -400,6 +400,7 @@ import type { CmsConfig } from "../types.js";
  * POST   /library[/templates]/folders         create a folder  { folder }
  * POST   /library[/templates]/folders/rename  rename a folder  { folder, to }
  * DELETE /library[/templates]/folders?folder= delete an empty folder (422 while it holds anything)
+ * GET    /studio                             the studio's initial props (only with `options.studio`; ?slug=)
  * GET    /git                                commits a push would send (only with `config.git`)
  * POST   /git/push                           push to the upstream (publish) -> 502 { error } on rejection;
  *                                             with { paths } only those files' saved changes; { slugs }
@@ -430,6 +431,19 @@ export interface TyprenApiOptions {
      *  requests with no `Origin` header (server-to-server, curl) are allowed
      *  because CSRF needs a browser to attach credentials. */
     allowedOrigins?: string[];
+    /** One foreign origin allowed to call this API from a browser, reads
+     *  included, when it also sends `Authorization: Bearer <token>`: the
+     *  connected studio (`typren studio --cloud`), whose UI is served by the
+     *  cloud while the API stays on this machine. Anything else from that
+     *  origin is refused, so the token is the whole credential. Never `*`. */
+    allowOrigin?: {
+        origin: string;
+        token: string;
+    };
+    /** Serves `GET /studio`: the studio's initial props for a UI that cannot
+     *  render them on this host's server (the connected studio). Gated by the
+     *  `read` action like every other read. */
+    studio?: (request: Request) => unknown;
 }
 /** Resolves a `CmsConfig` fresh per request (session -> user -> account ->
  *  membership -> site, per docs/hosted-platform.md), for a host serving more
@@ -465,6 +479,7 @@ export declare function createTyprenApi(config: CmsConfig | CmsConfigFactory, op
     PUT: (request: Request) => Promise<Response>;
     PATCH: (request: Request) => Promise<Response>;
     DELETE: (request: Request) => Promise<Response>;
+    OPTIONS: (request: Request) => Promise<Response>;
 };
 
 // ---- dist/auth-adapter.d.ts ----
@@ -1290,6 +1305,7 @@ export { createNotionAdapter, createFetchNotionClient, type NotionAdapterOptions
 export { blocksToMarkdown, blocksToSegments, pageRecordFrom, richTextToMarkdown, type NotionBlock, type NotionSegment, type ProseSegment, type ComponentSegment, } from "./notion-blocks.js";
 export { createFsMediaAdapter, type FsMediaAdapterOptions } from "./fs-media-adapter.js";
 export { createLocalSiteConfig, rewriteSiteFiles, type LocalSite } from "./local-site.js";
+export { loadStudio, loadStudioProps, previewBase, sectionRouteUrl, siteTrailingSlash, studioSiteConfig, type StudioData, type StudioManifest, type StudioProps, type StudioSiteProps, } from "./studio-site.js";
 export { createGithubAdapter, isAllowedRepoPath, type GithubAdapterOptions } from "./github-adapter.js";
 export { processUpload, handleMediaUpload, MAX_UPLOAD_BYTES } from "./media.js";
 export { createStore, slugify, type ContentStore } from "./store.js";
@@ -2048,6 +2064,10 @@ export type FieldFormMedia = {
     }) => Promise<void>;
     /** Uploads POST multipart "file", plus "folder" when uploading into one. */
     uploadPath: string;
+    /** Uploads through the host's own client instead of a plain POST to
+     *  `uploadPath`, so its credentials ride along (the connected studio's
+     *  bearer token). Throws with the server's reason on a refusal. */
+    upload?: (file: File, folder?: string) => Promise<MediaAsset>;
     /** Where each asset URL is referenced; omit to hide usage. */
     usage?: () => Promise<Record<string, MediaUse[]>>;
     /** Folder support (see `MediaAdapter.listFolders`); omit for a flat library. */
@@ -2208,7 +2228,7 @@ export { withSiteSettings, resolveSeoConfig } from "./site-settings.js";
 export { buildRobots, DEFAULT_AI_CRAWLERS } from "./robots.js";
 export { renderSlicesAsMarkdown, type SliceMarkdownRegistry } from "./markdown-render.js";
 export { createMarkdownRouteHandler, createMarkdownMirrorMiddleware, matchMarkdownMirrorSlug, } from "./markdown-route.js";
-export { generateLlmsFullTxt } from "./llms-txt.js";
+export { generateLlmsFullTxt, generateLlmsTxt } from "./llms-txt.js";
 
 // ---- dist/seo/json-ld.d.ts ----
 import type { SeoConfig } from "./types.js";
@@ -2260,12 +2280,17 @@ export declare function breadcrumbJsonLd(config: SeoConfig, items: {
 
 // ---- dist/seo/llms-txt.d.ts ----
 import type { ContentStore } from "../store.js";
+import type { SeoConfig } from "./types.js";
 import { type SliceMarkdownRegistry } from "./markdown-render.js";
 /** Generates a detailed, always-fresh markdown export of every page in the
  *  store: the "llms-full.txt" companion to a hand-curated llms.txt (this
  *  function does NOT replace a curated summary file: a hand-authored
  *  llms.txt still needs a human author for marketing copy). */
 export declare function generateLlmsFullTxt(store: ContentStore, renderOverrides?: SliceMarkdownRegistry): Promise<string>;
+/** The llms.txt index (llmstxt.org): the site name, its entity description as
+ *  the summary, then one link per indexable page with its description, and a
+ *  pointer to llms-full.txt for the whole text. Serve it at "/llms.txt". */
+export declare function generateLlmsTxt(store: ContentStore, config: SeoConfig): Promise<string>;
 
 // ---- dist/seo/markdown-render.d.ts ----
 import type { Slice } from "../types.js";
@@ -2337,7 +2362,7 @@ import type { SeoConfig } from "./types.js";
 /** AIO: named AI/answer-engine crawlers, explicitly allow-listed even though
  *  redundant with a wildcard allow, kept explicit as a one-line future
  *  revert point (a project may later decide to block training crawlers). */
-export declare const DEFAULT_AI_CRAWLERS: readonly ["GPTBot", "ChatGPT-User", "ClaudeBot", "Claude-Web", "anthropic-ai", "PerplexityBot", "Google-Extended", "CCBot"];
+export declare const DEFAULT_AI_CRAWLERS: readonly ["GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-SearchBot", "Claude-User", "PerplexityBot", "Perplexity-User", "Google-Extended", "Applebot-Extended", "Meta-ExternalAgent", "Amazonbot", "CCBot"];
 export declare function buildRobots(config: SeoConfig): MetadataRoute.Robots;
 
 // ---- dist/seo/site-settings.d.ts ----
@@ -2435,6 +2460,9 @@ export type SeoConfig = {
     defaultDescription: string;
     /** e.g. "%s | Acme Inc". Omit for no template (title used as-is). */
     titleTemplate?: string;
+    /** Slug served at the site root, e.g. "home": its canonical is "/" rather
+     *  than "/home". buildSitemap's `homeSlug` option overrides it. */
+    homeSlug?: string;
     /** Slugs whose <title> opts out of titleTemplate (rendered via {absolute}). */
     bareTitleSlugs?: readonly string[];
     /** e.g. "/opengraph-image" (Next file-convention route) or an absolute URL. */
@@ -2664,6 +2692,97 @@ export declare function createStore(adapter: ContentAdapter, opts?: {
     defaultLocale?: string;
 }): ContentStore;
 
+// ---- dist/studio-site.d.ts ----
+import { type LocalSite } from "./local-site.js";
+import { type SiteSettings } from "./settings.js";
+import type { AuthAdapter } from "./auth-adapter.js";
+import type { Section } from "./sections.js";
+import type { StyleMap } from "./style.js";
+import type { CmsConfig, PageContent, PageInfo, SliceSchema } from "./types.js";
+/** What `typren studio` hands its front end (the local studio app's
+ *  `TYPREN_STUDIO` env var, or its own API server): the site's facts (see
+ *  `LocalSite`) plus the data parts of its cms.config, never the module.
+ *  ponytail: the site's cms.config.ts imports React components through the
+ *  site's own path aliases, so the studio can't import it. The CLI reads
+ *  slice defaults and field hints instead, and core rebuilds the rest from
+ *  the site's scaffold conventions (markdown content dir, public/img media,
+ *  typren.config.json). A site with a custom adapter, auth or media store
+ *  needs a studio config entry point of its own. */
+export type StudioManifest = LocalSite & {
+    /** Origin of the site's dev server, e.g. "http://127.0.0.1:3000". */
+    siteUrl: string;
+    defaults: Record<string, Record<string, unknown>>;
+    fieldSchema?: Record<string, SliceSchema>;
+    /** The rest of the `studio` block, validated by the CLI; each key falls
+     *  back to the scaffold's convention. */
+    sections?: Section[];
+    /** Route prefix page previews live at, e.g. "/draft". Default none. */
+    previewPath?: string;
+    /** Path of the one-slice route, or `false` for none. Default "/typren/section". */
+    sectionRoute?: string | false;
+    /** Page path prefixes under a nested layout, previewed on their real route
+     *  rather than the page canvas. Default none. */
+    nestedLayouts?: string[];
+};
+/** What a site-backed studio knows about the site beyond its content. */
+export type StudioSiteProps = {
+    sliceNames: string[];
+    defaults: Record<string, Record<string, unknown>>;
+    fieldSchema?: Record<string, SliceSchema>;
+    /** Site origin plus the preview route prefix, no trailing slash. */
+    previewPath: string;
+    /** The site's one-slice route, no trailing slash; undefined for a site without one. */
+    sectionRouteUrl?: string;
+    /** Page paths framed on their real route (`studio.nestedLayouts`). */
+    nestedLayouts?: string[];
+    homeSlug: string;
+    /** The site's rail; the studio's default when omitted. */
+    sections?: Section[];
+    /** The Settings panel may write bootstrap keys (typren.config.json exists). */
+    writeBootstrap?: boolean;
+    /** The site serves pages at "/<slug>/" (see `siteTrailingSlash`). */
+    trailingSlash: boolean;
+    /** The site is a git checkout, so Review pushes drafts as commits. */
+    git: boolean;
+    styleMap?: StyleMap;
+};
+/** The studio's initial data, read through core's actions. */
+export type StudioData = {
+    pages: PageInfo[];
+    /** Page folders kept without pages (see `ContentAdapter.listFolders`). */
+    folders: string[];
+    slug: string | null;
+    page?: PageContent;
+    version: string | null;
+    settings: SiteSettings;
+    settingsVersion: string | null;
+    /** The settings doc has a draft not published (pushed) yet. */
+    settingsHasDraft: boolean;
+};
+/** Everything a studio needs to open: `GET /studio`'s body, and the local
+ *  studio app's server-rendered props. */
+export type StudioProps = StudioData & StudioSiteProps;
+/** Where page previews are framed: the site origin plus the manifest's
+ *  `previewPath` prefix, without a trailing slash. */
+export declare function previewBase(manifest: StudioManifest): string;
+/** The one-slice route's URL without a trailing slash, or undefined for a
+ *  site with none. */
+export declare function sectionRouteUrl(manifest: StudioManifest): string | undefined;
+/** The studio's `CmsConfig` for the site: one config path for every studio
+ *  front end, each bringing the auth that fits how it is reached. */
+export declare function studioSiteConfig(manifest: StudioManifest, auth: AuthAdapter): CmsConfig;
+/** The studio's initial data. Returns null when `read` is denied, the same
+ *  gate the HTTP API applies to its GETs. */
+export declare function loadStudio(config: CmsConfig, slug: string | null): Promise<StudioData | null>;
+/** Whether the site serves pages at "/<slug>/", read off how it redirects a
+ *  page URL. The preview frame is sandboxed and doesn't reliably follow that
+ *  redirect, so the studio links the final URL directly. Cached once the
+ *  site answers; while its dev server is still starting, assumes no slash. */
+export declare function siteTrailingSlash(siteUrl: string, slug: string | undefined): Promise<boolean>;
+/** `loadStudio` plus the site facts from the manifest: what a studio opens
+ *  with, `slug` (default the home page) open. Null when `read` is denied. */
+export declare function loadStudioProps(config: CmsConfig, manifest: StudioManifest, slug?: string | null): Promise<StudioProps | null>;
+
 // ---- dist/style.d.ts ----
 /** The site's visual tokens as an editable `--typren-*` set. Stored on
  *  `SiteSettingsRuntime.style` (custom property name to value) and turned into
@@ -2712,6 +2831,172 @@ export declare function styleVars(style: Record<string, string> | undefined, map
  *  they sit in, as long as this rule is unlayered; only `!important` or an
  *  inline style on `<html>` beat it. */
 export declare function styleCss(style: Record<string, string> | undefined, map?: StyleMap): string;
+
+// ---- dist/tags/adapters.d.ts ----
+export type TagCategory = "analytics" | "marketing";
+export type TagProps = Record<string, string | number | boolean>;
+/** One script to inject: inline bootstrap code, an external `src`, or both. */
+export type TagScript = {
+    id: string;
+    inline?: string;
+    src?: string;
+};
+export type TagAdapter = {
+    name: string;
+    /** The consent category that must be granted before this tag loads. */
+    category: TagCategory;
+    /** The tag honours Google Consent Mode v2, so in "regional" mode it may
+     *  load before opt-in outside the EU/EEA/UK, with storage denied. */
+    consentMode?: boolean;
+    scripts(): TagScript[];
+    /** Forwards a site event. Runs in the browser, after `scripts()` loaded. */
+    track?(event: string, props?: TagProps): void;
+};
+declare global {
+    interface Window {
+        dataLayer?: unknown[];
+        gtag?: (...args: unknown[]) => void;
+        fbq?: (...args: unknown[]) => void;
+        _hsq?: unknown[];
+        lintrk?: (...args: unknown[]) => void;
+    }
+}
+export type GtmAdapterOptions = {
+    /** e.g. "GTM-ABC123". */
+    containerId: string;
+    /** Defaults to "marketing": a container can fire any vendor's tags. */
+    category?: TagCategory;
+    /** Load before opt-in under Consent Mode. Only safe when every tag in the
+     *  container checks consent itself; defaults to false. */
+    consentMode?: boolean;
+};
+export declare function createGtmAdapter(opts: GtmAdapterOptions): TagAdapter;
+export type Ga4AdapterOptions = {
+    measurementId: string;
+};
+export declare function createGa4Adapter(opts: Ga4AdapterOptions): TagAdapter;
+export type MetaPixelAdapterOptions = {
+    pixelId: string;
+};
+export declare function createMetaPixelAdapter(opts: MetaPixelAdapterOptions): TagAdapter;
+export type HubSpotAdapterOptions = {
+    /** The numeric Hub ID. */
+    portalId: string;
+    /** "eu1" for a portal hosted in HubSpot's EU data centre. */
+    region?: "eu1";
+};
+/** HubSpot tracking: page views, form and chat attribution, and custom
+ *  behavioral events (Marketing Hub Enterprise; ignored on lower tiers). */
+export declare function createHubSpotAdapter(opts: HubSpotAdapterOptions): TagAdapter;
+export type LinkedInInsightAdapterOptions = {
+    /** The numeric partner ID from Campaign Manager. */
+    partnerId: string;
+    /** Site event name → LinkedIn conversion ID. LinkedIn counts conversions
+     *  by ID only, so an event with no entry here is not sent. */
+    conversions?: Record<string, number>;
+};
+export declare function createLinkedInInsightAdapter(opts: LinkedInInsightAdapterOptions): TagAdapter;
+export type ScriptAdapterOptions = {
+    /** Unique per site; also the script element's id. */
+    name: string;
+    /** An https URL. */
+    src: string;
+    category: TagCategory;
+};
+/** Any vendor loaded from one script URL with no event API of its own, e.g.
+ *  Hotjar or Microsoft Clarity. */
+export declare function createScriptAdapter(opts: ScriptAdapterOptions): TagAdapter;
+
+// ---- dist/tags/consent.d.ts ----
+/** `essential` is always on and is never stored as a choice. */
+export type ConsentCategory = "essential" | "analytics" | "marketing";
+/** The two categories a visitor decides on. */
+export type ConsentPrefs = {
+    analytics: boolean;
+    marketing: boolean;
+};
+/** What the cookie holds. */
+export type StoredConsent = ConsentPrefs & {
+    essential: true;
+    /** Policy version the decision was made under. */
+    v: string;
+    /** Epoch ms the decision was recorded. */
+    ts: number;
+};
+export type ConsentStoreOptions = {
+    /** Bump whenever the tags or cookie policy materially change: a decision
+     *  recorded under another version reads as unset, so the banner asks again. */
+    policyVersion: string;
+    /** Defaults to "typren-consent". */
+    cookieName?: string;
+    /** Defaults to 183 days, the CNIL-recommended ceiling of six months. */
+    maxAgeDays?: number;
+};
+export type ConsentStore = {
+    /** The decision, or null when unset, malformed, under a stale policy
+     *  version, or on the server. */
+    get(): StoredConsent | null;
+    /** Record an explicit decision. Call it only from a visitor's action, never
+     *  to pre-seed a default. */
+    set(prefs: ConsentPrefs): void;
+    /** Called after every `set`, from any store with the same cookie name. */
+    subscribe(listener: () => void): () => void;
+    /** Asks the site's banner to reopen, e.g. from a footer "Cookie settings" link. */
+    openSettings(): void;
+    /** The window event `openSettings` dispatches; the banner listens for it. */
+    openEvent: string;
+};
+export declare function createConsentStore(opts: ConsentStoreOptions): ConsentStore;
+/** Whether the visitor is likely in the EU/EEA/UK, where nothing may load
+ *  before opt-in. True on the server and whenever it can't tell. */
+export declare function isStrictConsentRegion(): boolean;
+/** Google Consent Mode v2 signals: analytics → analytics_storage, marketing →
+ *  the three ad_* signals. */
+export declare function consentModeSignals(prefs: ConsentPrefs): {
+    analytics_storage: string;
+    ad_storage: string;
+    ad_user_data: string;
+    ad_personalization: string;
+};
+
+// ---- dist/tags/engine.d.ts ----
+import { type ConsentPrefs, type ConsentStore, type ConsentStoreOptions } from "./consent.js";
+import type { TagAdapter, TagProps, TagScript } from "./adapters.js";
+export type TagEngineOptions = ConsentStoreOptions & {
+    adapters: TagAdapter[];
+    /** "regional" (default): strict opt-in in the EU/EEA/UK; elsewhere tags
+     *  that honour Consent Mode load at once with storage denied until opt-in.
+     *  "strict": nothing loads before opt-in, anywhere. */
+    consentMode?: "regional" | "strict";
+    /** Tags load only on this hostname, so staging, previews and localhost
+     *  sharing the bundle never report into production properties. Omit to
+     *  load on every host. */
+    productionHost?: string;
+    /** Kill switch that wins over any consent, e.g. for a preview environment. */
+    disabled?: boolean;
+};
+export type TagEngine = {
+    consent: ConsentStore;
+    consentMode: "regional" | "strict";
+    /** Whether tags may run on this page at all: not disabled, and on the
+     *  production host when one is set. Always false on the server. */
+    enabled(): boolean;
+    /** The scripts to have on the page, in order, for a consent decision and
+     *  region. Pure, so a loader re-renders from it on every change. */
+    scripts(prefs: ConsentPrefs | null, strict: boolean): TagScript[];
+    /** Sends a site event to every tag whose category the visitor granted.
+     *  Dropped, not queued, without consent. */
+    track(event: string, props?: TagProps): void;
+};
+/** JSON safe to embed in inline script source: no `</script>`, and no line
+ *  separators that end a JS string early in older engines. */
+export declare function scriptJson(value: unknown): string;
+export declare function createTagEngine(opts: TagEngineOptions): TagEngine;
+
+// ---- dist/tags/index.d.ts ----
+export { createConsentStore, isStrictConsentRegion, consentModeSignals, type ConsentCategory, type ConsentPrefs, type StoredConsent, type ConsentStore, type ConsentStoreOptions, } from "./consent.js";
+export { createGtmAdapter, createGa4Adapter, createMetaPixelAdapter, createHubSpotAdapter, createLinkedInInsightAdapter, createScriptAdapter, type TagAdapter, type TagCategory, type TagProps, type TagScript, type GtmAdapterOptions, type Ga4AdapterOptions, type MetaPixelAdapterOptions, type HubSpotAdapterOptions, type LinkedInInsightAdapterOptions, type ScriptAdapterOptions, } from "./adapters.js";
+export { createTagEngine, type TagEngine, type TagEngineOptions } from "./engine.js";
 
 // ---- dist/templates/init.d.ts ----
 export declare const TYPREN_BOOTSTRAP_MARKER = "typren:bootstrap-wired";
@@ -3143,6 +3428,24 @@ export declare function createCanvas<C>({ renderer, registry }: Readonly<{
 }>) => import("react").JSX.Element | null;
 export {};
 
+// ---- dist/ui/consent-banner.d.ts ----
+import { type ReactNode } from "react";
+import type { ConsentStore } from "../tags/consent.js";
+export type ConsentBannerProps = {
+    store: ConsentStore;
+    /** Link to the site's cookie policy. */
+    policyHref?: string;
+    heading?: ReactNode;
+    body?: ReactNode;
+};
+/**
+ * A default consent banner: Accept all, Reject non-essential, or per-category
+ * settings. Shows until the visitor decides, and again whenever
+ * `store.openSettings()` is called. Escape never counts as a decision. Sites
+ * that want their own build it on `useConsent` and the same store instead.
+ */
+export declare function ConsentBanner({ store, policyHref, heading, body, }: ConsentBannerProps): import("react").JSX.Element | null;
+
 // ---- dist/ui/i18n-strings.d.ts ----
 import type { Messages } from "../i18n.js";
 /**
@@ -3339,6 +3642,24 @@ export declare function TyprenStyle({ store, map, locale }: Readonly<{
     map?: StyleMap;
     locale?: string;
 }>): Promise<import("react").JSX.Element | null>;
+
+// ---- dist/ui/typren-tags.d.ts ----
+import { type ConsentPrefs, type ConsentStore } from "../tags/consent.js";
+import type { TagEngine } from "../tags/engine.js";
+/** The visitor's live consent decision, for a custom banner or settings panel.
+ *  Undecided on the server and during hydration. */
+export declare function useConsent(store: ConsentStore): ConsentPrefs & {
+    decided: boolean;
+};
+/**
+ * Puts the engine's tags on the page as consent allows. Mount it once in the
+ * root layout, from a client module that creates the engine (a server layout
+ * can't pass the engine's functions down). Renders nothing on the server, so
+ * no tag is ever in the HTML.
+ */
+export declare function TyprenTags({ engine }: {
+    engine: TagEngine;
+}): ("" | import("react").JSX.Element | undefined)[] | null;
 
 // ---- dist/version.d.ts ----
 /** Content version = SHA-256 of the raw file text, truncated. Deterministic and

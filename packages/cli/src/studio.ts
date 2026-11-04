@@ -3,7 +3,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { styleMapError, type LocalSite, type Section, type SliceSchema, type StyleMap } from "@typren/core";
+import { styleMapError, type LocalSite, type Section, type StudioManifest, type StyleMap } from "@typren/core";
 
 export type StudioArgs = {
   port: number;
@@ -11,13 +11,28 @@ export type StudioArgs = {
   previewPort: number;
   /** Set by `--site-url`: frame this origin and spawn nothing. */
   siteUrl?: string;
-  /** `--local`: the local studio UI, asked for explicitly. The default in
-   *  0.6; the cloud studio becomes the default in 0.7. */
-  local?: true;
+  /** The cloud studio's origin; undefined with `--local`, which runs the
+   *  studio UI on this machine instead. */
+  cloudUrl?: string;
 };
 
-/** Printed when `--local` is not passed, ahead of 0.7's default change. */
-export const CLOUD_DEFAULT_NOTICE = "Heads up: in 0.7 `typren studio` opens the cloud studio by default. Pass --local to keep the local studio.";
+export const DEFAULT_CLOUD_URL = "https://app.typren.com";
+
+/** A cloud URL reduced to its origin: https, or http on loopback for a
+ *  dashboard under development. */
+function parseCloudUrl(value: string): string | { error: string } {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return { error: `--cloud-url must be an absolute URL, got "${value}"` };
+  }
+  const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    return { error: `--cloud-url must be https (http only on loopback), got "${value}"` };
+  }
+  return url.origin;
+}
 
 function parsePort(flag: string, value: string): number | { error: string } {
   const n = Number(value);
@@ -25,24 +40,28 @@ function parsePort(flag: string, value: string): number | { error: string } {
 }
 
 /** Same hand-rolled argv style as the rest of the CLI. `--site-url` is
- *  reduced to its origin: the editor appends "/<slug>" to it. */
-export function parseStudioArgs(args: string[]): StudioArgs | { error: string } {
+ *  reduced to its origin: the editor appends "/<slug>" to it. Cloud is the
+ *  default; `--local` opts out, and `--cloud` is accepted as a no-op. */
+export function parseStudioArgs(args: string[], env: NodeJS.ProcessEnv = process.env): StudioArgs | { error: string } {
   let port = "4400";
   let previewPort: string | undefined;
   let siteUrl: string | undefined;
+  let cloudUrl = env.TYPREN_CLOUD_URL || DEFAULT_CLOUD_URL;
   let local = false;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--local") local = true;
-    else if (args[i] === "--port") port = args[++i] ?? "";
+    if (args[i] === "--port") port = args[++i] ?? "";
     else if (args[i] === "--preview-port") previewPort = args[++i] ?? "";
     else if (args[i] === "--site-url") siteUrl = args[++i] ?? "";
+    else if (args[i] === "--cloud-url") cloudUrl = args[++i] ?? "";
+    else if (args[i] === "--local") local = true;
   }
   const studio = parsePort("--port", port);
   if (typeof studio !== "number") return studio;
   const preview = parsePort("--preview-port", previewPort ?? String(studio + 1));
   if (typeof preview !== "number") return preview;
-  const flags = local ? { local: true as const } : {};
-  if (siteUrl === undefined) return { port: studio, previewPort: preview, ...flags };
+  const cloud = local ? undefined : parseCloudUrl(cloudUrl);
+  if (typeof cloud === "object") return cloud;
+  if (siteUrl === undefined) return { port: studio, previewPort: preview, cloudUrl: cloud };
   let url: URL;
   try {
     url = new URL(siteUrl);
@@ -50,25 +69,24 @@ export function parseStudioArgs(args: string[]): StudioArgs | { error: string } 
     return { error: `--site-url must be an absolute URL, got "${siteUrl}"` };
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return { error: `--site-url must be http(s), got "${siteUrl}"` };
-  return { port: studio, previewPort: preview, siteUrl: url.origin, ...flags };
+  return { port: studio, previewPort: preview, siteUrl: url.origin, cloudUrl: cloud };
 }
 
-/** Mirrors apps/studio's `StudioManifest`: the site's facts plus the data
- *  parts of its cms.config, handed to the studio process as JSON. */
-export type StudioManifest = LocalSite & {
-  siteUrl: string;
-  defaults: Record<string, Record<string, unknown>>;
-  fieldSchema?: Record<string, SliceSchema>;
-  /** The `studio` block's site facts (see `readStudioBlock`), each optional. */
-  sections?: Section[];
-  /** Route prefix under the site that page previews live at, e.g. "/draft". */
-  previewPath?: string;
-  /** The one-slice route's path, or `false` for a site with none. */
-  sectionRoute?: string | false;
-  /** Page path prefixes under a nested layout, which the studio previews on
-   *  their real route instead of the page canvas. */
-  nestedLayouts?: string[];
-};
+/** The cloud studio's pairing link. Port and token ride in the fragment,
+ *  which the browser never sends to the cloud's server. */
+export function connectUrl(cloudUrl: string, port: number, token: string): string {
+  return `${cloudUrl}/connect#port=${port}&token=${token}`;
+}
+
+/** Opens `url` in the default browser without a shell, so nothing in the URL
+ *  is interpreted. Best effort: the link is printed too. */
+export function browserCommand(url: string, platform: NodeJS.Platform = process.platform): Command {
+  const [command, ...args] =
+    platform === "darwin" ? ["open", url] : platform === "win32" ? ["rundll32", "url.dll,FileProtocolHandler", url] : ["xdg-open", url];
+  return { command, args, options: { env: process.env, stdio: "ignore", detached: true } };
+}
+
+export type { StudioManifest };
 
 /** The `studio` block of typren.config.json: every key optional. */
 type StudioBlock = {
@@ -307,6 +325,14 @@ export async function waitForUrl(
   return false;
 }
 
+/** The session's foreground: the local studio app's process, or the cloud
+ *  mode's in-process API server. */
+export type Foreground = {
+  stop(signal: NodeJS.Signals): void;
+  /** Resolves with the exit code; null when killed by a signal. */
+  exited: Promise<number | null>;
+};
+
 export type StudioDeps = {
   spawn: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
   fetch: typeof fetch;
@@ -339,8 +365,16 @@ function stop(child: ChildProcess): void {
  * captured output. Resolves with the exit code for the CLI.
  */
 export async function runStudio(
-  plan: { studio: Command; studioUrl: string; siteUrl: string; preview?: Command },
-  deps: StudioDeps
+  plan: {
+    /** The local studio app to spawn, or the cloud mode's API server to start. */
+    studio: Command | (() => Promise<Foreground>);
+    studioUrl: string;
+    siteUrl: string;
+    preview?: Command;
+    /** Cloud mode: the connect link, printed and opened once the API answers. */
+    openUrl?: string;
+  },
+  deps: StudioDeps & { open?: (url: string) => void }
 ): Promise<number> {
   const timing = { fetch: deps.fetch, timeoutMs: deps.timeoutMs ?? 120_000, intervalMs: deps.intervalMs ?? 250 };
   let preview: ChildProcess | undefined;
@@ -372,7 +406,19 @@ export async function runStudio(
     }
   }
 
-  const studio = deps.spawn(plan.studio.command, plan.studio.args, { ...plan.studio.options, stdio: "inherit" });
+  let studio: Foreground;
+  if (typeof plan.studio === "function") {
+    try {
+      studio = await plan.studio();
+    } catch (e) {
+      if (preview && !previewDone) stop(preview);
+      deps.error(`couldn't start the studio API at ${plan.studioUrl}: ${(e as Error).message}`);
+      return 1;
+    }
+  } else {
+    const child = deps.spawn(plan.studio.command, plan.studio.args, { ...plan.studio.options, stdio: "inherit" });
+    studio = { stop: (signal) => child.kill(signal), exited: new Promise((resolve) => child.on("exit", (code) => resolve(code))) };
+  }
   return new Promise<number>((resolve) => {
     let previewCrashed = false;
     let signalled = false;
@@ -382,7 +428,7 @@ export async function runStudio(
     const onSignal = (signal: NodeJS.Signals) => {
       signalled = true;
       stopPreview();
-      studio.kill(signal);
+      studio.stop(signal);
     };
     deps.signals.on("SIGINT", onSignal);
     deps.signals.on("SIGTERM", onSignal);
@@ -390,16 +436,19 @@ export async function runStudio(
       if (signalled || previewCrashed) return;
       previewCrashed = true;
       deps.error(crashReport(code));
-      studio.kill("SIGTERM");
+      studio.stop("SIGTERM");
     });
-    studio.on("exit", (code) => {
+    void studio.exited.then((code) => {
       deps.signals.off("SIGINT", onSignal);
       deps.signals.off("SIGTERM", onSignal);
       stopPreview();
       resolve(previewCrashed ? 1 : (code ?? (signalled ? 0 : 1)));
     });
     void waitForUrl(plan.studioUrl, () => false, timing).then((up) => {
-      if (up) deps.log(`\ntypren studio: ${plan.studioUrl}\n  previewing ${plan.siteUrl}`);
+      if (!up) return;
+      if (!plan.openUrl) return deps.log(`\ntypren studio: ${plan.studioUrl}\n  previewing ${plan.siteUrl}`);
+      deps.log(`\ntypren studio: opening the studio in your browser\n  ${plan.openUrl}\n  API ${plan.studioUrl}, previewing ${plan.siteUrl}`);
+      deps.open?.(plan.openUrl);
     });
   });
 }

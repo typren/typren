@@ -55,3 +55,16 @@ describe("createFsSourceProvider", () => {
     expect(Object.keys(await provider.loadSource())).toEqual(["en"]);
   });
 });
+
+describe("createFsSourceProvider alias file", () => {
+  it("ignores _aliases.json and loads only locale catalogs", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "typren-locale-fs-"));
+    try {
+      writeFileSync(join(dir, "en.json"), JSON.stringify({ A: "a" }));
+      writeFileSync(join(dir, "_aliases.json"), JSON.stringify({ B: { to: "A" } }));
+      expect(Object.keys(await createFsSourceProvider(dir).loadSource())).toEqual(["en"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

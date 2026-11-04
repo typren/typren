@@ -1,14 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import type { FieldFormMedia, MediaAsset } from "@typren/core";
 import { MediaGrid } from "./media-grid";
 import { useMediaUrl } from "./media-url";
 import { Button } from "./primitives/button";
 import { Dialog, DialogContent, DialogFooter, DialogTitle } from "./primitives/dialog";
 import { Input } from "./primitives/input";
+import { ToggleGroup, ToggleGroupItem } from "./primitives/toggle-group";
 
 export type { FieldFormMedia };
+
+type SharedMedia = { label: string; list(): Promise<MediaAsset[]> };
+// A context, not a prop: FieldForm is reached through several panels, and the
+// shared source is host-wide like the site origin.
+const SharedMediaContext = createContext<SharedMedia | undefined>(undefined);
+
+export function SharedMediaProvider({ value, children }: Readonly<{ value?: SharedMedia; children: ReactNode }>) {
+  return <SharedMediaContext.Provider value={value}>{children}</SharedMediaContext.Provider>;
+}
 
 /** A single image-valued field, styled like a normal CMS media control: a
  *  thumbnail with Replace / Remove when set, or an "Add image" dropzone-button
@@ -29,6 +39,9 @@ export function ImagePickerField({
   label?: string;
 }>) {
   const resolve = useMediaUrl();
+  const shared = useContext(SharedMediaContext);
+  const [source, setSource] = useState<"site" | "shared">("site");
+  const [sharedAssets, setSharedAssets] = useState<MediaAsset[]>([]);
   const [open, setOpen] = useState(false);
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [query, setQuery] = useState("");
@@ -36,8 +49,14 @@ export function ImagePickerField({
 
   const openLibrary = async () => {
     if (!media) return;
+    setSource("site");
     setAssets(await media.list());
     setOpen(true);
+  };
+
+  const pickSource = async (next: "site" | "shared") => {
+    if (next === "shared") setSharedAssets(await shared!.list());
+    setSource(next);
   };
 
   const upload = async (files: FileList) => {
@@ -47,6 +66,10 @@ export function ImagePickerField({
       // Sequential: avoids the fs adapter's random-suffix writes racing each
       // other for no benefit.
       for (const file of Array.from(files)) {
+        if (media.upload) {
+          await media.upload(file);
+          continue;
+        }
         const body = new FormData();
         body.append("file", file);
         await fetch(media.uploadPath, { method: "POST", body });
@@ -57,7 +80,8 @@ export function ImagePickerField({
     }
   };
 
-  const filtered = assets.filter((a) => a.name.toLowerCase().includes(query.toLowerCase()));
+  const shownAssets = source === "shared" ? sharedAssets : assets;
+  const filtered = shownAssets.filter((a) => a.name.toLowerCase().includes(query.toLowerCase()));
 
   return (
     <div className="space-y-2">
@@ -99,6 +123,20 @@ export function ImagePickerField({
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogContent>
             <DialogTitle className="sr-only">Media library</DialogTitle>
+            {shared && (
+              <ToggleGroup
+                aria-label="Media source"
+                value={[source]}
+                onValueChange={(v) => v[0] && void pickSource(v[0] as "site" | "shared")}
+              >
+                <ToggleGroupItem value="site" className="w-auto px-3">
+                  Site
+                </ToggleGroupItem>
+                <ToggleGroupItem value="shared" className="w-auto px-3">
+                  {shared.label}
+                </ToggleGroupItem>
+              </ToggleGroup>
+            )}
             <MediaGrid
               assets={filtered}
               mode="picker"
@@ -109,6 +147,7 @@ export function ImagePickerField({
                 setOpen(false);
               }}
               onUploadFiles={upload}
+              readOnly={source === "shared"}
               busy={busy}
             />
             <DialogFooter>

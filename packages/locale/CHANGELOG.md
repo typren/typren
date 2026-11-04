@@ -1,5 +1,23 @@
 # @typren/locale
 
+## 0.4.0
+
+### Minor Changes
+
+- e40741c: Gradual key rename and decommission. An `_aliases.json` next to the catalogs maps old keys to their replacement (or `null` to decommission). `t()` takes an optional alias resolver that falls back to the target key and warns once per old key outside production (`onDeprecatedKey` hook for production telemetry), with structural adapters for vue-i18n's `missing` handler and i18next's `parseMissingKeyHandler`. `bake` serves aliased old keys as copies of their targets so installed builds keep resolving them over OTA, `pull --emit-aliases` writes the same copies for libraries without a hook, and the files provider ignores `_aliases.json`. New CLI verbs `rename`, `deprecate` and `prune-aliases` (with `--json`; exit 0 ok, 1 refused, 2 usage or failure). `scan` reports alias old keys still referenced in source as `deprecated` (a warning, or an error once `removeAfter` has passed), and the alias verbs report failures in the same `--json` shape as the other verbs.
+- 8ca228f: `typren-locale` gains three verbs for catalogue hygiene: `scan` finds keys the source never references (presets for vue-i18n, i18next, react-intl and typren), `check` reports missing, empty and extra values per locale, and `lint` validates message syntax and placeholders for ICU, vue-i18n, i18next or typren, with `--to typren` as a migration-readiness gate. Every verb now accepts `--json`, and the build config takes an optional `defaultLocale`.
+  
+  Breaking: usage errors and pull, bake and compat failures now exit 2 instead of 1, and unknown flags are rejected on pull, bake, diff and doctor (compat still accepts them).
+- e701300: Signed OTA manifests (breaking). `bake` signs the manifest with ECDSA P-256 when `TYPREN_SIGNING_KEY` is set. The signature covers buildVersion, a monotonic sequence, issuedAt, expiresAt and every catalog and delta hash. With `CI=true` and no key, bake exits 2. `loadMessages` now requires `publicKeys`. An unsigned, untrusted, expired or replayed (lower sequence) manifest resolves to the baked catalog and is reported through `onError`. `insecureDevMode` is honored on localhost only. OTA values whose `{var}` placeholder set differs from the baked string are dropped on device. New `typren-locale keys init|rotate`, and a `readPublicKeys` helper in `@typren/locale/build`.
+  
+  Migration:
+  
+  1. Run `typren-locale keys init --config <config>` and commit the config.
+  2. Store the printed value as the `TYPREN_SIGNING_KEY` CI secret.
+  3. Pass `publicKeys: readPublicKeys(<config>)`, embedded at build time, to `loadMessages` and to `createVueComposableOtaClient` / `applyOtaForLocale` / `applyOtaVueI18n`.
+  4. Direct `buildCatalogs` callers pass `signingKey: parseSigningKey(process.env.TYPREN_SIGNING_KEY)`.
+  5. Rolling back by re-serving an old manifest no longer works; re-bake instead.
+
 ## 0.3.5
 
 ### Patch Changes

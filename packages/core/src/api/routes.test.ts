@@ -1156,3 +1156,90 @@ describe("page flows", () => {
     await expect(c.renamePage("home", "start")).rejects.toThrow("The home page keeps its slug.");
   });
 });
+
+describe("connected studio access (allowOrigin)", () => {
+  const CLOUD = "https://app.typren.test";
+  const TOKEN = "t".repeat(43);
+  const cloudApi = (extra: Partial<CmsConfig> = {}) =>
+    createTyprenApi({ ...makeConfig(), ...extra }, { basePath: BASE, allowOrigin: { origin: CLOUD, token: TOKEN }, studio: () => ({ hello: "studio" }) });
+  const from = (origin: string, token?: string, init: RequestInit = {}) => ({
+    ...init,
+    headers: { origin, "sec-fetch-site": "cross-site", ...(token && { authorization: `Bearer ${token}` }), ...init.headers },
+  });
+
+  it("refuses a bad configuration rather than opening up", () => {
+    expect(() => createTyprenApi(makeConfig(), { allowOrigin: { origin: "*", token: TOKEN } })).toThrow(/origin/);
+    expect(() => createTyprenApi(makeConfig(), { allowOrigin: { origin: CLOUD, token: "short" } })).toThrow(/token/);
+  });
+
+  it("serves the paired origin with the token, with exact-origin CORS headers", async () => {
+    const res = await cloudApi().handler(req("GET", "/pages", from(CLOUD, TOKEN)));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBe(CLOUD);
+    expect(res.headers.get("vary")).toBe("Origin");
+    expect(res.headers.get("access-control-allow-credentials")).toBeNull();
+    const write = await cloudApi().handler(
+      req("PUT", "/pages/home/draft", from(CLOUD, TOKEN, { body: JSON.stringify({ page: { meta: { title: "Home" }, slices: [], body: "x" } }) }))
+    );
+    expect(write.status).toBe(200);
+  });
+
+  it("refuses the paired origin with a missing or wrong token, readably", async () => {
+    for (const token of [undefined, "u".repeat(43), TOKEN + "x"]) {
+      const res = await cloudApi().handler(req("GET", "/pages", from(CLOUD, token)));
+      expect(res.status).toBe(401);
+      expect(res.headers.get("access-control-allow-origin")).toBe(CLOUD);
+    }
+    const write = await cloudApi().handler(req("PUT", "/pages/home/draft", from(CLOUD, "u".repeat(43), { body: "{}" })));
+    expect(write.status).toBe(401);
+    expect(fs.existsSync(path.join(dir, ".drafts", "home.md"))).toBe(false);
+  });
+
+  it("gives another origin nothing, even with the token", async () => {
+    const write = await cloudApi().handler(req("PUT", "/pages/home/draft", from("https://evil.test", TOKEN, { body: "{}" })));
+    expect(write.status).toBe(403);
+    const read = await cloudApi().handler(req("GET", "/pages", from("https://evil.test", TOKEN)));
+    expect(read.headers.get("access-control-allow-origin")).toBeNull();
+    const preflight = await cloudApi().handler(req("OPTIONS", "/pages", from("https://evil.test")));
+    expect(preflight.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("answers the paired origin's preflight, Private Network Access included", async () => {
+    const res = await cloudApi().handler(
+      req("OPTIONS", "/pages/home/draft", from(CLOUD, undefined, { headers: { "access-control-request-private-network": "true" } }))
+    );
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe(CLOUD);
+    expect(res.headers.get("access-control-allow-headers")).toMatch(/authorization/);
+    expect(res.headers.get("access-control-allow-private-network")).toBe("true");
+  });
+
+  it("still denies when the auth adapter throws", async () => {
+    const throwing: AuthAdapter = {
+      getUser: async () => null,
+      authorize: async () => {
+        throw new Error("identity backend down");
+      },
+    };
+    const res = await cloudApi({ auth: throwing }).handler(req("GET", "/pages", from(CLOUD, TOKEN)));
+    expect(res.ok).toBe(false);
+    expect(JSON.stringify(await res.json())).not.toMatch(/home/);
+    const studio = await cloudApi({ auth: throwing }).handler(req("GET", "/studio", from(CLOUD, TOKEN)));
+    expect(studio.ok).toBe(false);
+  });
+
+  it("serves GET /studio behind the read gate, and 404s without the option", async () => {
+    const res = await cloudApi().handler(req("GET", "/studio", from(CLOUD, TOKEN)));
+    expect(await res.json()).toEqual({ hello: "studio" });
+    expect(res.headers.get("cache-control")).toMatch(/no-store/);
+    allow = false;
+    expect((await cloudApi().handler(req("GET", "/studio", from(CLOUD, TOKEN)))).status).toBe(403);
+    expect((await api.handler(req("GET", "/studio"))).status).toBe(404);
+  });
+
+  it("leaves same-origin use unchanged", async () => {
+    const res = await cloudApi().handler(req("GET", "/pages"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+});

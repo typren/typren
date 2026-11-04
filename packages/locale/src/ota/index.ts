@@ -1,7 +1,11 @@
-import type { Catalog, Manifest } from "../types";
-import { diff, merge } from "../delta";
+import type { Catalog, Manifest, TrustedKey } from "../types";
+import { diff, isPlaceholderCompatible, merge } from "../delta";
+import { resolve } from "../locale";
+import { verifyManifestSignature } from "../sign";
 import { hashCatalog } from "../canonicalize";
 import { isUnsafeHtml, type Purifier } from "../no-html";
+
+export type { TrustedKey } from "../types";
 
 /**
  * Minimal storage contract, shaped like `localStorage` (`getItem`/`setItem`)
@@ -34,14 +38,18 @@ function createMemoryStorage(): KVStorage {
  * `localStorage` itself can throw in some private-mode browsers, not just
  * reading/writing it, so the probe is guarded too.
  */
-function defaultStorage(): KVStorage {
+function defaultStorage(): KVStorage | undefined {
   try {
     if (typeof localStorage !== "undefined") return localStorage;
   } catch {
     // fall through to memory
   }
-  return createMemoryStorage();
+  return undefined;
 }
+
+// Last accepted sequence per seqKey while no persistent storage is available,
+// so repeated calls in one process (SSR, workers) still enforce monotonicity.
+const memorySequences = new Map<string, number>();
 
 // Cache reads/writes get their own try/catch, separate from the outer
 // fail-to-baked guard in loadMessages: a private-window write failure (quota
@@ -153,6 +161,7 @@ function memoSet(key: string, catalog: Catalog): void {
  */
 export function clearLoadMessagesMemo(): void {
   memoCache.clear();
+  memorySequences.clear();
 }
 
 export interface LoadMessagesOptions {
@@ -191,13 +200,27 @@ export interface LoadMessagesOptions {
    * resolves to baked (the gate cannot run without a DOM, and the client fails closed).
    */
   purifier?: Purifier;
+  /**
+   * Manifest signing keys this app trusts (embed them at build time, e.g. readPublicKeys() from @typren/locale/build). Required: a manifest with no valid signature from one of these kids, an expiresAt in the past, or a sequence lower than the last one accepted from this manifestUrl resolves to bakedCatalog via onError.
+   */
+  publicKeys: readonly TrustedKey[];
+  /**
+   * Accept unsigned manifests and skip the expiry and sequence checks. Honored only on a plain-http dev server (location.protocol "http:", a non-empty location.port, and location.hostname "localhost" or "127.0.0.1"); anywhere else it is ignored and reported through onError. Never enable it in a production build: hybrid shells can serve production from localhost.
+   */
+  insecureDevMode?: boolean;
+  /**
+   * Build-time floor: a manifest whose sequence is lower is rejected, even on a first run or with cleared storage. Set it to the sequence of the manifest current at build time.
+   */
+  minSequence?: number;
 }
 
 /**
  * Applies `content` (a hash-verified remote catalog or additive merge) onto baked, without removals,
- * after re-running the publish-time HTML gate on every changed string. The hash only proves the bytes
- * are what the manifest named; a compromised publisher or manifest can still name hostile copy. A
- * failing key keeps its baked value and is reported, rather than discarding the whole update.
+ * after re-running the publish-time HTML gate on every changed string, and a placeholder-parity check
+ * against the baked string (an OTA value whose `{var}` set differs from the baked one would break
+ * interpolation in this build). The hash only proves the bytes are what the manifest named; a compromised
+ * publisher or manifest can still name hostile copy. A failing key keeps its baked value and is reported,
+ * rather than discarding the whole update. Keys new to the catalog skip the parity check.
  */
 function applyGated(
   baked: Catalog,
@@ -208,12 +231,21 @@ function applyGated(
 ): Catalog {
   const changed: Record<string, string> = {};
   const dropped: string[] = [];
+  const mismatched: string[] = [];
   for (const [key, value] of Object.entries(diff(baked, content).changed)) {
-    if (typeof value === "string" && !isUnsafeHtml(value, purifier)) changed[key] = value;
-    else dropped.push(key);
+    if (typeof value !== "string" || isUnsafeHtml(value, purifier)) {
+      dropped.push(key);
+      continue;
+    }
+    const bakedVal = resolve(baked, key);
+    if (bakedVal && !isPlaceholderCompatible(bakedVal.value, value)) mismatched.push(key);
+    else changed[key] = value;
   }
   if (dropped.length > 0) {
     onError?.(new Error(`ota html gate dropped ${label} keys (baked value kept): ${dropped.join(", ")}`));
+  }
+  if (mismatched.length > 0) {
+    onError?.(new Error(`ota placeholder gate dropped ${label} keys (baked value kept): ${mismatched.join(", ")}`));
   }
   return merge(baked, { changed, removed: [] }, { allowRemove: false });
 }
@@ -231,12 +263,19 @@ async function defaultFetch(url: string): Promise<unknown> {
  * fetched manifest, never from the payload or storage it is checking.
  * Order of operations:
  *
+ *  0. Verify the manifest before anything else, memo lookup included: its
+ *     ES256 signature must verify against `publicKeys`, `expiresAt` must be
+ *     in the future, and `sequence` must not be lower than the last one
+ *     accepted for this `app` from this `manifestUrl` (kept in `storage`
+ *     under `locale-seq:<app>:<manifestUrl without query or hash>`, so a
+ *     cache-busting query cannot reset it). Any failure reports via `onError` and
+ *     resolves to baked. `insecureDevMode` skips these checks on localhost.
  *  1. GET the manifest to get remote hash R for {app,lang}, plus its
  *     `deltas` map (prior release hash -> expected additive-merge hash).
  *  2. A module-level memo keyed by {manifestUrl,app,lang,buildVersion,R}
  *     returns the SAME object reference on a repeat poll against an
- *     unchanged R, with no storage read and no catalog/delta fetch beyond
- *     the manifest. This matters downstream: callers gate a re-render on
+ *     unchanged R, with no catalog/delta fetch beyond the manifest (step 0
+ *     still reads the stored sequence from storage on every poll). This matters downstream: callers gate a re-render on
  *     reference equality.
  *  3. If R equals bakedHash (passed in, or computed here when omitted),
  *     return baked as-is (no catalog fetch at all).
@@ -274,16 +313,53 @@ export async function loadMessages(options: LoadMessagesOptions): Promise<Catalo
     catalogUrl,
     deltaUrl,
     fetchImpl = defaultFetch,
-    storage = defaultStorage(),
+    storage: givenStorage,
     onError,
     purifier,
+    publicKeys,
+    insecureDevMode,
+    minSequence,
   } = options;
+  const persistent = givenStorage ?? defaultStorage();
+  const storage = persistent ?? createMemoryStorage();
 
   const cacheKey = `locale:${app}:${lang}:${buildVersion}`;
   const label = `${app}/${lang}`;
 
   try {
     const manifest = (await fetchImpl(manifestUrl)) as Manifest;
+
+    const host = (globalThis as { location?: { hostname?: string } }).location?.hostname;
+    const loc = (globalThis as { location?: { protocol?: string; port?: string } }).location;
+    const devMode =
+      insecureDevMode === true && (host === "localhost" || host === "127.0.0.1") && loc?.protocol === "http:" && !!loc.port;
+    if (insecureDevMode === true && !devMode) {
+      onError?.(new Error("ota insecureDevMode ignored: only honored on an http://localhost:<port> or http://127.0.0.1:<port> dev server"));
+    }
+    if (!devMode) {
+      const reject = (reason: string): Catalog => {
+        onError?.(new Error(`ota manifest rejected for ${label}: ${reason}`));
+        return bakedCatalog;
+      };
+      const verdict = await verifyManifestSignature(manifest, publicKeys ?? []);
+      if (!verdict.ok) return reject(verdict.reason);
+      if (Date.parse(manifest.expiresAt!) <= Date.now()) return reject(`expired at ${manifest.expiresAt}`);
+      const seqKey = `locale-seq:${app}:${manifestUrl.split(/[?#]/)[0]}`;
+      const stored = Number(safeGet(storage, seqKey));
+      const last = persistent ? (Number.isFinite(stored) ? stored : 0) : (memorySequences.get(seqKey) ?? 0);
+      const sequence = manifest.sequence!;
+      if (minSequence !== undefined && sequence < minSequence) {
+        return reject(`sequence ${sequence} is lower than the build-time minimum ${minSequence}`);
+      }
+      if (sequence < last) {
+        return reject(`sequence ${sequence} is lower than the last accepted ${last} (replay or rollback)`);
+      }
+      if (sequence > last) {
+        if (persistent) safeSet(storage, seqKey, String(sequence));
+        else memorySequences.set(seqKey, sequence);
+      }
+    }
+
     const entry = manifest.apps[app]?.[lang];
     const remoteHash = entry?.hash;
     if (!remoteHash) return bakedCatalog; // nothing published for this app/lang

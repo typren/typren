@@ -89,7 +89,7 @@ const migrationsPacked = packMigrationNotes();
 // Smoke: raw Node ESM must load every server-safe entry, including `seo`
 // (it imports `next/server.js`; next ships no exports map, so the subpath
 // resolves as a file path and Node ESM needs the extension; see changeset).
-const SERVER_ENTRIES = ["index.js", "proxy.js", "i18n.js", "auth/local.js", "seo/index.js", "static-host.js"];
+const SERVER_ENTRIES = ["index.js", "proxy.js", "i18n.js", "auth/local.js", "seo/index.js", "static-host.js", "tags/index.js"];
 execFileSync(
   process.execPath,
   ["--input-type=module", "-e", SERVER_ENTRIES.map((e) => `await import("./${DIST}/${e}");`).join("\n")],

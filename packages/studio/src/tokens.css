@@ -1,0 +1,33 @@
+/* `@typren/studio/tokens.css`: what a host app imports so the studio's
+   primitives (`@typren/studio/ui`) render, and so shadcn-style utilities
+   (`bg-background`, `text-muted-foreground`, ...) resolve to studio tokens.
+   The values themselves stay in @typren/core's theme.css (light, dark, WinUI
+   structure, coral accent), imported here as the single source. */
+@import "@typren/core/theme.css";
+
+/* The aliases sit on `body`, not `:root`: theme.css reads several of these
+   names (`--background`, `--primary`, `--ring`, ...) as host overrides, so
+   declaring them on the same element would make each a cycle. Computed on
+   `html`, the --typren-* tokens are already resolved when `body` aliases them.
+   Put the `.dark` class on `<html>` for the same reason. */
+body {
+  --background: var(--typren-app-bg);
+  --foreground: var(--typren-fg);
+  --card: var(--typren-card);
+  --card-foreground: var(--typren-card-fg);
+  --popover: var(--typren-popover);
+  --popover-foreground: var(--typren-popover-fg);
+  --primary: var(--typren-primary);
+  --primary-foreground: var(--typren-primary-fg);
+  --secondary: var(--typren-secondary);
+  --secondary-foreground: var(--typren-secondary-fg);
+  --muted: var(--typren-muted);
+  --muted-foreground: var(--typren-muted-fg);
+  --accent: var(--typren-accent);
+  --accent-foreground: var(--typren-accent-fg);
+  --destructive: var(--typren-destructive);
+  --border: var(--typren-border);
+  --input: var(--typren-input);
+  --ring: var(--typren-ring);
+  --radius: var(--typren-radius);
+}

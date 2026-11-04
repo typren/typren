@@ -1,6 +1,6 @@
 {
   "name": "@typren/core",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Framework-agnostic core of Typren: content adapters, draft/publish store, auth-gated actions, i18n, media, SEO/AIO. No UI, see @typren/studio.",
   "keywords": [
     "cms",
@@ -44,6 +44,10 @@
     "./seo": {
       "types": "./dist/seo/index.d.ts",
       "default": "./dist/seo/index.js"
+    },
+    "./tags": {
+      "types": "./dist/tags/index.d.ts",
+      "default": "./dist/tags/index.js"
     },
     "./auth/local": {
       "types": "./dist/auth/local.d.ts",

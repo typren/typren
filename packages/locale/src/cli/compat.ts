@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolveProvider, writeLocaleFiles, type ExportApiSourceConfig, type LocaleSourceProvider } from "../build";
 import { stringFlag } from "./args";
+import { EXIT_FAILURE, printJson } from "./output";
 
 /**
  * Flags lokalise2's own `file download` accepts that this provider fixes on
@@ -114,10 +115,11 @@ export async function runCompatDownload(opts: CompatDownloadOptions): Promise<Co
   return { ok: true, targetDir, paths, ignoredFlags };
 }
 
-export function printCompatResult(result: CompatDownloadResult): void {
+export function printCompatResult(result: CompatDownloadResult, opts: { json?: boolean } = {}): void {
+  if (!result.ok) process.exitCode = EXIT_FAILURE;
+  if (opts.json) return printJson(result);
   if (!result.ok) {
     console.error(`typren-locale compat: ${result.error}`);
-    process.exitCode = 1;
     return;
   }
   if (result.ignoredFlags.length > 0) {

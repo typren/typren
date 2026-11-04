@@ -88,6 +88,7 @@ const codeDefaults: SeoConfig = {
   entityDescription: "What this site or organisation is, in a sentence or two.",
   defaultTitle: "My site",
   defaultDescription: "A short description for search results.",
+  homeSlug: "home",
 };
 
 const settings = createSettingsStore(cmsConfig);
@@ -97,6 +98,44 @@ const settings = createSettingsStore(cmsConfig);
  *  \`generateMetadata\`, \`buildMetadata\`, \`organizationJsonLd\`,
  *  \`buildSitemap\`, \`buildRobots\`. */
 export const getSeoConfig = (locale?: string) => resolveSeoConfig(codeDefaults, settings, locale);
+`;
+
+const sitemapRoute = `import type { MetadataRoute } from "next";
+import { buildSitemap } from "@typren/core/seo";
+import { cmsStore } from "@/cms.config";
+import { getSeoConfig } from "@/seo";
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  return buildSitemap(cmsStore, await getSeoConfig());
+}
+`;
+
+const robotsRoute = `import type { MetadataRoute } from "next";
+import { buildRobots } from "@typren/core/seo";
+import { getSeoConfig } from "@/seo";
+
+export default async function robots(): Promise<MetadataRoute.Robots> {
+  return buildRobots(await getSeoConfig());
+}
+`;
+
+const llmsTxtRoute = `import { generateLlmsTxt } from "@typren/core/seo";
+import { cmsStore } from "@/cms.config";
+import { getSeoConfig } from "@/seo";
+
+export async function GET() {
+  const body = await generateLlmsTxt(cmsStore, await getSeoConfig());
+  return new Response(body, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+}
+`;
+
+const llmsFullTxtRoute = `import { generateLlmsFullTxt } from "@typren/core/seo";
+import { cmsStore } from "@/cms.config";
+
+export async function GET() {
+  const body = await generateLlmsFullTxt(cmsStore);
+  return new Response(body, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+}
 `;
 
 const siteStyle = `import "server-only";
@@ -297,6 +336,10 @@ export function buildTemplates(contentDirLiteral: string): Record<string, string
     "slices/field-schema.ts": slicesFieldSchema,
     "slices/slice-zone.tsx": slicesSliceZone,
     "app/typren/section/page.tsx": sectionRoute,
+    "app/sitemap.ts": sitemapRoute,
+    "app/robots.ts": robotsRoute,
+    "app/llms.txt/route.ts": llmsTxtRoute,
+    "app/llms-full.txt/route.ts": llmsFullTxtRoute,
     "slices/hero.tsx": slicesHero,
     "slices/prose.tsx": slicesProse,
     "content/home.md": contentHome(contentDirLiteral),

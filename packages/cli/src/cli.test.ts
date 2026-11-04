@@ -153,7 +153,13 @@ describe("scaffold", () => {
       expect(fs.existsSync(path.join(dir, dropped))).toBe(false);
     }
 
-    expect(result.created.filter((f) => f.startsWith("src/app/"))).toEqual(["src/app/typren/section/page.tsx"]);
+    expect(result.created.filter((f) => f.startsWith("src/app/")).sort()).toEqual([
+      "src/app/llms-full.txt/route.ts",
+      "src/app/llms.txt/route.ts",
+      "src/app/robots.ts",
+      "src/app/sitemap.ts",
+      "src/app/typren/section/page.tsx",
+    ]);
     expect(fs.existsSync(path.join(dir, "src/cms-actions.ts"))).toBe(false);
     expect(fs.existsSync(path.join(dir, "next.config.ts"))).toBe(false);
 
@@ -433,6 +439,12 @@ describe("resolveReviewPaths", () => {
     expect(paths.seoRegistryFile).toBe("slices/seo-registry.ts");
   });
 
+  it("reads the scaffolded seo.ts when it exists", () => {
+    fs.mkdirSync(path.join(dir, "src"));
+    fs.writeFileSync(path.join(dir, "src/seo.ts"), "");
+    expect(resolveReviewPaths(dir).seoFile).toBe("src/seo.ts");
+  });
+
   it("lets typren.config.json's review key override individual paths, leaving the rest auto-detected", () => {
     fs.mkdirSync(path.join(dir, "src"));
     fs.writeFileSync(path.join(dir, "typren.config.json"), JSON.stringify({ review: { contentDir: "docs/content" } }));
@@ -534,6 +546,17 @@ describe("review", () => {
     fs.mkdirSync(path.join(dir, "config"), { recursive: true });
     fs.writeFileSync(path.join(dir, "config/seo.ts"), 'export const SITE_ENTITY_DESCRIPTION = "Example, Inc.";\n');
     fs.writeFileSync(path.join(dir, "typren.config.json"), JSON.stringify({ review: { seoFile: "config/seo.ts" } }));
+
+    const result = review(dir, { slug: "home" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.briefs[0].checks).toContainEqual({ id: "aio.entity.description-present", status: "pass" });
+  });
+
+  it("reads entityDescription from the scaffolded seo.ts object", () => {
+    fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\n");
+    fs.writeFileSync(path.join(dir, "seo.ts"), 'const codeDefaults = {\n  entityDescription: "Example, Inc.",\n};\n');
 
     const result = review(dir, { slug: "home" });
     expect(result.ok).toBe(true);
@@ -703,9 +726,8 @@ describe("main", () => {
         vi.mocked(spawn).mockReturnValueOnce(child);
         process.chdir(site);
 
-        const error = vi.spyOn(console, "error").mockImplementation(() => {});
         // --site-url: frame a running site, so the studio is the only child.
-        const run = main(["studio", "--port", "4500", "--site-url", "http://127.0.0.1:3000"]);
+        const run = main(["studio", "--local", "--port", "4500", "--site-url", "http://127.0.0.1:3000"]);
         await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
         const [, args, options] = vi.mocked(spawn).mock.calls[0];
         expect(args).toEqual(expect.arrayContaining(["dev", "-H", "127.0.0.1", "-p", "4500"]));
@@ -717,22 +739,37 @@ describe("main", () => {
         await run;
         expect(process.exitCode).toBe(3);
         expect(telemetry.record).toHaveBeenCalledWith("studio");
-        // No flag: one line ahead of 0.7's default change.
-        expect(error.mock.calls.filter(([m]) => String(m).includes("in 0.7"))).toHaveLength(1);
-
-        // --local runs the same studio, without the notice.
-        error.mockClear();
-        vi.mocked(spawn).mockClear();
-        const local = Object.assign(new EventEmitter(), { kill: vi.fn() }) as unknown as ChildProcess;
-        vi.mocked(spawn).mockReturnValueOnce(local);
-        const again = main(["studio", "--local", "--port", "4500", "--site-url", "http://127.0.0.1:3000"]);
-        await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
-        expect(vi.mocked(spawn).mock.calls[0][1]).toEqual(expect.arrayContaining(["dev", "-H", "127.0.0.1", "-p", "4500"]));
-        local.emit("exit", 0);
-        await again;
-        expect(error.mock.calls.some(([m]) => String(m).includes("in 0.7"))).toBe(false);
       } finally {
         vi.unstubAllGlobals();
+        process.chdir(originalCwd);
+        fs.rmSync(site, { recursive: true, force: true });
+      }
+    });
+
+    it("serves only the API by default and opens the cloud's connect link", async () => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const site = fs.mkdtempSync(path.join(import.meta.dirname, "..", ".tmp-studio-"));
+      try {
+        fs.mkdirSync(path.join(site, "slices"));
+        fs.writeFileSync(path.join(site, "slices", "defaults.ts"), "export const defaults = { hero: {} };\n");
+        vi.mocked(spawn).mockClear();
+        const opener = Object.assign(new EventEmitter(), { unref: vi.fn() }) as unknown as ChildProcess;
+        vi.mocked(spawn).mockReturnValueOnce(opener);
+        process.chdir(site);
+
+        const run = main(["studio", "--port", "4590", "--site-url", "http://127.0.0.1:3000", "--cloud-url", "http://127.0.0.1:3300"]);
+        await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1), { timeout: 5000 });
+        const link = vi.mocked(spawn).mock.calls[0][1]!.at(-1)!;
+        expect(link).toMatch(/^http:\/\/127\.0\.0\.1:3300\/connect#port=4590&token=[\w-]{43}$/);
+        // The API answers the paired origin with the token from the link, and nobody else.
+        const token = link.split("token=")[1];
+        const ok = await fetch("http://127.0.0.1:4590/api/typren/pages", { headers: { origin: "http://127.0.0.1:3300", authorization: `Bearer ${token}` } });
+        expect(ok.status).toBe(200);
+        expect((await fetch("http://127.0.0.1:4590/api/typren/pages")).status).toBe(403);
+        process.emit("SIGINT", "SIGINT");
+        await run;
+        expect(process.exitCode).toBe(0);
+      } finally {
         process.chdir(originalCwd);
         fs.rmSync(site, { recursive: true, force: true });
       }

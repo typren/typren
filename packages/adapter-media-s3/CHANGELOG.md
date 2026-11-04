@@ -1,5 +1,20 @@
 # @typren/adapter-media-s3
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [3467588]
+- Updated dependencies [68f90fb]
+- Updated dependencies [7f4aa4b]
+- Updated dependencies [a4b2d25]
+- Updated dependencies [d3d68f0]
+- Updated dependencies [8a400b5]
+- Updated dependencies [fc02f87]
+- Updated dependencies [2a00718]
+- Updated dependencies [5d69ee8]
+  - @typren/core@0.7.0
+
 ## 0.2.3
 
 ### Patch Changes

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -35,6 +35,33 @@ describe("runPull", () => {
     expect(result).toEqual({ ok: true, app: "demo", outDir, paths: { en: join(outDir, "en.json"), fr: join(outDir, "fr.json") } });
     expect(readdirSync(outDir).sort()).toEqual(["en.json", "fr.json"]);
     expect(JSON.parse(readFileSync(join(outDir, "en.json"), "utf8"))).toEqual({ Greeting: "Hi" });
+  });
+
+  it("ignores the alias file without --emit-aliases", async () => {
+    writeFileSync(join(sourceDir, "_aliases.json"), "{ not json");
+    const result = await runPull({ configPath, outDir });
+    expect(result.ok).toBe(true);
+    expect(readdirSync(outDir).sort()).toEqual(["en.json", "fr.json"]);
+  });
+
+  it("--emit-aliases writes copies of the targets", async () => {
+    writeFileSync(join(sourceDir, "_aliases.json"), JSON.stringify({ Hello: { to: "Greeting", since: "2026-01-01" } }));
+    const result = await runPull({ configPath, outDir, emitAliases: true });
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(readFileSync(join(outDir, "fr.json"), "utf8"))).toEqual({ Greeting: "Salut", Hello: "Salut" });
+  });
+
+  it("--emit-aliases errors without an alias file, on a bad file, and on invalid aliases", async () => {
+    expect(await runPull({ configPath, outDir, emitAliases: true })).toEqual({
+      ok: false,
+      error: "--emit-aliases needs an alias file (pass --aliases <path>)",
+    });
+    writeFileSync(join(sourceDir, "_aliases.json"), "{");
+    expect((await runPull({ configPath, outDir, emitAliases: true })).ok).toBe(false);
+    writeFileSync(join(sourceDir, "_aliases.json"), JSON.stringify({ Hello: { to: "Missing", since: "2026-01-01" } }));
+    const bad = await runPull({ configPath, outDir, emitAliases: true });
+    expect(bad.ok === false && bad.error).toMatch(/^invalid aliases: /);
+    expect(existsSync(outDir)).toBe(false);
   });
 
   it("honors --filename-style underscore", async () => {
@@ -75,10 +102,10 @@ describe("runPull", () => {
     expect(!result.ok && result.error).toContain('missing required env var "MISSING_VAR"');
   });
 
-  it("printPullResult sets exit code 1 on failure and 0 on success", () => {
+  it("printPullResult sets exit code 2 on failure and leaves it unset on success", () => {
     process.exitCode = undefined;
     printPullResult({ ok: false, error: "boom" });
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
 
     process.exitCode = undefined;
     printPullResult({ ok: true, app: "demo", outDir, paths: { en: join(outDir, "en.json") } });

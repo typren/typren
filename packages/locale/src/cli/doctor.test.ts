@@ -32,13 +32,13 @@ describe("runDoctor", () => {
   });
 
   it("reports each ${VAR} as set/unset by name only, never its value, even when the reachability check runs clean", async () => {
-    // The env var drives `app`, a plain label doctor never echoes back, so a
+    // The env var fills an unused `source` field, a plain label doctor never echoes back, so a
     // reachable/clean run proves the leak-check means something (nothing
     // downstream has a reason to mention the var's value either).
     writeFileSync(join(sourceDir, "en.json"), JSON.stringify({ Greeting: "Hi" }));
     writeFileSync(
       configPath,
-      JSON.stringify({ app: "${TYPREN_LOCALE_CLI_DOCTOR_TEST_VAR}", source: { type: "files", dir: sourceDir } }),
+      JSON.stringify({ app: "demo", source: { type: "files", dir: sourceDir, note: "${TYPREN_LOCALE_CLI_DOCTOR_TEST_VAR}" } }),
     );
     process.env.TYPREN_LOCALE_CLI_DOCTOR_TEST_VAR = "super-secret-value";
 

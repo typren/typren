@@ -111,6 +111,19 @@ describe("TyprenStudio rail", () => {
     expect(screen.queryByText("Not in navigation")).toBeNull();
   });
 
+  it("offers the host's exit as level 0's back link, and Website's back once drilled in", async () => {
+    const onExit = vi.fn();
+    const user = userEvent.setup();
+    mount({ host: { ...host, exit: { label: "Sites", onExit } } });
+    expect(screen.queryByText("Typren")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Sites" }));
+    expect(onExit).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Pages" }));
+    expect(screen.queryByRole("button", { name: "Sites" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Website" })).toBeTruthy();
+  });
+
   it("switches the preview locale among the site's locales, and remembers the pick", async () => {
     const user = userEvent.setup();
     const bootstrap = (locales: string[]) =>
@@ -166,6 +179,17 @@ describe("TyprenStudio rail", () => {
   it("a custom entry renders a notice rather than an empty pane", () => {
     mount({ host: { ...host, sections: [{ kind: "custom", label: "Analytics", element: "x-analytics" }] } });
     expect(iconOf(screen.getByText(/isn.t available in the studio yet/))).toBeTruthy();
+  });
+
+  it("a host custom entry renders the host's screen, else the notice", () => {
+    const sections = [{ kind: "custom" as const, id: "domains", label: "Domains", host: true as const }];
+    const view = render(
+      <TyprenStudio host={{ ...host, sections, renderSection: (id) => <p>host:{id}</p> }} pages={pages} sectionId="domains" onNavigate={() => {}} onReload={() => {}} />,
+    );
+    expect(screen.getByText("host:domains")).toBeTruthy();
+    view.unmount();
+    mount({ host: { ...host, sections }, sectionId: "domains" });
+    expect(screen.getByText(/isn.t available in the studio yet/)).toBeTruthy();
   });
 
   it("asks for a page when none is open", () => {

@@ -5,11 +5,12 @@ category: Start
 order: 3
 ---
 
-The studio runs as its own app. `npx typren studio`, run from your site's
-root, starts two servers and stops both when you press Ctrl-C:
+The studio runs beside your site. `npx typren studio`, run from your site's
+root, opens the studio UI in your browser from the cloud and runs two things
+on your machine, stopping both when you press Ctrl-C:
 
-- **The studio** on `http://127.0.0.1:4400`: the studio UI, plus its own
-  content API and auth. It reads and writes your content directory directly.
+- **The content API** on `http://127.0.0.1:4400`, served by the CLI process
+  itself. It reads and writes your content directory directly.
 - **A preview copy of your site**: your own dev command, started with
   `TYPREN_PREVIEW=1` on the next port (`4401`). The studio frames its real
   pages, so your routing, layout and styles apply as they are.
@@ -19,27 +20,70 @@ Your site mounts no studio, preview or API routes, and your usual
 once.
 
 ```bash
-npx typren studio
+npx typren studio          # the studio UI from the cloud (default)
+npx typren studio --local  # the studio UI on this machine
 ```
 
 | Flag | Default | |
 |---|---|---|
-| `--local` | on in 0.6 | Run the studio UI on this machine, as described here. |
-| `--port <n>` | `4400` | The studio's port. |
-| `--preview-port <n>` | studio port + 1 | The preview copy's port. |
+| `--local` | off | Run the studio UI on this machine (see [Local studio](#local-studio)). |
+| `--cloud-url <url>` | `https://app.typren.com`, or `TYPREN_CLOUD_URL` | The cloud studio's origin. https, or http on loopback. |
+| `--port <n>` | `4400` | The API's port (the studio's, with `--local`). |
+| `--preview-port <n>` | API port + 1 | The preview copy's port. |
 | `--site-url <url>` | none | Frame a site that is already running at this URL instead of starting one. |
 
-> **Changing in 0.7:** `typren studio` will open the cloud studio by default,
-> with only the content API and the preview running on your machine. Pass
-> `--local` to keep the local studio UI described on this page; in 0.6 it
-> behaves exactly like no flag, and without it the command prints a one-line
-> heads-up on stderr.
+## Connected studio
 
-`typren studio` needs `@typren/studio-local` installed in the site
-(`npm install --save-dev @typren/studio-local`).
+By default the studio's interface comes from the cloud, so your machine
+runs only your site's preview and a small API, not a second app with its own
+build. `typren studio` mints a random pairing token for the session, then
+opens and prints a link like:
 
-> **Security:** both servers bind to `127.0.0.1`. The studio's writes go
-> through `localAuth()`, which only allows them on a loopback-bound dev
+```
+https://app.typren.com/connect#port=4400&token=…
+```
+
+The page reads the port and token from the link's `#fragment`, which your
+browser never sends to the cloud's server, then removes them from the address
+bar. From then on your browser calls `http://127.0.0.1:4400/api/typren`
+directly, and frames the preview copy directly.
+
+**What leaves your machine:** nothing but your browser's own requests for
+the studio's UI. Content, drafts, media and settings travel only between your
+browser and `127.0.0.1`. No relay, no account, no sign-in.
+
+**Security model:**
+
+- The API binds to `127.0.0.1` and answers one origin, the cloud's, and only
+  with `Authorization: Bearer <token>`, compared in constant time. A request
+  from any other origin, or with no `Origin` header at all, is refused before
+  it reaches your content. Its CORS answer names that exact origin, never
+  `*`, and uses no cookies.
+- The token exists only in the running process and in the link. Press Ctrl-C
+  and it is gone; the next run mints a new one. Treat the link like a
+  password while the studio runs.
+- The preview copy's bridge and canvas answer only the cloud origin
+  (`TYPREN_STUDIO_ORIGIN` is set to it), and still check the studio's nonce.
+- Chrome may ask to let the page reach devices on your local network: that
+  is the page asking to call `127.0.0.1`, which is the point. Refuse it and
+  the studio says it can't reach your machine.
+
+If the page says it can't reach the local studio, check that
+`typren studio` is still running. If it says the link was rejected, the
+studio was restarted: use the new link it printed.
+
+With `--site-url`, start your site with `TYPREN_STUDIO_ORIGIN` set to the
+cloud origin (`https://app.typren.com`) as well as `TYPREN_PREVIEW=1`.
+
+## Local studio
+
+`typren studio --local` runs the studio UI on your machine instead: a Next.js
+app on `http://127.0.0.1:4400` with its own content API and auth, and no
+token or cross-origin access. It needs `@typren/studio-local` installed in the
+site (`npm install --save-dev @typren/studio-local`).
+
+> **Security:** both servers bind to `127.0.0.1`. The local studio's writes
+> go through `localAuth()`, which only allows them on a loopback-bound dev
 > server, so the studio is a local tool: never expose either port.
 
 ## Saving and pushing
@@ -166,8 +210,9 @@ For another framework, set `studio.previewCommand` in `typren.config.json`.
 ```
 
 The command is split on whitespace, so it can't contain quoted arguments.
-The preview copy also gets `PORT` and `TYPREN_STUDIO_ORIGIN` (the studio's
-origin) in its environment. If it exits, the studio stops and prints its
+The preview copy also gets `PORT` and `TYPREN_STUDIO_ORIGIN` (the studio UI's
+origin: the cloud's, or `http://127.0.0.1:4400` with `--local`) in its
+environment. If it exits, the studio stops and prints its
 output.
 
 ## Site integration
@@ -256,9 +301,10 @@ Render one `SliceZone` per page: each one mounts its own bridge.
 > `typren studio` sets on the preview copy, never from the page URL or an
 > incoming message. Any other page that frames the preview gets no messages
 > from it and cannot send it any. Without the variable the bridge stays off,
-> so with `--site-url`, start your site with
-> `TYPREN_STUDIO_ORIGIN=http://127.0.0.1:4400` (the studio's origin, exactly
-> as your browser shows it) as well as `TYPREN_PREVIEW=1`.
+> so with `--site-url`, start your site with `TYPREN_STUDIO_ORIGIN` set to
+> the studio UI's origin, exactly as your browser shows it
+> (`https://app.typren.com`, or `http://127.0.0.1:4400` with `--local`), as
+> well as `TYPREN_PREVIEW=1`.
 
 ### 3. Give the preview copy its own build directory
 

@@ -1,5 +1,26 @@
 # @typren/core
 
+## 0.7.0
+
+### Minor Changes
+
+- 3467588: `createTyprenApi` takes `allowOrigin: { origin, token }`: one foreign origin may call the API from a browser, reads included, when it sends `Authorization: Bearer <token>`. It answers that origin's CORS and Private Network Access preflights with its exact origin, never `*`, and refuses the origin outright without the token. A new `studio` option serves `GET /studio`, the studio's initial props, behind the read gate. Both exist for the connected studio (`typren studio`, the default from 0.7).
+  
+  The studio's initial data and site facts moved into core as `loadStudioProps(config, manifest, slug)` (with `loadStudio`, `studioSiteConfig`, `previewBase`, `sectionRouteUrl`, `siteTrailingSlash` and the `StudioManifest`, `StudioProps` and `StudioSiteProps` types), so the local studio app and the CLI's API server open the studio from one code path.
+  
+  `FieldFormMedia` gains an optional `upload(file, folder?)`: a host whose API needs credentials uploads through its own client instead of a plain POST to `uploadPath`.
+- 68f90fb: Every control (inputs, buttons, selects, accent buttons) draws one even hairline instead of WinUI's darker bottom or top edge. Hover changes the fill and focus adds the ring. `--typren-stroke-control-edge` is removed; override `--typren-elevation*` to restore the old look.
+- 7f4aa4b: `typren init` scaffolds `app/sitemap.ts`, `app/robots.ts`, `app/llms.txt/route.ts` and `app/llms-full.txt/route.ts`, wired to the scaffolded `seo.ts`, and sets `homeSlug: "home"` there. A new site serves its crawler surfaces from the first build instead of after hand-wiring. Existing files are never overwritten.
+- a4b2d25: `DEFAULT_AI_CRAWLERS` now names the current answer-engine and user-fetch agents: OAI-SearchBot, Claude-SearchBot, Claude-User, Perplexity-User, Applebot-Extended, Meta-ExternalAgent and Amazonbot join the list, and the retired Claude-Web and anthropic-ai user agents leave it. Sites that pass their own `aiCrawlers` are unaffected.
+- d3d68f0: `SeoConfig.homeSlug` names the page served at the site root. `buildMetadata` now gives it the canonical `/` instead of `/home`, and `buildSitemap` uses it when its own `homeSlug` option is omitted, so the canonical and the sitemap URL agree.
+- 8a400b5: `generateLlmsTxt(store, config)` writes the llms.txt index from the store: the site name, `entityDescription` as the summary, one link per indexable page with its description, and a link to llms-full.txt. Sites no longer have to hand-write and hand-maintain the index.
+- 2a00718: New `@typren/core/tags`: consent-gated third-party tags for every Typren site. One tag engine (`createTagEngine`) reads the visitor's consent and decides which tags run, with adapters for Google Tag Manager, GA4, the Meta Pixel and any one-URL vendor script (HubSpot, LinkedIn Insight, …). Google Consent Mode v2 is built in: `consentMode: "regional"` (the default) keeps EU/EEA/UK visitors on strict opt-in and loads Consent Mode tags cookieless elsewhere; `"strict"` waits for opt-in everywhere. `productionHost` and `disabled` keep staging and previews out of production properties. `@typren/core/ui/typren-tags` mounts the tags and exports `useConsent`; `@typren/core/ui/consent-banner` is a default banner themed from the site's `--typren-*` tokens.
+- 5d69ee8: `@typren/core/tags` adds `createHubSpotAdapter` (portal tracking script, EU data-centre host, custom behavioral events) and `createLinkedInInsightAdapter` (Insight tag, with site events mapped to LinkedIn conversion IDs).
+
+### Patch Changes
+
+- fc02f87: `generateLlmsFullTxt` leaves out `noindex` pages and the markdown mirror route 404s them, so a page kept out of search no longer reaches AI crawlers through the AIO surfaces. Mirror responses carry `X-Robots-Tag: noindex` so the `.md` copy never competes with the HTML page in search.
+
 ## 0.6.0
 
 ### Minor Changes

@@ -16,4 +16,4 @@ export {
   createMarkdownMirrorMiddleware,
   matchMarkdownMirrorSlug,
 } from "./markdown-route";
-export { generateLlmsFullTxt } from "./llms-txt";
+export { generateLlmsFullTxt, generateLlmsTxt } from "./llms-txt";

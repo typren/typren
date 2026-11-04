@@ -10,7 +10,7 @@
  * `HTMLElement` at class-definition time, which throws under bare Node (no
  * DOM). Its consumers are always a browser or a DOM-shimmed test environment.
  */
-import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, existsSync, copyFileSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -42,6 +42,8 @@ for (const file of walk(DIST).filter((f) => f.endsWith(".js") || f.endsWith(".d.
   });
   if (after !== before) writeFileSync(file, after);
 }
+
+copyFileSync("src/tokens.css", path.join(DIST, "tokens.css"));
 
 // Smoke: raw Node ESM must load the main entry.
 execFileSync(process.execPath, ["--input-type=module", "-e", `await import("./${DIST}/index.js");`], {

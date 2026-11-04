@@ -1,9 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { applyAliasCopies, validateAliases, type AliasMap } from "../aliases";
 import { assertNoHtml } from "../no-html";
 import { canonicalize, hashCatalog } from "../canonicalize";
 import { diff, isPlaceholderCompatible, merge } from "../delta";
 import { resolve } from "../locale";
+import { signManifest } from "../sign";
+import type { SigningKey } from "../sign";
 import type { Catalog, Delta, Manifest } from "../types";
 import { resolveProvider } from "./resolve-provider";
 import type { LocaleSourceProvider, SourceConfig } from "./provider";
@@ -17,6 +20,14 @@ export interface BuildOptions {
   outDir?: string;
   /** How many past releases to keep precomputed delta files for. Default 5. */
   deltaHistorySize?: number;
+  /** Parsed TYPREN_SIGNING_KEY (see parseSigningKey). Omitted: the manifest is written unsigned with a console.warn, and loadMessages refuses it outside insecureDevMode. */
+  signingKey?: SigningKey;
+  /** Days until the manifest's expiresAt. Default 30. */
+  expiresInDays?: number;
+  /** Served as copies of their targets so old builds keep resolving old keys over OTA. */
+  aliases?: AliasMap;
+  /** The default catalog alias targets are checked against; defaults per validateAliases. */
+  defaultLocale?: string;
 }
 
 export interface BuildResult {
@@ -133,14 +144,38 @@ export async function buildCatalogs(
   if (options.app === "__proto__" || options.app === "constructor" || options.app === "prototype") {
     throw new Error(`buildCatalogs: unsafe app name "${options.app}"`);
   }
+  const expiresInDays = options.expiresInDays ?? 30;
+  if (!Number.isFinite(expiresInDays) || expiresInDays <= 0) {
+    throw new Error("buildCatalogs: expiresInDays must be a positive number");
+  }
   const outDir = options.outDir ?? "dist";
   const deltaHistorySize = options.deltaHistorySize ?? 5;
   const provider = resolveProvider(source);
   const catalogsByLang = await provider.loadSource();
+  if (options.aliases) {
+    const problems = validateAliases(options.aliases, catalogsByLang, options.defaultLocale);
+    if (problems.length) throw new Error(`buildCatalogs: invalid aliases for ${options.app}: ${problems.join("; ")}`);
+    for (const lang of Object.keys(catalogsByLang)) {
+      catalogsByLang[lang] = applyAliasCopies(catalogsByLang[lang]!, options.aliases);
+    }
+  }
 
-  const manifest: Manifest = {
+  const manifestPath = joinInside(outDir, "manifest", `${options.app}.json`);
+  let prevSequence = 0;
+  try {
+    const prev = JSON.parse(readFileSync(manifestPath, "utf8")).sequence;
+    if (Number.isSafeInteger(prev) && prev > 0) prevSequence = prev;
+  } catch {
+    // no previous manifest, or garbage: counts as 0
+  }
+  const now = Date.now();
+
+  let manifest: Manifest = {
     v: 1,
     buildVersion: options.buildVersion,
+    sequence: Math.max(prevSequence + 1, now),
+    issuedAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + expiresInDays * 86_400_000).toISOString(),
     apps: { [options.app]: {} },
   };
   const catalogPaths: Record<string, string> = {};
@@ -198,7 +233,13 @@ export async function buildCatalogs(
     }
   }
 
-  const manifestPath = joinInside(outDir, "manifest", `${options.app}.json`);
+  if (options.signingKey) {
+    manifest = await signManifest(manifest, options.signingKey);
+  } else {
+    console.warn(
+      `buildCatalogs: no signing key — manifest for ${options.app} is UNSIGNED; loadMessages refuses it outside insecureDevMode. Run \`typren-locale keys init\` and set TYPREN_SIGNING_KEY.`,
+    );
+  }
   mkdirSync(dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   if (deltaCandidates > 0 && missingFromPaths === deltaCandidates) {

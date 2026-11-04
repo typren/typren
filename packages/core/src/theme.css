@@ -126,10 +126,6 @@
   --typren-fill-accent: var(--primary, #cb2e01);
   --typren-stroke-control: rgb(0 0 0 / 0.059);
   --typren-stroke-control-strong: rgb(0 0 0 / 0.16);
-  /* WinUI TextBox's bottom edge: a text field has no label inside it, so this
-     one edge reaches 3:1 (WCAG 1.4.11) against the frame, layer and card
-     (3.3:1) while the rest of the stroke stays subtle. */
-  --typren-stroke-control-edge: rgb(0 0 0 / 0.45);
   --typren-stroke-card: var(--border, rgb(0 0 0 / 0.059));
   --typren-stroke-flyout: rgb(0 0 0 / 0.059);
   --typren-stroke-divider: var(--border, rgb(0 0 0 / 0.059));
@@ -138,12 +134,13 @@
   --typren-layer: var(--background, rgb(255 255 255 / 0.7));
   --typren-card-bg: rgb(255 255 255 / 0.7);
   --typren-smoke: rgb(0 0 0 / 0.3);
-  /* WinUI's ControlElevationBorder: a 1px stroke with a stronger edge, at the
-     bottom in light and the top in dark. Box-shadows, so they compose with
-     focus rings. Not in the XAML, the flyout shadow is Fluent's web value. */
-  --typren-elevation: inset 0 0 0 1px var(--typren-stroke-control), inset 0 -1px 0 var(--typren-stroke-control-strong);
-  --typren-elevation-input: var(--typren-elevation), inset 0 -1px 0 var(--typren-stroke-control-edge);
-  --typren-elevation-accent: inset 0 0 0 1px rgb(255 255 255 / 0.08), inset 0 -1px 0 rgb(0 0 0 / 0.4);
+  /* One even hairline on every control, no stronger WinUI edge: hover changes
+     the fill and focus adds the ring, so no state relies on the border.
+     Box-shadows, so they compose with focus rings. Not in the XAML, the
+     flyout shadow is Fluent's web value. */
+  --typren-elevation: inset 0 0 0 1px var(--typren-stroke-control);
+  --typren-elevation-input: var(--typren-elevation);
+  --typren-elevation-accent: inset 0 0 0 1px rgb(255 255 255 / 0.08);
   --typren-shadow-flyout: 0 8px 16px rgb(0 0 0 / 0.14), 0 0 2px rgb(0 0 0 / 0.12);
 }
 
@@ -198,17 +195,15 @@
   --typren-fill-accent: var(--primary, #ff7456);
   --typren-stroke-control: rgb(255 255 255 / 0.071);
   --typren-stroke-control-strong: rgb(255 255 255 / 0.094);
-  /* 3.6:1 against the frame, layer and card. */
-  --typren-stroke-control-edge: rgb(255 255 255 / 0.4);
   --typren-stroke-card: rgb(0 0 0 / 0.098);
   --typren-stroke-flyout: rgb(0 0 0 / 0.2);
   --typren-stroke-divider: rgb(255 255 255 / 0.082);
   --typren-bg-base: #202020;
   --typren-layer: rgb(58 58 58 / 0.45);
   --typren-card-bg: rgb(255 255 255 / 0.05);
-  --typren-elevation: inset 0 0 0 1px var(--typren-stroke-control), inset 0 1px 0 var(--typren-stroke-control-strong);
-  --typren-elevation-input: var(--typren-elevation), inset 0 -1px 0 var(--typren-stroke-control-edge);
-  --typren-elevation-accent: inset 0 0 0 1px rgb(255 255 255 / 0.08), inset 0 -1px 0 rgb(0 0 0 / 0.14);
+  --typren-elevation: inset 0 0 0 1px var(--typren-stroke-control);
+  --typren-elevation-input: var(--typren-elevation);
+  --typren-elevation-accent: inset 0 0 0 1px rgb(255 255 255 / 0.08);
   --typren-shadow-flyout: 0 8px 16px rgb(0 0 0 / 0.26), 0 0 2px rgb(0 0 0 / 0.2);
 }
 

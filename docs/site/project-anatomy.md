@@ -101,6 +101,9 @@ in `<head>`, mapped onto your own CSS variables by `studio.style` in
   covers the client canvas a static export needs). The bridge that
   connects the preview to the studio comes from `@typren/core/ui/studio-bridge`.
 - **`hero.tsx`**, **`prose.tsx`** — two example slices, meant to be replaced.
+- **`app/sitemap.ts`**, **`app/robots.ts`**, **`app/llms.txt/route.ts`**,
+  **`app/llms-full.txt/route.ts`** — the crawler surfaces, built from the
+  published pages and `seo.ts` (see [SEO and AIO](./seo-and-aio.md)).
 
 ## `content/`
 

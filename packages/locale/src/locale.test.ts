@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createAliasResolver } from "./aliases";
 import { resolve, interpolate, t, getClosestLocale } from "./locale";
 import type { Catalog } from "./types";
 
@@ -55,5 +56,30 @@ describe("getClosestLocale", () => {
 
   it("throws on an empty supported list", () => {
     expect(() => getClosestLocale([], "en-US")).toThrow(/non-empty/);
+  });
+});
+
+describe("t with alias resolver", () => {
+  const catalog: Catalog = { New: { Greet: "hi {name}" }, Old: { Copy: "copy" } };
+  const aliases = createAliasResolver(
+    {
+      "Old.Greet": { to: "New.Greet", since: "1.0" },
+      "Old.Copy": { to: "New.Missing", since: "1.0" },
+      "Old.Gone": { to: null, since: "1.0" },
+    },
+    { warn: false },
+  );
+
+  it("resolves the target with interpolation", () => {
+    expect(t(catalog, "Old.Greet", { name: "Ada" }, aliases)).toEqual({ value: "hi Ada" });
+  });
+  it("renders a decommissioned key as itself", () => {
+    expect(t(catalog, "Old.Gone", undefined, aliases)).toEqual({ value: "Old.Gone" });
+  });
+  it("leaves non-aliased keys unchanged", () => {
+    expect(t(catalog, "New.Greet", { name: "Bo" }, aliases)).toEqual({ value: "hi Bo" });
+  });
+  it("falls back to an old-key copy when the target is missing", () => {
+    expect(t(catalog, "Old.Copy", undefined, aliases)).toEqual({ value: "copy" });
   });
 });

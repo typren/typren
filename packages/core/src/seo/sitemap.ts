@@ -26,7 +26,7 @@ export async function buildSitemap(
   config: SeoConfig,
   opts: BuildSitemapOptions = {}
 ): Promise<MetadataRoute.Sitemap> {
-  const { homeSlug, defaultChangeFrequency = "monthly", defaultPriority = 0.7, i18n } = opts;
+  const { homeSlug = config.homeSlug, defaultChangeFrequency = "monthly", defaultPriority = 0.7, i18n } = opts;
   const multiLocale = !!i18n && i18n.locales.length > 1;
 
   const slugs = await store.listSlugs();
