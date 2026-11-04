@@ -22,9 +22,15 @@ export function createMarkdownRouteHandler(store: ContentStore, renderOverrides?
         return new NextResponse("Not found", { status: 404 });
       }
       const page = await store.getPublished(slug);
+      if (page.meta.noindex === true) {
+        return new NextResponse("Not found", { status: 404 });
+      }
       const title = typeof page.meta.title === "string" ? page.meta.title : slug;
       const body = `# ${title}\n\n${renderSlicesAsMarkdown(page.slices, renderOverrides)}\n`;
-      return new NextResponse(body, { headers: { "Content-Type": "text/markdown; charset=utf-8" } });
+      // The mirror is for agents; the HTML page is the one search should index.
+      return new NextResponse(body, {
+        headers: { "Content-Type": "text/markdown; charset=utf-8", "X-Robots-Tag": "noindex" },
+      });
     },
   };
 }

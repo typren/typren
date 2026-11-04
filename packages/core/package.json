@@ -45,6 +45,10 @@
       "types": "./dist/seo/index.d.ts",
       "default": "./dist/seo/index.js"
     },
+    "./tags": {
+      "types": "./dist/tags/index.d.ts",
+      "default": "./dist/tags/index.js"
+    },
     "./auth/local": {
       "types": "./dist/auth/local.d.ts",
       "default": "./dist/auth/local.js"

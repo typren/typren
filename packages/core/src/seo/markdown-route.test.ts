@@ -21,8 +21,21 @@ describe("matchMarkdownMirrorSlug", () => {
 describe("createMarkdownRouteHandler", () => {
   const store = fakeStore([
     { slug: "about", meta: { title: "About" }, slices: [{ slice: "hero", heading: "Hi" }] },
+    { slug: "secret", meta: { title: "Secret", noindex: true }, slices: [] },
   ]);
   const { GET } = createMarkdownRouteHandler(store);
+
+  it("404s a noindex page", async () => {
+    const req = new NextRequest("https://example.com/md/secret");
+    const res = await GET(req, { params: Promise.resolve({ slug: "secret" }) });
+    expect(res.status).toBe(404);
+  });
+
+  it("keeps the mirror itself out of the search index", async () => {
+    const req = new NextRequest("https://example.com/md/about");
+    const res = await GET(req, { params: Promise.resolve({ slug: "about" }) });
+    expect(res.headers.get("X-Robots-Tag")).toBe("noindex");
+  });
 
   it("renders a known slug as flattened markdown", async () => {
     const req = new NextRequest("https://example.com/md/about");

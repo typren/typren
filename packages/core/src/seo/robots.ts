@@ -6,12 +6,17 @@ import type { SeoConfig } from "./types";
  *  revert point (a project may later decide to block training crawlers). */
 export const DEFAULT_AI_CRAWLERS = [
   "GPTBot",
+  "OAI-SearchBot",
   "ChatGPT-User",
   "ClaudeBot",
-  "Claude-Web",
-  "anthropic-ai",
+  "Claude-SearchBot",
+  "Claude-User",
   "PerplexityBot",
+  "Perplexity-User",
   "Google-Extended",
+  "Applebot-Extended",
+  "Meta-ExternalAgent",
+  "Amazonbot",
   "CCBot",
 ] as const;
 
