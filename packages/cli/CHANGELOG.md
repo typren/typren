@@ -1,5 +1,26 @@
 # typren
 
+## 0.7.0
+
+### Minor Changes
+
+- 0ef0a9c: Breaking: `typren studio` now opens the studio UI from the cloud by default. It serves only the content API from the CLI process, on `127.0.0.1`, for the cloud origin alone and with a per-session pairing token carried in the link's `#fragment`, and opens `<cloud>/connect`. No second Next.js app runs on your machine, and content never goes through the cloud. `--local`, accepted since 0.6, now keeps the previous behaviour, the studio UI on `127.0.0.1:4400` from `@typren/studio-local`, which is now needed only for `--local`. `--cloud-url <url>` (or `TYPREN_CLOUD_URL`) points it at another cloud origin. The preview copy's `TYPREN_STUDIO_ORIGIN` is the cloud origin in the default mode. The 0.6 heads-up line on stderr is gone.
+- 7f4aa4b: `typren init` scaffolds `app/sitemap.ts`, `app/robots.ts`, `app/llms.txt/route.ts` and `app/llms-full.txt/route.ts`, wired to the scaffolded `seo.ts`, and sets `homeSlug: "home"` there. A new site serves its crawler surfaces from the first build instead of after hand-wiring. Existing files are never overwritten.
+
+### Patch Changes
+
+- 6ad7f6b: `typren review` reads the `seo.ts` that `typren init` scaffolds, and takes `siteUrl` and `entityDescription` from its config object. On a freshly scaffolded site the canonical-consistency and entity-description checks used to skip because they looked only for a predecessor `app/seo.tsx`; they now run. `app/seo.tsx` with `SITE_URL` / `SITE_ENTITY_DESCRIPTION` consts still works.
+- Updated dependencies [3467588]
+- Updated dependencies [68f90fb]
+- Updated dependencies [7f4aa4b]
+- Updated dependencies [a4b2d25]
+- Updated dependencies [d3d68f0]
+- Updated dependencies [8a400b5]
+- Updated dependencies [fc02f87]
+- Updated dependencies [2a00718]
+- Updated dependencies [5d69ee8]
+  - @typren/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes
