@@ -124,6 +124,7 @@ import {
   createMarkdownRouteHandler,
   createMarkdownMirrorMiddleware,
   matchMarkdownMirrorSlug,
+  generateLlmsTxt,
   generateLlmsFullTxt,
   renderSlicesAsMarkdown,
 } from "@typren/core/seo";
@@ -136,11 +137,18 @@ it with `createMarkdownMirrorMiddleware(mirrorPath)` — a proxy/middleware
 function rewriting `/<slug>.md` to `<mirrorPath>/<slug>` — to expose it at
 the clean `/<slug>.md` URL a crawler expects.
 
+`generateLlmsTxt(store, seoConfig)` writes the `llms.txt` index in the
+[llmstxt.org](https://llmstxt.org) shape: the site name, `entityDescription`
+as the summary, one link per page with its description, and a link to
+`llms-full.txt`. Serve it from a route handler at `/llms.txt`, or write it to
+`public/` at build time. A site that wants marketing copy in its index can
+still hand-write the file instead.
+
 `generateLlmsFullTxt(store)` renders every page in the store as one
-markdown document (`llms-full.txt`), the detailed companion to a
-hand-curated `llms.txt` (this function does not replace a curated summary;
-`llms.txt` itself still needs a human author for marketing copy). Both use
-the same `renderSlicesAsMarkdown` flattener: a best-effort generic
+markdown document (`llms-full.txt`). Both leave out `noindex` pages, and so
+does the markdown mirror, which also sends `X-Robots-Tag: noindex` so the
+`.md` copy never competes with the HTML page in search. The mirror and
+`llms-full.txt` use the same `renderSlicesAsMarkdown` flattener: a best-effort generic
 heading/body/repeating-item renderer. A slice shape it can't flatten well
 gets its own override via the `renderOverrides` registry:
 

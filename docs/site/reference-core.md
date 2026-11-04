@@ -580,7 +580,8 @@ Metadata, sitemap, robots, JSON-LD, markdown mirror, and `llms.txt`/`llms-full.t
 | `createMarkdownRouteHandler(store, renderOverrides?)` | `(store: ContentStore, renderOverrides?: SliceMarkdownRegistry) => { GET }` | Route Handler: `GET` returns `"# Title\n\n<flattened slices>"` as `text/markdown` for a known slug, 404 for unknown. |
 | `createMarkdownMirrorMiddleware(mirrorPath)` | `(mirrorPath: string) => (request: NextRequest) => NextResponse` | Rewrites `/<slug>.md` to `<mirrorPath>/<slug>` so the route handler above serves it transparently. |
 | `matchMarkdownMirrorSlug(pathname)` | `(pathname: string) => string \| null` | Matches `/some-slug.md` (single path segment); pure, no fs/req access. |
-| `generateLlmsFullTxt(store, renderOverrides?)` | `(store: ContentStore, renderOverrides?: SliceMarkdownRegistry) => Promise<string>` | The always-fresh "llms-full.txt" companion to a hand-curated `llms.txt`; does not replace a curated summary file. |
+| `generateLlmsFullTxt(store, renderOverrides?)` | `(store: ContentStore, renderOverrides?: SliceMarkdownRegistry) => Promise<string>` | The always-fresh "llms-full.txt": every indexable page as one markdown document. |
+| `generateLlmsTxt(store, config)` | `(store: ContentStore, config: SeoConfig) => Promise<string>` | The llms.txt index: site name, `entityDescription` summary, one link per indexable page, and a link to llms-full.txt. |
 
 `SeoConfig`: `{ siteUrl, siteName, entityDescription, defaultTitle, defaultDescription, titleTemplate?, bareTitleSlugs?, defaultOgImage?, organization?, aiCrawlers?, sliceJsonLd? }`. `PageSeoMeta` (per-page frontmatter): `{ title?, description?, ogImage?, canonical?, noindex?, keywords?, sitemap?: { priority?, changeFrequency?, lastModified? } }`. `SliceJsonLd<P>` is `(props: P) => object | object[] | null`; never throws on missing/malformed props, returns `null` instead.
 

@@ -2228,7 +2228,7 @@ export { withSiteSettings, resolveSeoConfig } from "./site-settings.js";
 export { buildRobots, DEFAULT_AI_CRAWLERS } from "./robots.js";
 export { renderSlicesAsMarkdown, type SliceMarkdownRegistry } from "./markdown-render.js";
 export { createMarkdownRouteHandler, createMarkdownMirrorMiddleware, matchMarkdownMirrorSlug, } from "./markdown-route.js";
-export { generateLlmsFullTxt } from "./llms-txt.js";
+export { generateLlmsFullTxt, generateLlmsTxt } from "./llms-txt.js";
 
 // ---- dist/seo/json-ld.d.ts ----
 import type { SeoConfig } from "./types.js";
@@ -2280,12 +2280,17 @@ export declare function breadcrumbJsonLd(config: SeoConfig, items: {
 
 // ---- dist/seo/llms-txt.d.ts ----
 import type { ContentStore } from "../store.js";
+import type { SeoConfig } from "./types.js";
 import { type SliceMarkdownRegistry } from "./markdown-render.js";
 /** Generates a detailed, always-fresh markdown export of every page in the
  *  store: the "llms-full.txt" companion to a hand-curated llms.txt (this
  *  function does NOT replace a curated summary file: a hand-authored
  *  llms.txt still needs a human author for marketing copy). */
 export declare function generateLlmsFullTxt(store: ContentStore, renderOverrides?: SliceMarkdownRegistry): Promise<string>;
+/** The llms.txt index (llmstxt.org): the site name, its entity description as
+ *  the summary, then one link per indexable page with its description, and a
+ *  pointer to llms-full.txt for the whole text. Serve it at "/llms.txt". */
+export declare function generateLlmsTxt(store: ContentStore, config: SeoConfig): Promise<string>;
 
 // ---- dist/seo/markdown-render.d.ts ----
 import type { Slice } from "../types.js";

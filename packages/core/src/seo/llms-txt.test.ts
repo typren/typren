@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { generateLlmsFullTxt } from "./llms-txt";
+import { generateLlmsFullTxt, generateLlmsTxt } from "./llms-txt";
+import type { SeoConfig } from "./types";
 import { fakeStore } from "./test-fixtures";
 
 describe("generateLlmsFullTxt", () => {
@@ -36,5 +37,29 @@ describe("generateLlmsFullTxt", () => {
       { slug: "about", meta: { title: "About" }, slices: [{ slice: "hero", heading: "Hi" }] },
     ]);
     expect(await generateLlmsFullTxt(store)).toBe("# About\n\nHi");
+  });
+});
+
+describe("generateLlmsTxt", () => {
+  const config: SeoConfig = {
+    siteUrl: "https://example.com",
+    siteName: "Example",
+    entityDescription: "Example makes widgets.",
+    defaultTitle: "t",
+    defaultDescription: "d",
+    homeSlug: "home",
+  };
+
+  it("indexes every indexable page under the site summary", async () => {
+    const store = fakeStore([
+      { slug: "home", meta: { title: "Home", description: "Start here" } },
+      { slug: "about" },
+      { slug: "secret", meta: { noindex: true } },
+    ]);
+    expect(await generateLlmsTxt(store, config)).toBe(
+      "# Example\n\n> Example makes widgets.\n\n## Pages\n\n" +
+        "- [Home](https://example.com): Start here\n- [about](https://example.com/about)\n\n" +
+        "## Optional\n\n- [Full content](https://example.com/llms-full.txt): every page as one markdown document\n"
+    );
   });
 });
