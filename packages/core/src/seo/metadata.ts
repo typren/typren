@@ -47,7 +47,7 @@ export async function buildMetadata(
   locale?: string
 ): Promise<Metadata> {
   const meta = page.meta as PageSeoMeta;
-  const path = `/${slug}`;
+  const path = slug === config.homeSlug ? "/" : `/${slug}`;
   const loc = locale ?? i18n?.defaultLocale;
   const multiLocale = !!i18n && i18n.locales.length > 1 && !!loc;
   const url = meta.canonical ?? (multiLocale ? localizedPath(i18n, path, loc) : path);

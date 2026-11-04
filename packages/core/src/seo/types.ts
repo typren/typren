@@ -50,6 +50,9 @@ export type SeoConfig = {
   defaultDescription: string;
   /** e.g. "%s | Acme Inc". Omit for no template (title used as-is). */
   titleTemplate?: string;
+  /** Slug served at the site root, e.g. "home": its canonical is "/" rather
+   *  than "/home". buildSitemap's `homeSlug` option overrides it. */
+  homeSlug?: string;
   /** Slugs whose <title> opts out of titleTemplate (rendered via {absolute}). */
   bareTitleSlugs?: readonly string[];
   /** e.g. "/opengraph-image" (Next file-convention route) or an absolute URL. */

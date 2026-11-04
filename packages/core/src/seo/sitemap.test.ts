@@ -23,6 +23,12 @@ describe("buildSitemap", () => {
     expect(about).toMatchObject({ priority: 0.7, changeFrequency: "monthly" });
   });
 
+  it("falls back to config.homeSlug when the option is omitted", async () => {
+    const store = fakeStore([{ slug: "home" }]);
+    const entries = await buildSitemap(store, { ...config, homeSlug: "home" });
+    expect(entries[0]).toMatchObject({ url: config.siteUrl, priority: 1 });
+  });
+
   it("excludes pages with noindex frontmatter", async () => {
     const store = fakeStore([{ slug: "hidden", meta: { noindex: true } }]);
     expect(await buildSitemap(store, config)).toHaveLength(0);

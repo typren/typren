@@ -57,6 +57,11 @@ describe("buildMetadata", () => {
     expect(result.title).toEqual({ absolute: "Bare" });
   });
 
+  it("canonicalizes config.homeSlug to the site root", async () => {
+    const result = await buildMetadata(page({}), "home", { ...config, homeSlug: "home" }, parent);
+    expect(result.alternates).toEqual({ canonical: "/" });
+  });
+
   it("honors an explicit canonical override", async () => {
     const result = await buildMetadata(page({ canonical: "/custom" }), "about", config, parent);
     expect(result.alternates).toEqual({ canonical: "/custom" });
