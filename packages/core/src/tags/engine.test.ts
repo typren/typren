@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createTagEngine } from "./engine";
+import { createTagEngine, scriptJson } from "./engine";
 import { createGa4Adapter, createGtmAdapter, type TagAdapter, type TagProps } from "./adapters";
 
 const ga4 = createGa4Adapter({ measurementId: "G-TEST" });
@@ -82,5 +82,14 @@ describe("createTagEngine enabled and track", () => {
     engine.consent.set({ analytics: true, marketing: true });
     engine.track("cta_click");
     expect(a.track).not.toHaveBeenCalled();
+  });
+});
+
+describe("scriptJson", () => {
+  it("can't close the script tag or break a string, and still parses to the same value", () => {
+    const value = { a: "</script><script>alert(1)</script>\u2028\u2029" };
+    const out = scriptJson(value);
+    expect(out).not.toMatch(/[<>/\u2028\u2029]/);
+    expect(JSON.parse(out)).toEqual(value);
   });
 });

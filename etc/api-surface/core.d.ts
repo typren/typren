@@ -2988,6 +2988,9 @@ export type TagEngine = {
      *  Dropped, not queued, without consent. */
     track(event: string, props?: TagProps): void;
 };
+/** JSON safe to embed in inline script source: no `</script>`, and no line
+ *  separators that end a JS string early in older engines. */
+export declare function scriptJson(value: unknown): string;
 export declare function createTagEngine(opts: TagEngineOptions): TagEngine;
 
 // ---- dist/tags/index.d.ts ----

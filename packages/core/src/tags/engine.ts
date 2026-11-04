@@ -29,6 +29,20 @@ export type TagEngine = {
   track(event: string, props?: TagProps): void;
 };
 
+const SCRIPT_UNSAFE: Record<string, string> = {
+  "<": "\\u003c",
+  ">": "\\u003e",
+  "/": "\\u002f",
+  "\u2028": "\\u2028",
+  "\u2029": "\\u2029",
+};
+
+/** JSON safe to embed in inline script source: no `</script>`, and no line
+ *  separators that end a JS string early in older engines. */
+export function scriptJson(value: unknown): string {
+  return JSON.stringify(value).replace(/[<>/\u2028\u2029]/g, (c) => SCRIPT_UNSAFE[c]);
+}
+
 export function createTagEngine(opts: TagEngineOptions): TagEngine {
   const consent = createConsentStore(opts);
   const consentMode = opts.consentMode ?? "regional";
@@ -52,12 +66,12 @@ export function createTagEngine(opts: TagEngineOptions): TagEngine {
       const active = opts.adapters.filter((a) => prefs?.[a.category] || (regional && a.consentMode));
       if (!regional || !active.some((a) => a.consentMode)) return active.flatMap((a) => a.scripts());
       // Consent Mode needs its default before any Google tag runs.
-      const update = prefs ? `gtag('consent','update',${JSON.stringify(consentModeSignals(prefs))});` : "";
+      const update = prefs ? `gtag('consent','update',${scriptJson(consentModeSignals(prefs))});` : "";
       const defaults = { ...consentModeSignals({ analytics: false, marketing: false }), wait_for_update: 500 };
       return [
         {
           id: "typren-consent-mode",
-          inline: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('consent','default',${JSON.stringify(defaults)});${update}`,
+          inline: `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('consent','default',${scriptJson(defaults)});${update}`,
         },
         ...active.flatMap((a) => a.scripts()),
       ];
