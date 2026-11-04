@@ -153,7 +153,13 @@ describe("scaffold", () => {
       expect(fs.existsSync(path.join(dir, dropped))).toBe(false);
     }
 
-    expect(result.created.filter((f) => f.startsWith("src/app/"))).toEqual(["src/app/typren/section/page.tsx"]);
+    expect(result.created.filter((f) => f.startsWith("src/app/")).sort()).toEqual([
+      "src/app/llms-full.txt/route.ts",
+      "src/app/llms.txt/route.ts",
+      "src/app/robots.ts",
+      "src/app/sitemap.ts",
+      "src/app/typren/section/page.tsx",
+    ]);
     expect(fs.existsSync(path.join(dir, "src/cms-actions.ts"))).toBe(false);
     expect(fs.existsSync(path.join(dir, "next.config.ts"))).toBe(false);
 

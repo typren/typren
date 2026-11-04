@@ -41,7 +41,11 @@ that is non-empty wins, and the code value is the fallback:
 the read is async and the builders are synchronous, resolve the config once
 per request and pass the result in; a site that never calls
 `resolveSeoConfig` keeps rendering from its code config alone. `typren init`
-scaffolds a `seo.ts` that does this.
+scaffolds a `seo.ts` that does this, with `homeSlug: "home"` so the home
+page's canonical and sitemap URL are the site root, plus `app/sitemap.ts`,
+`app/robots.ts`, `app/llms.txt/route.ts` and `app/llms-full.txt/route.ts`
+wired to it. Page metadata and JSON-LD stay yours to place, since they depend
+on your layouts.
 
 ## Page metadata
 
