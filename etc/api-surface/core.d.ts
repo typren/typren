@@ -2357,7 +2357,7 @@ import type { SeoConfig } from "./types.js";
 /** AIO: named AI/answer-engine crawlers, explicitly allow-listed even though
  *  redundant with a wildcard allow, kept explicit as a one-line future
  *  revert point (a project may later decide to block training crawlers). */
-export declare const DEFAULT_AI_CRAWLERS: readonly ["GPTBot", "ChatGPT-User", "ClaudeBot", "Claude-Web", "anthropic-ai", "PerplexityBot", "Google-Extended", "CCBot"];
+export declare const DEFAULT_AI_CRAWLERS: readonly ["GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-SearchBot", "Claude-User", "PerplexityBot", "Perplexity-User", "Google-Extended", "Applebot-Extended", "Meta-ExternalAgent", "Amazonbot", "CCBot"];
 export declare function buildRobots(config: SeoConfig): MetadataRoute.Robots;
 
 // ---- dist/seo/site-settings.d.ts ----

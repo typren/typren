@@ -12,9 +12,9 @@ forced to pull in `next/server` or Next's `Metadata` types.
 ## Site Settings and `SeoConfig`
 
 Site Settings (brand name, logo, SEO title template, description, social
-image) are saved in the settings doc, editable in the studio and in the
-studio. The SEO layer applies them through one pure function, so a saved value
-changes what the site renders:
+image) are saved in the settings doc, editable in the studio. The SEO layer
+applies them through one pure function, so a saved value changes what the
+site renders:
 
 ```ts
 import { resolveSeoConfig } from "@typren/core/seo";
@@ -109,8 +109,10 @@ collection, say) — concat those yourself. Pass `i18n` with more than one
 locale to emit one entry per `(locale, slug)` with `alternates.languages`.
 
 `buildRobots` always allows `/` for `*` and for an explicit allowlist of
-named AI/answer-engine crawlers (`DEFAULT_AI_CRAWLERS`: GPTBot, ChatGPT-User,
-ClaudeBot, Claude-Web, anthropic-ai, PerplexityBot, Google-Extended, CCBot),
+named AI/answer-engine crawlers (`DEFAULT_AI_CRAWLERS`: GPTBot, OAI-SearchBot,
+ChatGPT-User, ClaudeBot, Claude-SearchBot, Claude-User, PerplexityBot,
+Perplexity-User, Google-Extended, Applebot-Extended, Meta-ExternalAgent,
+Amazonbot, CCBot),
 overridable via `config.aiCrawlers`. The allowlist is redundant with the
 wildcard `allow: "/"` today — it exists as a one-line revert point if a site
 later decides to block training crawlers.
