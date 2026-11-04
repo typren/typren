@@ -2832,6 +2832,150 @@ export declare function styleVars(style: Record<string, string> | undefined, map
  *  inline style on `<html>` beat it. */
 export declare function styleCss(style: Record<string, string> | undefined, map?: StyleMap): string;
 
+// ---- dist/tags/adapters.d.ts ----
+export type TagCategory = "analytics" | "marketing";
+export type TagProps = Record<string, string | number | boolean>;
+/** One script to inject: inline bootstrap code, an external `src`, or both. */
+export type TagScript = {
+    id: string;
+    inline?: string;
+    src?: string;
+};
+export type TagAdapter = {
+    name: string;
+    /** The consent category that must be granted before this tag loads. */
+    category: TagCategory;
+    /** The tag honours Google Consent Mode v2, so in "regional" mode it may
+     *  load before opt-in outside the EU/EEA/UK, with storage denied. */
+    consentMode?: boolean;
+    scripts(): TagScript[];
+    /** Forwards a site event. Runs in the browser, after `scripts()` loaded. */
+    track?(event: string, props?: TagProps): void;
+};
+declare global {
+    interface Window {
+        dataLayer?: unknown[];
+        gtag?: (...args: unknown[]) => void;
+        fbq?: (...args: unknown[]) => void;
+    }
+}
+export type GtmAdapterOptions = {
+    /** e.g. "GTM-ABC123". */
+    containerId: string;
+    /** Defaults to "marketing": a container can fire any vendor's tags. */
+    category?: TagCategory;
+    /** Load before opt-in under Consent Mode. Only safe when every tag in the
+     *  container checks consent itself; defaults to false. */
+    consentMode?: boolean;
+};
+export declare function createGtmAdapter(opts: GtmAdapterOptions): TagAdapter;
+export type Ga4AdapterOptions = {
+    measurementId: string;
+};
+export declare function createGa4Adapter(opts: Ga4AdapterOptions): TagAdapter;
+export type MetaPixelAdapterOptions = {
+    pixelId: string;
+};
+export declare function createMetaPixelAdapter(opts: MetaPixelAdapterOptions): TagAdapter;
+export type ScriptAdapterOptions = {
+    /** Unique per site; also the script element's id. */
+    name: string;
+    /** An https URL, e.g. HubSpot's "https://js.hs-scripts.com/<portal>.js". */
+    src: string;
+    category: TagCategory;
+};
+/** Any vendor loaded from one script URL with no event API of its own, e.g.
+ *  HubSpot tracking, LinkedIn Insight, Hotjar. */
+export declare function createScriptAdapter(opts: ScriptAdapterOptions): TagAdapter;
+
+// ---- dist/tags/consent.d.ts ----
+/** `essential` is always on and is never stored as a choice. */
+export type ConsentCategory = "essential" | "analytics" | "marketing";
+/** The two categories a visitor decides on. */
+export type ConsentPrefs = {
+    analytics: boolean;
+    marketing: boolean;
+};
+/** What the cookie holds. */
+export type StoredConsent = ConsentPrefs & {
+    essential: true;
+    /** Policy version the decision was made under. */
+    v: string;
+    /** Epoch ms the decision was recorded. */
+    ts: number;
+};
+export type ConsentStoreOptions = {
+    /** Bump whenever the tags or cookie policy materially change: a decision
+     *  recorded under another version reads as unset, so the banner asks again. */
+    policyVersion: string;
+    /** Defaults to "typren-consent". */
+    cookieName?: string;
+    /** Defaults to 183 days, the CNIL-recommended ceiling of six months. */
+    maxAgeDays?: number;
+};
+export type ConsentStore = {
+    /** The decision, or null when unset, malformed, under a stale policy
+     *  version, or on the server. */
+    get(): StoredConsent | null;
+    /** Record an explicit decision. Call it only from a visitor's action, never
+     *  to pre-seed a default. */
+    set(prefs: ConsentPrefs): void;
+    /** Called after every `set`, from any store with the same cookie name. */
+    subscribe(listener: () => void): () => void;
+    /** Asks the site's banner to reopen, e.g. from a footer "Cookie settings" link. */
+    openSettings(): void;
+    /** The window event `openSettings` dispatches; the banner listens for it. */
+    openEvent: string;
+};
+export declare function createConsentStore(opts: ConsentStoreOptions): ConsentStore;
+/** Whether the visitor is likely in the EU/EEA/UK, where nothing may load
+ *  before opt-in. True on the server and whenever it can't tell. */
+export declare function isStrictConsentRegion(): boolean;
+/** Google Consent Mode v2 signals: analytics → analytics_storage, marketing →
+ *  the three ad_* signals. */
+export declare function consentModeSignals(prefs: ConsentPrefs): {
+    analytics_storage: string;
+    ad_storage: string;
+    ad_user_data: string;
+    ad_personalization: string;
+};
+
+// ---- dist/tags/engine.d.ts ----
+import { type ConsentPrefs, type ConsentStore, type ConsentStoreOptions } from "./consent.js";
+import type { TagAdapter, TagProps, TagScript } from "./adapters.js";
+export type TagEngineOptions = ConsentStoreOptions & {
+    adapters: TagAdapter[];
+    /** "regional" (default): strict opt-in in the EU/EEA/UK; elsewhere tags
+     *  that honour Consent Mode load at once with storage denied until opt-in.
+     *  "strict": nothing loads before opt-in, anywhere. */
+    consentMode?: "regional" | "strict";
+    /** Tags load only on this hostname, so staging, previews and localhost
+     *  sharing the bundle never report into production properties. Omit to
+     *  load on every host. */
+    productionHost?: string;
+    /** Kill switch that wins over any consent, e.g. for a preview environment. */
+    disabled?: boolean;
+};
+export type TagEngine = {
+    consent: ConsentStore;
+    consentMode: "regional" | "strict";
+    /** Whether tags may run on this page at all: not disabled, and on the
+     *  production host when one is set. Always false on the server. */
+    enabled(): boolean;
+    /** The scripts to have on the page, in order, for a consent decision and
+     *  region. Pure, so a loader re-renders from it on every change. */
+    scripts(prefs: ConsentPrefs | null, strict: boolean): TagScript[];
+    /** Sends a site event to every tag whose category the visitor granted.
+     *  Dropped, not queued, without consent. */
+    track(event: string, props?: TagProps): void;
+};
+export declare function createTagEngine(opts: TagEngineOptions): TagEngine;
+
+// ---- dist/tags/index.d.ts ----
+export { createConsentStore, isStrictConsentRegion, consentModeSignals, type ConsentCategory, type ConsentPrefs, type StoredConsent, type ConsentStore, type ConsentStoreOptions, } from "./consent.js";
+export { createGtmAdapter, createGa4Adapter, createMetaPixelAdapter, createScriptAdapter, type TagAdapter, type TagCategory, type TagProps, type TagScript, type GtmAdapterOptions, type Ga4AdapterOptions, type MetaPixelAdapterOptions, type ScriptAdapterOptions, } from "./adapters.js";
+export { createTagEngine, type TagEngine, type TagEngineOptions } from "./engine.js";
+
 // ---- dist/templates/init.d.ts ----
 export declare const TYPREN_BOOTSTRAP_MARKER = "typren:bootstrap-wired";
 /** Every file \`typren init\` scaffolds, keyed by path relative to the
@@ -3262,6 +3406,24 @@ export declare function createCanvas<C>({ renderer, registry }: Readonly<{
 }>) => import("react").JSX.Element | null;
 export {};
 
+// ---- dist/ui/consent-banner.d.ts ----
+import { type ReactNode } from "react";
+import type { ConsentStore } from "../tags/consent.js";
+export type ConsentBannerProps = {
+    store: ConsentStore;
+    /** Link to the site's cookie policy. */
+    policyHref?: string;
+    heading?: ReactNode;
+    body?: ReactNode;
+};
+/**
+ * A default consent banner: Accept all, Reject non-essential, or per-category
+ * settings. Shows until the visitor decides, and again whenever
+ * `store.openSettings()` is called. Escape never counts as a decision. Sites
+ * that want their own build it on `useConsent` and the same store instead.
+ */
+export declare function ConsentBanner({ store, policyHref, heading, body, }: ConsentBannerProps): import("react").JSX.Element | null;
+
 // ---- dist/ui/i18n-strings.d.ts ----
 import type { Messages } from "../i18n.js";
 /**
@@ -3458,6 +3620,24 @@ export declare function TyprenStyle({ store, map, locale }: Readonly<{
     map?: StyleMap;
     locale?: string;
 }>): Promise<import("react").JSX.Element | null>;
+
+// ---- dist/ui/typren-tags.d.ts ----
+import { type ConsentPrefs, type ConsentStore } from "../tags/consent.js";
+import type { TagEngine } from "../tags/engine.js";
+/** The visitor's live consent decision, for a custom banner or settings panel.
+ *  Undecided on the server and during hydration. */
+export declare function useConsent(store: ConsentStore): ConsentPrefs & {
+    decided: boolean;
+};
+/**
+ * Puts the engine's tags on the page as consent allows. Mount it once in the
+ * root layout, from a client module that creates the engine (a server layout
+ * can't pass the engine's functions down). Renders nothing on the server, so
+ * no tag is ever in the HTML.
+ */
+export declare function TyprenTags({ engine }: {
+    engine: TagEngine;
+}): ("" | import("react").JSX.Element | undefined)[] | null;
 
 // ---- dist/version.d.ts ----
 /** Content version = SHA-256 of the raw file text, truncated. Deterministic and

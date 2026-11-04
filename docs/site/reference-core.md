@@ -583,11 +583,30 @@ Metadata, sitemap, robots, JSON-LD, markdown mirror, and `llms.txt`/`llms-full.t
 | `generateLlmsFullTxt(store, renderOverrides?)` | `(store: ContentStore, renderOverrides?: SliceMarkdownRegistry) => Promise<string>` | The always-fresh "llms-full.txt": every indexable page as one markdown document. |
 | `generateLlmsTxt(store, config)` | `(store: ContentStore, config: SeoConfig) => Promise<string>` | The llms.txt index: site name, `entityDescription` summary, one link per indexable page, and a link to llms-full.txt. |
 
-`SeoConfig`: `{ siteUrl, siteName, entityDescription, defaultTitle, defaultDescription, titleTemplate?, bareTitleSlugs?, defaultOgImage?, organization?, aiCrawlers?, sliceJsonLd? }`. `PageSeoMeta` (per-page frontmatter): `{ title?, description?, ogImage?, canonical?, noindex?, keywords?, sitemap?: { priority?, changeFrequency?, lastModified? } }`. `SliceJsonLd<P>` is `(props: P) => object | object[] | null`; never throws on missing/malformed props, returns `null` instead.
+`SeoConfig`: `{ siteUrl, siteName, entityDescription, defaultTitle, defaultDescription, titleTemplate?, homeSlug?, bareTitleSlugs?, defaultOgImage?, organization?, aiCrawlers?, sliceJsonLd? }`. `PageSeoMeta` (per-page frontmatter): `{ title?, description?, ogImage?, canonical?, noindex?, keywords?, sitemap?: { priority?, changeFrequency?, lastModified? } }`. `SliceJsonLd<P>` is `(props: P) => object | object[] | null`; never throws on missing/malformed props, returns `null` instead.
 
 ### Errors
 
 Nothing in `./seo` throws on bad content; malformed or missing fields degrade to defaults or `null` rather than failing a page render.
+
+## "./tags"
+
+Consent-gated third-party tags: a consent store, a tag engine, and one adapter per vendor. Framework-free and SSR-safe. See [Tags and consent](./tags-and-consent.md).
+
+| Export | Signature | Notes |
+|---|---|---|
+| `createConsentStore(opts)` | `(opts: ConsentStoreOptions) => ConsentStore` | One first-party cookie (default `typren-consent`, 183 days). `get()` is null when undecided, malformed, under another `policyVersion`, or on the server. Stores with one cookie name stay in step through a window event. |
+| `isStrictConsentRegion()` | `() => boolean` | EU/EEA/UK by browser timezone; true on the server or when unknown. |
+| `consentModeSignals(prefs)` | `(prefs: ConsentPrefs) => Record<string, "granted" \| "denied">` | Google Consent Mode v2: analytics → `analytics_storage`, marketing → `ad_storage`, `ad_user_data`, `ad_personalization`. |
+| `createTagEngine(opts)` | `(opts: TagEngineOptions) => TagEngine` | `consentMode` `"regional"` (default) or `"strict"`; `productionHost`, `disabled`. `scripts(prefs, strict)` is pure; `track(event, props?)` reaches granted categories only. |
+| `createGtmAdapter(opts)` | `(opts: { containerId; category?; consentMode? }) => TagAdapter` | Marketing, gated before opt-in unless `consentMode: true`. Events go onto `dataLayer`. |
+| `createGa4Adapter(opts)` | `(opts: { measurementId }) => TagAdapter` | Analytics, honours Consent Mode. Events via `gtag('event')`. |
+| `createMetaPixelAdapter(opts)` | `(opts: { pixelId }) => TagAdapter` | Marketing. Meta standard event names go out as `track`, others as `trackCustom`. |
+| `createScriptAdapter(opts)` | `(opts: { name; src; category }) => TagAdapter` | Any one-URL vendor script; `src` must be https. |
+
+### Errors
+
+The adapter factories throw on an ID, name or URL that doesn't match the vendor's shape, since it is written into script source. `createTagEngine` throws on two adapters with one name; `createConsentStore` on a cookie name outside `[A-Za-z0-9_-]`.
 
 ## "./auth/local"
 
@@ -780,6 +799,10 @@ Vanilla (non-React) studio UI helpers, used by `@typren/studio` and by any host 
 | `initPreviewBridge(allowedOrigin?)` | `(allowedOrigin?: string) => () => void` | Attaches the preview bridge's listeners and injects its stylesheet into `document.head` (once). Returns a cleanup function. Runs inside the preview iframe's own document, never the studio's shadow tree. |
 
 > **Security:** `initPreviewBridge`'s `allowedOrigin` is the one origin the bridge will post to and accept messages from. Omitted, it defaults to `window.location.origin` (same-origin only, for local/self-host setups). A hosted dashboard framing a customer's site is cross-origin by definition and must pass its own origin explicitly; this is never `"*"`, the channel always compares against one explicit value. A value that is not a bare http(s) origin (`"*"`, `"null"`, an empty string, a URL with a path) leaves the bridge inert: no listeners, no messages.
+
+| `TyprenTags({ engine })` | `(props: { engine: TagEngine }) => JSX.Element[] \| null` | React client component (`./ui/typren-tags`). Mounts the engine's scripts through `next/script` as consent and region allow; nothing on the server. |
+| `useConsent(store)` | `(store: ConsentStore) => ConsentPrefs & { decided: boolean }` | React hook (`./ui/typren-tags`) for a custom banner. |
+| `ConsentBanner({ store, policyHref?, heading?, body? })` | `(props: ConsentBannerProps) => JSX.Element \| null` | React client component (`./ui/consent-banner`). Accept all, Reject non-essential, per-category settings; styled from `--typren-*` site tokens. Reopens on `store.openSettings()`. |
 
 ### Errors
 
