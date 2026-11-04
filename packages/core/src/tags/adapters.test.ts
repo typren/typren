@@ -1,10 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createGa4Adapter, createGtmAdapter, createMetaPixelAdapter, createScriptAdapter } from "./adapters";
+import {
+  createGa4Adapter,
+  createGtmAdapter,
+  createHubSpotAdapter,
+  createLinkedInInsightAdapter,
+  createMetaPixelAdapter,
+  createScriptAdapter,
+} from "./adapters";
 
 afterEach(() => {
   delete window.dataLayer;
   delete window.gtag;
   delete window.fbq;
+  delete window._hsq;
+  delete window.lintrk;
 });
 
 describe("createGtmAdapter", () => {
@@ -54,10 +63,55 @@ describe("createMetaPixelAdapter", () => {
   });
 });
 
+describe("createHubSpotAdapter", () => {
+  it("loads the portal's tracking script, from the EU host for an EU portal", () => {
+    expect(createHubSpotAdapter({ portalId: "123456" }).scripts()).toEqual([
+      { id: "hs-script-loader", src: "https://js.hs-scripts.com/123456.js" },
+    ]);
+    expect(createHubSpotAdapter({ portalId: "1", region: "eu1" }).scripts()[0].src).toBe("https://js-eu1.hs-scripts.com/1.js");
+  });
+
+  it("sends events as custom behavioral events", () => {
+    const hubspot = createHubSpotAdapter({ portalId: "1" });
+    hubspot.track?.("pe1_demo_requested", { plan: "pro" });
+    hubspot.track?.("pe1_viewed");
+    expect(window._hsq).toEqual([
+      ["trackCustomBehavioralEvent", { name: "pe1_demo_requested", properties: { plan: "pro" } }],
+      ["trackCustomBehavioralEvent", { name: "pe1_viewed", properties: {} }],
+    ]);
+  });
+
+  it("refuses a non-numeric portal ID", () => {
+    expect(() => createHubSpotAdapter({ portalId: "1.js?x" })).toThrow(/Invalid HubSpot portal ID/);
+  });
+});
+
+describe("createLinkedInInsightAdapter", () => {
+  it("registers the partner and loads the Insight tag", () => {
+    const [script] = createLinkedInInsightAdapter({ partnerId: "123" }).scripts();
+    expect(script.inline).toContain("push('123')");
+    expect(script.src).toBe("https://snap.licdn.com/li.lms-analytics/insight.min.js");
+  });
+
+  it("sends only mapped events, as their conversion ID", () => {
+    window.lintrk = vi.fn();
+    const linkedin = createLinkedInInsightAdapter({ partnerId: "123", conversions: { Lead: 987 } });
+    linkedin.track?.("Lead");
+    linkedin.track?.("cta_click");
+    linkedin.track?.("toString");
+    expect(window.lintrk).toHaveBeenCalledOnce();
+    expect(window.lintrk).toHaveBeenCalledWith("track", { conversion_id: 987 });
+  });
+
+  it("refuses a non-numeric partner ID", () => {
+    expect(() => createLinkedInInsightAdapter({ partnerId: "1');x('" })).toThrow(/Invalid LinkedIn partner ID/);
+  });
+});
+
 describe("createScriptAdapter", () => {
   it("loads one https script under its category", () => {
-    const hubspot = createScriptAdapter({ name: "hubspot", src: "https://js.hs-scripts.com/1.js", category: "marketing" });
-    expect(hubspot.scripts()).toEqual([{ id: "typren-hubspot", src: "https://js.hs-scripts.com/1.js" }]);
+    const hotjar = createScriptAdapter({ name: "hotjar", src: "https://static.hotjar.com/c/hotjar.js", category: "analytics" });
+    expect(hotjar.scripts()).toEqual([{ id: "typren-hotjar", src: "https://static.hotjar.com/c/hotjar.js" }]);
   });
 
   it("refuses a plain-http src and an unsafe name", () => {

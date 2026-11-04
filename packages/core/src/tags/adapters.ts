@@ -25,6 +25,8 @@ declare global {
     dataLayer?: unknown[];
     gtag?: (...args: unknown[]) => void;
     fbq?: (...args: unknown[]) => void;
+    _hsq?: unknown[];
+    lintrk?: (...args: unknown[]) => void;
   }
 }
 
@@ -125,16 +127,66 @@ export function createMetaPixelAdapter(opts: MetaPixelAdapterOptions): TagAdapte
   };
 }
 
+export type HubSpotAdapterOptions = {
+  /** The numeric Hub ID. */
+  portalId: string;
+  /** "eu1" for a portal hosted in HubSpot's EU data centre. */
+  region?: "eu1";
+};
+
+/** HubSpot tracking: page views, form and chat attribution, and custom
+ *  behavioral events (Marketing Hub Enterprise; ignored on lower tiers). */
+export function createHubSpotAdapter(opts: HubSpotAdapterOptions): TagAdapter {
+  const id = checked(opts.portalId, /^\d+$/, "HubSpot portal ID");
+  const host = opts.region ? `js-${opts.region}.hs-scripts.com` : "js.hs-scripts.com";
+  return {
+    name: "hubspot",
+    category: "marketing",
+    scripts: () => [{ id: "hs-script-loader", src: `https://${host}/${id}.js` }],
+    track(event, props) {
+      (window._hsq ??= []).push(["trackCustomBehavioralEvent", { name: event, properties: props ?? {} }]);
+    },
+  };
+}
+
+export type LinkedInInsightAdapterOptions = {
+  /** The numeric partner ID from Campaign Manager. */
+  partnerId: string;
+  /** Site event name → LinkedIn conversion ID. LinkedIn counts conversions
+   *  by ID only, so an event with no entry here is not sent. */
+  conversions?: Record<string, number>;
+};
+
+export function createLinkedInInsightAdapter(opts: LinkedInInsightAdapterOptions): TagAdapter {
+  const id = checked(opts.partnerId, /^\d+$/, "LinkedIn partner ID");
+  const conversions = opts.conversions ?? {};
+  return {
+    name: "linkedin-insight",
+    category: "marketing",
+    scripts: () => [
+      {
+        id: "typren-linkedin-insight",
+        inline: `window._linkedin_data_partner_ids=window._linkedin_data_partner_ids||[];window._linkedin_data_partner_ids.push('${id}');(function(l){if(!l){window.lintrk=function(a,b){window.lintrk.q.push([a,b])};window.lintrk.q=[]}})(window.lintrk);`,
+        src: "https://snap.licdn.com/li.lms-analytics/insight.min.js",
+      },
+    ],
+    track(event) {
+      const conversion = Object.hasOwn(conversions, event) ? conversions[event] : undefined;
+      if (conversion !== undefined) window.lintrk?.("track", { conversion_id: conversion });
+    },
+  };
+}
+
 export type ScriptAdapterOptions = {
   /** Unique per site; also the script element's id. */
   name: string;
-  /** An https URL, e.g. HubSpot's "https://js.hs-scripts.com/<portal>.js". */
+  /** An https URL. */
   src: string;
   category: TagCategory;
 };
 
 /** Any vendor loaded from one script URL with no event API of its own, e.g.
- *  HubSpot tracking, LinkedIn Insight, Hotjar. */
+ *  Hotjar or Microsoft Clarity. */
 export function createScriptAdapter(opts: ScriptAdapterOptions): TagAdapter {
   const name = checked(opts.name, /^[a-z0-9-]+$/, "script adapter name");
   if (new URL(opts.src).protocol !== "https:") throw new Error(`Script adapter "${name}" needs an https src`);

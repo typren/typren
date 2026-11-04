@@ -1,6 +1,6 @@
 ---
 title: Tags and consent
-description: Load Google Tag Manager, GA4, the Meta Pixel and other vendor tags behind visitor consent, with Google Consent Mode v2.
+description: Load Google Tag Manager, GA4, the Meta Pixel, HubSpot, LinkedIn Insight and other vendor tags behind visitor consent, with Google Consent Mode v2.
 category: Guides
 order: 22
 ---
@@ -15,7 +15,9 @@ out to them. Adapters follow the same shape as every other Typren adapter: a
 | `createGtmAdapter({ containerId })` | marketing | opt-in (`consentMode: true`) | pushed onto `dataLayer` |
 | `createGa4Adapter({ measurementId })` | analytics | yes | `gtag('event', …)` |
 | `createMetaPixelAdapter({ pixelId })` | marketing | no | `fbq('track' \| 'trackCustom', …)` |
-| `createScriptAdapter({ name, src, category })` | yours | no | none (HubSpot, LinkedIn Insight, Hotjar, …) |
+| `createHubSpotAdapter({ portalId, region? })` | marketing | no | `_hsq` custom behavioral events (Marketing Hub Enterprise) |
+| `createLinkedInInsightAdapter({ partnerId, conversions? })` | marketing | no | `lintrk('track', { conversion_id })` for mapped events only |
+| `createScriptAdapter({ name, src, category })` | yours | no | none (Hotjar, Microsoft Clarity, …) |
 
 IDs are validated to their vendor's shape, because they are written into
 inline script source.
@@ -95,7 +97,11 @@ tags.track("Lead", { form: "contact" });
 `track` reaches every adapter whose category the visitor granted, and is
 dropped, never queued, without consent. Use Meta's standard event names
 (`Lead`, `Contact`, `Subscribe`, …) where one fits: anything else goes out as
-a custom event.
+a custom event. LinkedIn counts conversions by numeric ID only, so map the
+events you want counted: `createLinkedInInsightAdapter({ partnerId,
+conversions: { Lead: 123456 } })`; unmapped events are not sent. Pass
+`region: "eu1"` to the HubSpot adapter for a portal in HubSpot's EU data
+centre.
 
 ## Your own banner
 

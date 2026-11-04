@@ -2857,6 +2857,8 @@ declare global {
         dataLayer?: unknown[];
         gtag?: (...args: unknown[]) => void;
         fbq?: (...args: unknown[]) => void;
+        _hsq?: unknown[];
+        lintrk?: (...args: unknown[]) => void;
     }
 }
 export type GtmAdapterOptions = {
@@ -2877,15 +2879,32 @@ export type MetaPixelAdapterOptions = {
     pixelId: string;
 };
 export declare function createMetaPixelAdapter(opts: MetaPixelAdapterOptions): TagAdapter;
+export type HubSpotAdapterOptions = {
+    /** The numeric Hub ID. */
+    portalId: string;
+    /** "eu1" for a portal hosted in HubSpot's EU data centre. */
+    region?: "eu1";
+};
+/** HubSpot tracking: page views, form and chat attribution, and custom
+ *  behavioral events (Marketing Hub Enterprise; ignored on lower tiers). */
+export declare function createHubSpotAdapter(opts: HubSpotAdapterOptions): TagAdapter;
+export type LinkedInInsightAdapterOptions = {
+    /** The numeric partner ID from Campaign Manager. */
+    partnerId: string;
+    /** Site event name → LinkedIn conversion ID. LinkedIn counts conversions
+     *  by ID only, so an event with no entry here is not sent. */
+    conversions?: Record<string, number>;
+};
+export declare function createLinkedInInsightAdapter(opts: LinkedInInsightAdapterOptions): TagAdapter;
 export type ScriptAdapterOptions = {
     /** Unique per site; also the script element's id. */
     name: string;
-    /** An https URL, e.g. HubSpot's "https://js.hs-scripts.com/<portal>.js". */
+    /** An https URL. */
     src: string;
     category: TagCategory;
 };
 /** Any vendor loaded from one script URL with no event API of its own, e.g.
- *  HubSpot tracking, LinkedIn Insight, Hotjar. */
+ *  Hotjar or Microsoft Clarity. */
 export declare function createScriptAdapter(opts: ScriptAdapterOptions): TagAdapter;
 
 // ---- dist/tags/consent.d.ts ----
@@ -2973,7 +2992,7 @@ export declare function createTagEngine(opts: TagEngineOptions): TagEngine;
 
 // ---- dist/tags/index.d.ts ----
 export { createConsentStore, isStrictConsentRegion, consentModeSignals, type ConsentCategory, type ConsentPrefs, type StoredConsent, type ConsentStore, type ConsentStoreOptions, } from "./consent.js";
-export { createGtmAdapter, createGa4Adapter, createMetaPixelAdapter, createScriptAdapter, type TagAdapter, type TagCategory, type TagProps, type TagScript, type GtmAdapterOptions, type Ga4AdapterOptions, type MetaPixelAdapterOptions, type ScriptAdapterOptions, } from "./adapters.js";
+export { createGtmAdapter, createGa4Adapter, createMetaPixelAdapter, createHubSpotAdapter, createLinkedInInsightAdapter, createScriptAdapter, type TagAdapter, type TagCategory, type TagProps, type TagScript, type GtmAdapterOptions, type Ga4AdapterOptions, type MetaPixelAdapterOptions, type HubSpotAdapterOptions, type LinkedInInsightAdapterOptions, type ScriptAdapterOptions, } from "./adapters.js";
 export { createTagEngine, type TagEngine, type TagEngineOptions } from "./engine.js";
 
 // ---- dist/templates/init.d.ts ----

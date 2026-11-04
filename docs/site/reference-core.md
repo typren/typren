@@ -602,6 +602,8 @@ Consent-gated third-party tags: a consent store, a tag engine, and one adapter p
 | `createGtmAdapter(opts)` | `(opts: { containerId; category?; consentMode? }) => TagAdapter` | Marketing, gated before opt-in unless `consentMode: true`. Events go onto `dataLayer`. |
 | `createGa4Adapter(opts)` | `(opts: { measurementId }) => TagAdapter` | Analytics, honours Consent Mode. Events via `gtag('event')`. |
 | `createMetaPixelAdapter(opts)` | `(opts: { pixelId }) => TagAdapter` | Marketing. Meta standard event names go out as `track`, others as `trackCustom`. |
+| `createHubSpotAdapter(opts)` | `(opts: { portalId; region?: "eu1" }) => TagAdapter` | Marketing. Loads the portal's tracking script; events via `_hsq` `trackCustomBehavioralEvent`. |
+| `createLinkedInInsightAdapter(opts)` | `(opts: { partnerId; conversions?: Record<string, number> }) => TagAdapter` | Marketing. Events named in `conversions` fire `lintrk('track', { conversion_id })`; others are not sent. |
 | `createScriptAdapter(opts)` | `(opts: { name; src; category }) => TagAdapter` | Any one-URL vendor script; `src` must be https. |
 
 ### Errors
