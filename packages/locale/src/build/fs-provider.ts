@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import type { Catalog } from "../types";
+import { ALIASES_FILE } from "./aliases-file";
 import type { LocaleSourceProvider } from "./provider";
 import { normalizeLocaleKey } from "./provider";
 
 function listJsonFiles(dir: string): string[] {
-  return readdirSync(dir).filter((file) => extname(file) === ".json");
+  return readdirSync(dir).filter((file) => extname(file) === ".json" && file !== ALIASES_FILE);
 }
 
 /**

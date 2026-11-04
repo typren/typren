@@ -17,15 +17,33 @@ export interface ManifestEntry {
   deltas?: Record<string, string>;
 }
 
+export interface ManifestSignature {
+  /** Matches a TrustedKey.kid the app embeds. */
+  kid: string;
+  /** ECDSA P-256 over SHA-256; the only accepted value. */
+  alg: "ES256";
+  /** base64url of the raw 64-byte r||s (IEEE P1363) signature WebCrypto emits. */
+  sig: string;
+}
+
+export type TrustedKey = { kid: string; jwk: JsonWebKey } | { kid: string; spki: string };
+
 /** Per {app,lang} content hash, published alongside each release. */
 export interface Manifest {
   v: 1;
   buildVersion: string;
+  /** Monotonic per manifest URL. Optional in the type because the manifest is untrusted input the verifier validates. */
+  sequence?: number;
+  /** ISO 8601. */
+  issuedAt?: string;
+  /** ISO 8601. */
+  expiresAt?: string;
   apps: {
     [app: string]: {
       [lang: string]: ManifestEntry;
     };
   };
+  signature?: ManifestSignature;
 }
 
 /** Flat dot-path delta between two catalogs. */

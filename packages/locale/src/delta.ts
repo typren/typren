@@ -10,7 +10,7 @@ import type { Catalog, Delta } from "./types";
  */
 export const UNSAFE_KEYS: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
 
-function flatten(catalog: Catalog, prefix = ""): Record<string, string> {
+export function flatten(catalog: Catalog, prefix = ""): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(catalog)) {
     if (UNSAFE_KEYS.has(key)) continue;

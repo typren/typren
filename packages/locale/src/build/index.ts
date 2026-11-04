@@ -1,7 +1,9 @@
 export type { BuildOptions, BuildResult, PublishedDelta } from "./catalog";
 export { buildCatalogs, writeDelta } from "./catalog";
 export type { BuildConfig } from "./config";
-export { resolveConfigEnv, collectEnvVarNames } from "./config";
+export { resolveConfigEnv, collectEnvVarNames, readPublicKeys } from "./config";
+export { generateSigningKey, parseSigningKey, signManifest, SIGNING_KEY_ENV } from "../sign";
+export type { SigningKey } from "../sign";
 export type { FilesSourceConfig, LocaleSourceProvider, SourceConfig } from "./provider";
 export { normalizeLocaleKey } from "./provider";
 export { createFsSourceProvider } from "./fs-provider";
@@ -13,3 +15,4 @@ export { createNodePurifier } from "./node-purifier";
 export { resolveProvider } from "./resolve-provider";
 export type { FilenameStyle, WriteLocaleFilesOptions } from "./write-locale-files";
 export { writeLocaleFiles } from "./write-locale-files";
+export { ALIASES_FILE, readAliasesFile } from "./aliases-file";

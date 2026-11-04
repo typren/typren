@@ -1,10 +1,16 @@
 import { resolveProvider, writeLocaleFiles, type FilenameStyle } from "../build";
+import { applyAliasCopies, validateAliases } from "../aliases";
+import { aliasesPathFor, readAliasesFile } from "../build/aliases-file";
 import { readConfigFile } from "./config-file";
+import { EXIT_FAILURE, printJson } from "./output";
 
 export interface PullOptions {
   configPath: string;
   outDir?: string;
   filenameStyle?: FilenameStyle;
+  emitAliases?: boolean;
+  aliasesPath?: string;
+  defaultLocale?: string;
 }
 
 export type PullResult =
@@ -37,15 +43,29 @@ export async function runPull(opts: PullOptions): Promise<PullResult> {
     return { ok: false, error: `failed to load source: ${e instanceof Error ? e.message : String(e)}` };
   }
 
+  if (opts.emitAliases) {
+    try {
+      const path = aliasesPathFor(config.source, opts.aliasesPath);
+      const aliases = path ? readAliasesFile(path) : undefined;
+      if (!aliases) return { ok: false, error: "--emit-aliases needs an alias file (pass --aliases <path>)" };
+      const problems = validateAliases(aliases, catalogs, opts.defaultLocale ?? config.defaultLocale);
+      if (problems.length) return { ok: false, error: `invalid aliases: ${problems.join("; ")}` };
+      catalogs = Object.fromEntries(Object.entries(catalogs).map(([l, c]) => [l, applyAliasCopies(c, aliases)]));
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   const outDir = opts.outDir ?? "./locales";
   const paths = writeLocaleFiles(catalogs, outDir, { filenameStyle: opts.filenameStyle });
   return { ok: true, app: config.app, outDir, paths };
 }
 
-export function printPullResult(result: PullResult): void {
+export function printPullResult(result: PullResult, opts: { json?: boolean } = {}): void {
+  if (!result.ok) process.exitCode = EXIT_FAILURE;
+  if (opts.json) return printJson(result);
   if (!result.ok) {
     console.error(`typren-locale pull: ${result.error}`);
-    process.exitCode = 1;
     return;
   }
   const locales = Object.keys(result.paths);
@@ -62,5 +82,9 @@ export const PULL_HELP = `usage: typren-locale pull --config <path> [options]
   --config <path>              Build config file (required).
   --out <dir>                  Target directory (default ./locales).
   --filename-style <style>     "dash" (default) or "underscore" filenames.
+  --emit-aliases               Write aliased old keys as copies of their targets, for i18n libraries
+                               without a missing-key hook; output is a build artifact, not a source dir.
+  --aliases <path>             Alias file (default <dir>/_aliases.json for a files source).
+  --default-locale <tag>       Default catalog alias targets are checked against.
   --help                       Show this help.
 `;
