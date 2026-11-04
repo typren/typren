@@ -12,8 +12,10 @@ export async function generateLlmsFullTxt(store: ContentStore, renderOverrides?:
   const slugs = await store.listSlugs();
   const sections = await mapLimit(slugs, FANOUT_LIMIT, async (slug) => {
     const page = await store.getPublished(slug);
+    // A page kept out of search is kept out of the AI surfaces too.
+    if (page.meta.noindex === true) return null;
     const title = typeof page.meta.title === "string" ? page.meta.title : slug;
     return `# ${title}\n\n${renderSlicesAsMarkdown(page.slices, renderOverrides)}`;
   });
-  return sections.join("\n\n---\n\n");
+  return sections.filter((s) => s !== null).join("\n\n---\n\n");
 }

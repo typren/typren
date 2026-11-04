@@ -29,4 +29,12 @@ describe("generateLlmsFullTxt", () => {
     await generateLlmsFullTxt(store);
     expect(store.listPagesCalls).toBe(0);
   });
+
+  it("leaves out noindex pages", async () => {
+    const store = fakeStore([
+      { slug: "secret", meta: { title: "Secret", noindex: true }, slices: [{ slice: "hero", heading: "Hidden" }] },
+      { slug: "about", meta: { title: "About" }, slices: [{ slice: "hero", heading: "Hi" }] },
+    ]);
+    expect(await generateLlmsFullTxt(store)).toBe("# About\n\nHi");
+  });
 });
