@@ -439,6 +439,12 @@ describe("resolveReviewPaths", () => {
     expect(paths.seoRegistryFile).toBe("slices/seo-registry.ts");
   });
 
+  it("reads the scaffolded seo.ts when it exists", () => {
+    fs.mkdirSync(path.join(dir, "src"));
+    fs.writeFileSync(path.join(dir, "src/seo.ts"), "");
+    expect(resolveReviewPaths(dir).seoFile).toBe("src/seo.ts");
+  });
+
   it("lets typren.config.json's review key override individual paths, leaving the rest auto-detected", () => {
     fs.mkdirSync(path.join(dir, "src"));
     fs.writeFileSync(path.join(dir, "typren.config.json"), JSON.stringify({ review: { contentDir: "docs/content" } }));
@@ -540,6 +546,17 @@ describe("review", () => {
     fs.mkdirSync(path.join(dir, "config"), { recursive: true });
     fs.writeFileSync(path.join(dir, "config/seo.ts"), 'export const SITE_ENTITY_DESCRIPTION = "Example, Inc.";\n');
     fs.writeFileSync(path.join(dir, "typren.config.json"), JSON.stringify({ review: { seoFile: "config/seo.ts" } }));
+
+    const result = review(dir, { slug: "home" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.briefs[0].checks).toContainEqual({ id: "aio.entity.description-present", status: "pass" });
+  });
+
+  it("reads entityDescription from the scaffolded seo.ts object", () => {
+    fs.mkdirSync(path.join(dir, "content"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "content/home.md"), "---\ntitle: Home\n---\n");
+    fs.writeFileSync(path.join(dir, "seo.ts"), 'const codeDefaults = {\n  entityDescription: "Example, Inc.",\n};\n');
 
     const result = review(dir, { slug: "home" });
     expect(result.ok).toBe(true);

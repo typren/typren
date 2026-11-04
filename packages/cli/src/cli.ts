@@ -257,7 +257,8 @@ function detectReviewPaths(cwd: string): ReviewPaths {
   return {
     contentDir: under("content"),
     resourcesDir: under("content/resources"),
-    seoFile: under("app/seo.tsx"),
+    // `init` scaffolds seo.ts; app/seo.tsx is the predecessor layout.
+    seoFile: fs.existsSync(path.join(cwd, under("seo.ts"))) ? under("seo.ts") : under("app/seo.tsx"),
     seoRegistryFile: under("slices/seo-registry.ts"),
   };
 }
@@ -294,6 +295,12 @@ function extractStringConst(text: string, name: string): string | null {
   return m ? m[1] : null;
 }
 
+/** A SeoConfig string field, from either a predecessor `NAME = "..."` const
+ *  or the scaffolded seo.ts's `key: "..."` object property. */
+function extractSeoString(text: string, constName: string, key: string): string | null {
+  return extractStringConst(text, constName) ?? text.match(new RegExp(`\\b${key}:\\s*"([^"]*)"`))?.[1] ?? null;
+}
+
 /** Slice names with a `@typren/core/seo` seoRegistry entry. Scans line by
  *  line with plain string ops rather than a single `^\s*(\w+):\s*(?:async\s*)?\(`
  *  regex `matchAll` over the whole (repo-controlled) file: `indexOf`/`slice`
@@ -320,7 +327,7 @@ export function getSeoRegistryKeys(cwd: string, paths: ReviewPaths): string[] | 
 
 function getSiteUrl(cwd: string, paths: ReviewPaths): string | null {
   const text = readTextSafe(path.join(cwd, paths.seoFile));
-  return text === null ? null : extractStringConst(text, "SITE_URL");
+  return text === null ? null : extractSeoString(text, "SITE_URL", "siteUrl");
 }
 
 /** Slugs `createMarkdownAdapter`'s default-locale `listSlugs()` would return
@@ -531,10 +538,10 @@ function checkSitemapPriority(meta: Record<string, unknown>): CheckResult {
 function checkEntityDescription(cwd: string, paths: ReviewPaths): CheckResult {
   const text = readTextSafe(path.join(cwd, paths.seoFile));
   if (text === null) return { id: "aio.entity.description-present", status: "skip", message: `${paths.seoFile} not found` };
-  const val = extractStringConst(text, "SITE_ENTITY_DESCRIPTION");
+  const val = extractSeoString(text, "SITE_ENTITY_DESCRIPTION", "entityDescription");
   return val && val.trim().length > 0
     ? { id: "aio.entity.description-present", status: "pass" }
-    : { id: "aio.entity.description-present", status: "fail", message: `SITE_ENTITY_DESCRIPTION is missing or empty in ${paths.seoFile}` };
+    : { id: "aio.entity.description-present", status: "fail", message: `entityDescription (or SITE_ENTITY_DESCRIPTION) is missing or empty in ${paths.seoFile}` };
 }
 
 function checkFaqRegistration(slices: Slice[], registeredKeys: string[] | null, seoRegistryFile: string): CheckResult {

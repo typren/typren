@@ -117,14 +117,14 @@ A typical agent loop: `page get` for the version, edit, `page save --base-versio
 
 ### `typren review` paths
 
-Paths default to auto-detection (`src/content` when `src/` exists, else `content`) and can be overridden under a `"review"` key in `typren.config.json`:
+Paths default to auto-detection (`src/content` when `src/` exists, else `content`; the scaffolded `seo.ts`, else a predecessor `app/seo.tsx`) and can be overridden under a `"review"` key in `typren.config.json`:
 
 ```json
 {
   "review": {
     "contentDir": "src/content",
     "resourcesDir": "src/content/resources",
-    "seoFile": "src/app/seo.tsx",
+    "seoFile": "src/seo.ts",
     "seoRegistryFile": "src/slices/seo-registry.ts"
   }
 }
