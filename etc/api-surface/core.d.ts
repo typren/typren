@@ -2245,18 +2245,18 @@ export declare function JsonLd({ data }: Readonly<{
   data: object;
 }>): import("react").JSX.Element;
 export declare function organizationJsonLd(config: SeoConfig): {
-  sameAs?: string[] | undefined;
+  "@context": string;
+  "@type": string;
+  name: string;
+  alternateName?: string | undefined;
+  url: string;
+  logo?: string | undefined;
+  description: string;
   parentOrganization?: {
     "@type": string;
     name: string;
   } | undefined;
-  description: string;
-  logo?: string | undefined;
-  url: string;
-  alternateName?: string | undefined;
-  "@context": string;
-  "@type": string;
-  name: string;
+  sameAs?: string[] | undefined;
 };
 export declare function websiteJsonLd(config: SeoConfig): {
   "@context": string;

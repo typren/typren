@@ -39,7 +39,7 @@
     "lint-staged": "^17.6.0",
     "oxlint": "^1.93.0",
     "tsdown": "^0.23.7",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^5.0.4"
   },
   "lint-staged": {
