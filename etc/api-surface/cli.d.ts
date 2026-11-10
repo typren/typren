@@ -1,14 +1,14 @@
 // ---- dist/cli.d.ts ----
-import { type SiteSettingsBootstrap } from "@typren/core";
+import { SiteSettingsBootstrap } from "@typren/core";
 export type ScaffoldResult = {
-    ok: true;
-    baseDir: string;
-    created: string[];
-    skipped: string[];
-    devScript: DevScriptStatus;
+  ok: true;
+  baseDir: string;
+  created: string[];
+  skipped: string[];
+  devScript: DevScriptStatus;
 } | {
-    ok: false;
-    error: string;
+  ok: false;
+  error: string;
 };
 /**
  * Core of `typren init`: detect the App Router base dir, write every
@@ -17,7 +17,7 @@ export type ScaffoldResult = {
  * testable (see cli.test.ts) and reusable if another entry point ever wants it.
  */
 export declare function scaffold(cwd: string, opts?: {
-    force?: boolean;
+  force?: boolean;
 }): ScaffoldResult;
 /** What `scaffold` did to package.json's `dev` script. "custom" means a
  *  script it couldn't safely rewrite (not plain `next dev`, or an explicit
@@ -25,13 +25,13 @@ export declare function scaffold(cwd: string, opts?: {
 export type DevScriptStatus = "bound" | "already-bound" | "custom" | "no-package-json";
 type CmsConfigStatus = "already-wired" | "needs-manual-update" | "not-found";
 export type ApplySettingsResult = {
-    ok: true;
-    bootstrap: SiteSettingsBootstrap;
-    cmsConfig: CmsConfigStatus;
-    notes: string[];
+  ok: true;
+  bootstrap: SiteSettingsBootstrap;
+  cmsConfig: CmsConfigStatus;
+  notes: string[];
 } | {
-    ok: false;
-    error: string;
+  ok: false;
+  error: string;
 };
 /**
  * Core of `typren apply-settings`: validates typren.config.json's bootstrap
@@ -42,56 +42,56 @@ export type ApplySettingsResult = {
 export declare function applySettings(cwd: string): ApplySettingsResult;
 export type CheckStatus = "pass" | "warn" | "fail" | "skip";
 export type CheckResult = {
-    id: string;
-    status: CheckStatus;
-    message?: string;
+  id: string;
+  status: CheckStatus;
+  message?: string;
 };
 export type ReviewBrief = {
-    slug: string;
-    file: string;
-    baseRef: string;
-    diff: {
-        raw: string;
-        frontmatter: Record<string, {
-            before: unknown;
-            after: unknown;
-        }>;
-        slices: {
-            added: {
-                index: number;
-                slice: string;
-            }[];
-            removed: {
-                index: number;
-                slice: string;
-            }[];
-            changed: {
-                index: number;
-                slice: string;
-                fields: string[];
-            }[];
-        };
+  slug: string;
+  file: string;
+  baseRef: string;
+  diff: {
+    raw: string;
+    frontmatter: Record<string, {
+      before: unknown;
+      after: unknown;
+    }>;
+    slices: {
+      added: {
+        index: number;
+        slice: string;
+      }[];
+      removed: {
+        index: number;
+        slice: string;
+      }[];
+      changed: {
+        index: number;
+        slice: string;
+        fields: string[];
+      }[];
     };
-    frontmatter: Record<string, unknown> & {
-        slices: string[];
-    };
-    checks: CheckResult[];
-    summary: Record<CheckStatus, number>;
+  };
+  frontmatter: Record<string, unknown> & {
+    slices: string[];
+  };
+  checks: CheckResult[];
+  summary: Record<CheckStatus, number>;
 };
 export type ReviewResult = {
-    ok: true;
-    briefs: ReviewBrief[];
+  ok: true;
+  briefs: ReviewBrief[];
 } | {
-    ok: false;
-    error: string;
+  ok: false;
+  error: string;
 };
 /** Every path `review`'s checks read from, all repo-relative (what both `fs`
  *  and `git` want here). */
 export type ReviewPaths = {
-    contentDir: string;
-    resourcesDir: string;
-    seoFile: string;
-    seoRegistryFile: string;
+  contentDir: string;
+  resourcesDir: string;
+  seoFile: string;
+  seoRegistryFile: string;
 };
 /**
  * Resolves the paths `review` reads from: the auto-detected defaults above,
@@ -125,18 +125,18 @@ export declare function getSeoRegistryKeys(cwd: string, paths: ReviewPaths): str
  * uses the same paths.
  */
 export declare function review(cwd: string, opts?: {
-    slug?: string;
-    base?: string;
+  slug?: string;
+  base?: string;
 }): ReviewResult;
 export type PrResult = {
-    ok: true;
-    action: "created" | "updated" | "skipped-no-gh";
-    number?: number;
-    url?: string;
-    notes: string[];
+  ok: true;
+  action: "created" | "updated" | "skipped-no-gh";
+  number?: number;
+  url?: string;
+  notes: string[];
 } | {
-    ok: false;
-    error: string;
+  ok: false;
+  error: string;
 };
 /**
  * Opens or updates the `content/<slug>` PR with the review brief in its
@@ -172,7 +172,7 @@ export declare function main(argv?: string[]): Promise<void>;
 export {};
 
 // ---- dist/content.d.ts ----
-import { type AuthAdapter } from "@typren/core";
+import { AuthAdapter } from "@typren/core";
 /**
  * Allows everything. Whoever runs the CLI already owns the site's files, so
  * the operating system's permissions are the boundary; there is no session to
@@ -182,21 +182,21 @@ import { type AuthAdapter } from "@typren/core";
  */
 export declare const cliOwnerAuth: AuthAdapter;
 export type ContentIO = {
-    cwd: string;
-    stdin: () => Promise<string>;
-    log: (text: string) => void;
-    error: (text: string) => void;
+  cwd: string;
+  stdin: () => Promise<string>;
+  log: (text: string) => void;
+  error: (text: string) => void;
 };
 type Flags = Record<string, string | true>;
 /** `--flag value`, `--flag=value` and the `booleans` (no value); everything
  *  else is positional, `-` (stdin) included. Unknown flags are refused, so a
  *  typo can't silently drop `--base-version`. */
 export declare function parseFlags(args: string[], allowed: {
-    booleans?: string[];
-    values?: string[];
+  booleans?: string[];
+  values?: string[];
 }): {
-    pos: string[];
-    flags: Flags;
+  pos: string[];
+  flags: Flags;
 };
 /** The command words `main` hands to `runContent`. */
 export declare const CONTENT_COMMANDS: string[];
@@ -212,52 +212,52 @@ export {};
 
 // ---- dist/migrate.d.ts ----
 export interface MigrationDetectPattern {
-    pattern: string;
-    glob: string;
-    hint: string;
+  pattern: string;
+  glob: string;
+  hint: string;
 }
 export interface MigrationNote {
-    package: string;
-    version: string;
-    title: string;
-    detect: MigrationDetectPattern[];
-    body: string;
-    source: "bundled" | "remote";
+  package: string;
+  version: string;
+  title: string;
+  detect: MigrationDetectPattern[];
+  body: string;
+  source: "bundled" | "remote";
 }
 export interface MigrationMatch {
-    file: string;
-    line: number;
-    hint: string;
+  file: string;
+  line: number;
+  hint: string;
 }
 export interface MigrationNoteResult {
-    package: string;
-    version: string;
-    title: string;
-    matches: MigrationMatch[];
-    body: string;
-    source: "bundled" | "remote";
-    /** Set when `--remote` returned a note for the same package+version as a
-     *  bundled one and the two bodies disagree: the remote copy is unpinned by
-     *  the lockfile and may not match what's actually installed. */
-    divergesFromBundled?: boolean;
+  package: string;
+  version: string;
+  title: string;
+  matches: MigrationMatch[];
+  body: string;
+  source: "bundled" | "remote";
+  /** Set when `--remote` returned a note for the same package+version as a
+   *  bundled one and the two bodies disagree: the remote copy is unpinned by
+   *  the lockfile and may not match what's actually installed. */
+  divergesFromBundled?: boolean;
 }
 export interface MigrateResult {
-    from: string;
-    to: string;
-    notes: MigrationNoteResult[];
-    /** Set when the installed @typren/core only packs notes from
-     *  `.min-version` onward (postbuild keeps the newest 5) and `from`
-     *  predates it: some notes this project might have needed were dropped
-     *  from the release, not just "none applied between from and to". */
-    droppedNotesWarning?: string;
+  from: string;
+  to: string;
+  notes: MigrationNoteResult[];
+  /** Set when the installed @typren/core only packs notes from
+   *  `.min-version` onward (postbuild keeps the newest 5) and `from`
+   *  predates it: some notes this project might have needed were dropped
+   *  from the release, not just "none applied between from and to". */
+  droppedNotesWarning?: string;
 }
 export interface MigrateOptions {
-    cwd?: string;
-    from?: string;
-    to?: string;
-    remote?: boolean;
-    /** Test seam: a stand-in for the global `fetch`. */
-    fetchImpl?: typeof fetch;
+  cwd?: string;
+  from?: string;
+  to?: string;
+  remote?: boolean;
+  /** Test seam: a stand-in for the global `fetch`. */
+  fetchImpl?: typeof fetch;
 }
 /** process.env minus GIT_* variables. Git exports GIT_DIR and friends to its
  *  hooks, and an inherited GIT_DIR makes a git child process ignore `cwd` and
@@ -272,14 +272,14 @@ export declare function fromVersionFromGit(cwd: string): string | null;
 export declare function migrate(opts?: MigrateOptions): Promise<MigrateResult>;
 /** Same hand-rolled style as the rest of this CLI's argv handling. */
 export declare function parseMigrateArgs(args: string[]): {
-    from: string | undefined;
-    to: string | undefined;
-    cwd: string | undefined;
-    json: boolean;
-    remote: boolean;
+  from: string | undefined;
+  to: string | undefined;
+  cwd: string | undefined;
+  json: boolean;
+  remote: boolean;
 };
 export declare function printMigrateReport(result: MigrateResult, opts?: {
-    json?: boolean;
+  json?: boolean;
 }): void;
 
 // ---- dist/safe-matter.d.ts ----
@@ -287,8 +287,8 @@ import matter from "gray-matter";
 export declare const parseMatter: (raw: string) => matter.GrayMatterFile<string>;
 
 // ---- dist/studio-server.d.ts ----
+import { StudioManifest } from "@typren/core";
 import http from "node:http";
-import { type StudioManifest } from "@typren/core";
 /** Where the API is mounted, the same path the local studio app uses. */
 export declare const API_BASE = "/api/typren";
 /**
@@ -299,8 +299,8 @@ export declare const API_BASE = "/api/typren";
  * page reading its "own" origin), is refused before routing.
  */
 export declare function studioApi(manifest: StudioManifest, cloud: {
-    origin: string;
-    token: string;
+  origin: string;
+  token: string;
 }): (request: Request) => Promise<Response>;
 /**
  * Serves a WHATWG `Request -> Response` handler on node:http at
@@ -311,24 +311,24 @@ export declare function studioApi(manifest: StudioManifest, cloud: {
 export declare function serveOnLoopback(handler: (request: Request) => Promise<Response>, port: number): Promise<http.Server>;
 
 // ---- dist/studio.d.ts ----
-import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { type LocalSite, type StudioManifest } from "@typren/core";
+import { ChildProcess, SpawnOptions } from "node:child_process";
+import { LocalSite, StudioManifest } from "@typren/core";
 export type StudioArgs = {
-    port: number;
-    /** Port of the preview-mode site dev server the studio spawns. */
-    previewPort: number;
-    /** Set by `--site-url`: frame this origin and spawn nothing. */
-    siteUrl?: string;
-    /** The cloud studio's origin; undefined with `--local`, which runs the
-     *  studio UI on this machine instead. */
-    cloudUrl?: string;
+  port: number;
+  /** Port of the preview-mode site dev server the studio spawns. */
+  previewPort: number;
+  /** Set by `--site-url`: frame this origin and spawn nothing. */
+  siteUrl?: string;
+  /** The cloud studio's origin; undefined with `--local`, which runs the
+   *  studio UI on this machine instead. */
+  cloudUrl?: string;
 };
 export declare const DEFAULT_CLOUD_URL = "https://app.typren.com";
 /** Same hand-rolled argv style as the rest of the CLI. `--site-url` is
  *  reduced to its origin: the editor appends "/<slug>" to it. Cloud is the
  *  default; `--local` opts out, and `--cloud` is accepted as a no-op. */
 export declare function parseStudioArgs(args: string[], env?: NodeJS.ProcessEnv): StudioArgs | {
-    error: string;
+  error: string;
 };
 /** The cloud studio's pairing link. Port and token ride in the fragment,
  *  which the browser never sends to the cloud's server. */
@@ -336,7 +336,6 @@ export declare function connectUrl(cloudUrl: string, port: number, token: string
 /** Opens `url` in the default browser without a shell, so nothing in the URL
  *  is interpreted. Best effort: the link is printed too. */
 export declare function browserCommand(url: string, platform?: NodeJS.Platform): Command;
-export type { StudioManifest };
 /**
  * The site at `cwd` as core's `LocalSite`: its `typren.config.json` `studio`
  * block (validated), content dir, media, home slug and style map. What a
@@ -344,7 +343,7 @@ export type { StudioManifest };
  * the slice data the studio's editor also needs.
  */
 export declare function resolveSite(cwd: string): LocalSite | {
-    error: string;
+  error: string;
 };
 /**
  * Builds the studio manifest for the site at `cwd`. Slice data comes from
@@ -358,7 +357,7 @@ export declare function resolveSite(cwd: string): LocalSite | {
  * the site compiles itself.
  */
 export declare function buildStudioManifest(cwd: string, siteUrl: string): Promise<StudioManifest | {
-    error: string;
+  error: string;
 }>;
 /** The installed `@typren/studio-local` app: the site's own dependency first, then
  *  the one beside this CLI (the monorepo workspace link). */
@@ -369,11 +368,11 @@ export declare function resolveStudioDir(cwd: string, from?: string): string | n
  *  would need localAuth's `allowInProduction`, which it should not get. */
 export declare function studioCommand(studioDir: string, manifest: StudioManifest, port: number): Command;
 export type Command = {
-    command: string;
-    args: string[];
-    options: SpawnOptions & {
-        env: NodeJS.ProcessEnv;
-    };
+  command: string;
+  args: string[];
+  options: SpawnOptions & {
+    env: NodeJS.ProcessEnv;
+  };
 };
 /**
  * The site's own dev command in preview mode. `typren.config.json`'s
@@ -388,26 +387,26 @@ export declare function previewCommand(cwd: string, port: number, studioOrigin: 
 /** Resolves true once `url` answers at all (any status), false when
  *  `stopped()` turns true or the timeout passes first. */
 export declare function waitForUrl(url: string, stopped: () => boolean, opts: {
-    fetch: typeof fetch;
-    timeoutMs: number;
-    intervalMs: number;
+  fetch: typeof fetch;
+  timeoutMs: number;
+  intervalMs: number;
 }): Promise<boolean>;
 /** The session's foreground: the local studio app's process, or the cloud
  *  mode's in-process API server. */
 export type Foreground = {
-    stop(signal: NodeJS.Signals): void;
-    /** Resolves with the exit code; null when killed by a signal. */
-    exited: Promise<number | null>;
+  stop(signal: NodeJS.Signals): void;
+  /** Resolves with the exit code; null when killed by a signal. */
+  exited: Promise<number | null>;
 };
 export type StudioDeps = {
-    spawn: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
-    fetch: typeof fetch;
-    log: (msg: string) => void;
-    error: (msg: string) => void;
-    /** Where SIGINT/SIGTERM arrive: `process` outside tests. */
-    signals: Pick<NodeJS.Process, "on" | "off">;
-    timeoutMs?: number;
-    intervalMs?: number;
+  spawn: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+  fetch: typeof fetch;
+  log: (msg: string) => void;
+  error: (msg: string) => void;
+  /** Where SIGINT/SIGTERM arrive: `process` outside tests. */
+  signals: Pick<NodeJS.Process, "on" | "off">;
+  timeoutMs?: number;
+  intervalMs?: number;
 };
 /**
  * One studio session, the way `storybook dev` runs: start the site's dev
@@ -417,16 +416,17 @@ export type StudioDeps = {
  * captured output. Resolves with the exit code for the CLI.
  */
 export declare function runStudio(plan: {
-    /** The local studio app to spawn, or the cloud mode's API server to start. */
-    studio: Command | (() => Promise<Foreground>);
-    studioUrl: string;
-    siteUrl: string;
-    preview?: Command;
-    /** Cloud mode: the connect link, printed and opened once the API answers. */
-    openUrl?: string;
+  /** The local studio app to spawn, or the cloud mode's API server to start. */
+  studio: Command | (() => Promise<Foreground>);
+  studioUrl: string;
+  siteUrl: string;
+  preview?: Command;
+  /** Cloud mode: the connect link, printed and opened once the API answers. */
+  openUrl?: string;
 }, deps: StudioDeps & {
-    open?: (url: string) => void;
+  open?: (url: string) => void;
 }): Promise<number>;
+export type { StudioManifest };
 
 // ---- dist/telemetry.d.ts ----
 /** Whether telemetry should fire at all right now, folding in every opt-out source. */

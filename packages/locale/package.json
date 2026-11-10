@@ -44,7 +44,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "build": "tsdown && node scripts/postbuild.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit"
   },
