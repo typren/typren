@@ -318,7 +318,7 @@ const TAIL = `  --json                    Print the result as JSON on stdout onl
 Exit 0 ok, 1 refused or invalid, 2 usage or failure.
 `;
 
-export const RENAME_HELP = `usage: typren-locale rename <old> <new> [--dir <dir>] [--remove-after <date>] [--force] [--json]
+export const RENAME_HELP: string = `usage: typren-locale rename <old> <new> [--dir <dir>] [--remove-after <date>] [--force] [--json]
 
   Moves <old> to <new> in every locale file under --dir (keeping each file's
   shape and formatting) and records an alias so old builds keep resolving the
@@ -329,7 +329,7 @@ ${COMMON}  --remove-after <date>    YYYY-MM-DD after which prune-aliases may dro
   --force                   Overwrite <new> where it already exists.
 ${TAIL}`;
 
-export const DEPRECATE_HELP = `usage: typren-locale deprecate <key> [--dir <dir>] [--remove-after <date>] [--force] [--json]
+export const DEPRECATE_HELP: string = `usage: typren-locale deprecate <key> [--dir <dir>] [--remove-after <date>] [--force] [--json]
 
   Removes <key> from every locale file under --dir and records a decommission
   alias (to: null). Refused if another alias still targets <key>.
@@ -338,7 +338,7 @@ ${COMMON}  --remove-after <date>    YYYY-MM-DD after which prune-aliases may dro
   --force                   Record the alias even if <key> is in no locale file.
 ${TAIL}`;
 
-export const PRUNE_ALIASES_HELP = `usage: typren-locale prune-aliases [--dir <dir>] [--older-than <date>] [--json]
+export const PRUNE_ALIASES_HELP: string = `usage: typren-locale prune-aliases [--dir <dir>] [--older-than <date>] [--json]
 
   Removes alias entries whose removeAfter date is before the cutoff. Entries
   without removeAfter are kept. A later change will gate pruning on a
