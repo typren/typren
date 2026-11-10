@@ -12,7 +12,10 @@ export function typrenPackage(extra: { exclude?: string[]; copy?: string[] } = {
     platform: "node",
     fixedExtension: false,
     hash: false,
-    dts: true,
+    // TypeScript 7 ships no JavaScript API, so core and studio (still
+    // inferring their declarations) emit through the native compiler; a
+    // package with isolatedDeclarations in its tsconfig uses Oxc instead.
+    dts: { tsgo: {} },
     minify: false,
     // ES2022 keeps `#private` fields as written; a lower target makes Oxc
     // lower them into a shared helper chunk, a dist path nothing publishes.
