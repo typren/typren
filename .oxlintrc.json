@@ -1,0 +1,49 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // Same coverage as the ESLint setup this replaced: ESLint + typescript-eslint
+  // recommended (oxlint's correctness category plus no-explicit-any), the two
+  // react-hooks rules the source's inline directives target, Next's
+  // no-img-element, inline type imports, and the house rule on em dashes in
+  // comments (scripts/oxlint-typren-plugin.mjs). Source directives keep their
+  // ESLint spellings (`@next/next/...`, `react-hooks/...`); oxlint maps them.
+  "plugins": ["typescript", "react", "nextjs"],
+  "jsPlugins": ["./scripts/oxlint-typren-plugin.mjs"],
+  "categories": { "correctness": "error" },
+  // `.claude/**` holds agent worktrees: full checkouts whose in-progress state
+  // must not fail a repo-wide run from the primary checkout. etc/api-surface
+  // is a generated snapshot of compiled .d.ts output, not source. The two
+  // CloudFront Functions follow cloudfront-js-2.0's runtime convention (a
+  // top-level `handler` the platform invokes by name) and are verified by
+  // their own *.function.test.ts instead.
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/coverage/**",
+    "**/node_modules/**",
+    "**/.tmp-scaffold-check/**",
+    "**/.tmp-studio-*/**",
+    "**/.next/**",
+    "**/next-env.d.ts",
+    ".claude/**",
+    "etc/api-surface/**",
+    "packages/adapter-cloudfront/src/redirects.function.js",
+    "packages/adapter-cloudfront/src/redirects-bare-url.function.js"
+  ],
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "warn",
+    // React Compiler-era checks that were not part of the previous gate; the
+    // studio has a few dozen hits. Adopt them in their own change.
+    "react/refs": "off",
+    "react/set-state-in-effect": "off",
+    "react/immutability": "off",
+    "nextjs/no-img-element": "error",
+    "typescript/no-explicit-any": "error",
+    // Type-only names carry a `type` marker, inline when mixed with value
+    // imports and as `import type { ... }` when the import is all-type.
+    "typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
+    "typren/no-emdash-comments": "error"
+  },
+  "overrides": [
+    { "files": ["**/scripts/**/*.mjs"], "env": { "node": true } }
+  ]
+}
