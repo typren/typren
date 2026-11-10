@@ -29,7 +29,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "build": "tsdown && node scripts/postbuild.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit"
   },
@@ -50,7 +50,7 @@
     "@types/react-dom": "^19.3.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "peerDependencies": {
     "react": ">=19",

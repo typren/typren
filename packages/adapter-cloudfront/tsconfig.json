@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    "isolatedDeclarations": true,
     "types": ["node"]
   },
   "include": ["src/**/*.ts"],

@@ -463,7 +463,13 @@ export async function migrate(opts: MigrateOptions = {}): Promise<MigrateResult>
 }
 
 /** Same hand-rolled style as the rest of this CLI's argv handling. */
-export function parseMigrateArgs(args: string[]) {
+export function parseMigrateArgs(args: string[]): {
+  from: string | undefined;
+  to: string | undefined;
+  cwd: string | undefined;
+  json: boolean;
+  remote: boolean;
+} {
   let from: string | undefined;
   let to: string | undefined;
   let cwd: string | undefined;

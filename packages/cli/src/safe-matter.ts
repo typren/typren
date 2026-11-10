@@ -25,4 +25,4 @@ const SAFE_ENGINES = {
   },
 };
 
-export const parseMatter = (raw: string) => matter(raw, { engines: SAFE_ENGINES });
+export const parseMatter = (raw: string): matter.GrayMatterFile<string> => matter(raw, { engines: SAFE_ENGINES });

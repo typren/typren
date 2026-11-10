@@ -69,10 +69,10 @@ export default defineConfig({
         // Floored to one decimal: CI runs on Linux, where a few macOS-only
         // branches go uncovered, so an exact local ratchet fails CI by ~0.02.
         autoUpdate: (n: number) => Math.floor(n * 10) / 10,
-        lines: 97.7,
+        lines: 97.8,
         statements: 96.5,
-        functions: 96.5,
-        branches: 91.3,
+        functions: 96.7,
+        branches: 91.4,
       },
     },
   },

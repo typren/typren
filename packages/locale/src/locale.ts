@@ -21,7 +21,7 @@ export function resolve(catalog: Catalog, key: string): { value: string } | unde
 
 // Matches a single `{var}` placeholder, but not one embedded inside a
 // doubled `{{var}}`. Those are left alone verbatim (not our syntax).
-export const PLACEHOLDER = /(?<!\{)\{(\w+)\}(?!\})/g;
+export const PLACEHOLDER: RegExp = /(?<!\{)\{(\w+)\}(?!\})/g;
 
 /**
  * Flat single-brace `{var}` substitution only. No ICU plural/select, no
