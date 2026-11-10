@@ -51,7 +51,7 @@ export function createSectionCanvas(source: CmsConfig["registry"] | ComponentTyp
       const rendered = Object.fromEntries(
         Object.entries(parseSectionMap(first(slices), known)).map(([key, s]) => {
           const Section = registry[s.slice] as ComponentType<Record<string, unknown>>;
-          return [key, <Section {...s} />];
+          return [key, <Section key={key} {...s} />];
         })
       );
       return <MultiSectionCanvas origin={origin} rendered={rendered} />;

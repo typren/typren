@@ -37,6 +37,6 @@ else
   echo "typren: gitleaks not installed, staged secret scan SKIPPED. Run: brew install gitleaks" >&2
 fi
 
-# Lint staged TS/TSX via lint-staged (eslint --fix). A non-zero exit here is
+# Lint staged TS/TSX/MJS via lint-staged (oxlint --fix). A non-zero exit here is
 # the hook's exit code, so lint errors abort the commit.
 npx lint-staged

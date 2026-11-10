@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
-    "lint": "eslint .",
+    "lint": "oxlint",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "coverage:new": "node scripts/coverage-new-code.mjs",
@@ -32,21 +32,17 @@
     "@changesets/cli": "^3.0.3",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
-    "@eslint/js": "^10.0.1",
-    "@next/eslint-plugin-next": "^16.4.3",
     "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "^5.0.4",
-    "eslint": "^10.14.0",
-    "eslint-plugin-react-hooks": "^7.1.1",
     "husky": "^9.1.7",
     "jsdom": "^30.1.2",
     "lint-staged": "^17.6.0",
+    "oxlint": "^1.93.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.72.1",
     "vitest": "^5.0.4"
   },
   "lint-staged": {
-    "*.{ts,tsx}": "eslint --fix"
+    "*.{ts,tsx,mjs}": "oxlint --fix"
   },
   "dependencies": {
     "@types/react-dom": "^19.3.0",
