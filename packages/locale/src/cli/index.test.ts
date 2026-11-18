@@ -451,7 +451,7 @@ describe("built CLI behind a proxy", () => {
     });
     await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
     const { port } = proxy.address() as { port: number };
-    const env: NodeJS.ProcessEnv = { ...process.env, HTTPS_PROXY: `http://127.0.0.1:${port}`, NO_PROXY: "example.invalid", no_proxy: "example.invalid" };
+    const env: NodeJS.ProcessEnv = { ...process.env, HTTPS_PROXY: `http://127.0.0.1:${port}`, https_proxy: `http://127.0.0.1:${port}`, NO_PROXY: "example.invalid", no_proxy: "example.invalid" };
     delete env.NODE_USE_ENV_PROXY;
     const dir = withTmpDir();
     const child = spawn(
