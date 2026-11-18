@@ -811,7 +811,7 @@ export function openOrUpdateContentPr(cwd: string, brief: ReviewBrief): PrResult
     })();
     // brief.baseRef is review()'s already-validated `base` (rejects a
     // leading "-"); --end-of-options is belt-and-braces at the call site.
-    execFileSync("git", branchExists ? ["checkout", branch] : ["checkout", "-b", branch, "--end-of-options", brief.baseRef], {
+    execFileSync("git", branchExists ? ["checkout", branch] : ["switch", "-c", branch, "--end-of-options", brief.baseRef], {
       cwd,
       env: envWithoutGit(),
     });
