@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { createPreviewBridgeContractSuite } from "@typren/contract-tests";
 import { initPreviewBridge } from "./preview-bridge.vanilla";
 
