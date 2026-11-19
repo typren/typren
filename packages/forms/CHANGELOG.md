@@ -1,5 +1,11 @@
 # @typren/forms
 
+## 0.2.3
+
+### Patch Changes
+
+- a9b8ade: Packages are built with tsdown (Rolldown and Oxc) instead of tsc. The dist layout and exports maps are unchanged and relative specifiers still carry `.js` extensions, so nothing changes for consumers.
+
 ## 0.2.2
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @typren/adapter-cloudflare
 
+## 0.2.5
+
+### Patch Changes
+
+- a9b8ade: Packages are built with tsdown (Rolldown and Oxc) instead of tsc. The dist layout and exports maps are unchanged and relative specifiers still carry `.js` extensions, so nothing changes for consumers.
+- Updated dependencies [7676d5d]
+- Updated dependencies [a9b8ade]
+  - @typren/core@0.7.1
+
 ## 0.2.4
 
 ### Patch Changes
