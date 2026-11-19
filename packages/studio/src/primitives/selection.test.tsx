@@ -30,7 +30,7 @@ const fill = (c: HTMLElement) => c.querySelector<HTMLElement>("span.typren-selec
 describe("SelectionList", () => {
   it("places the fill on first mount without a transition, then glides on a change", async () => {
     const { container, rerender } = render(list("a"));
-    expect(fill(container)?.style.transform).toBe("translate(0px, 0px)");
+    expect(fill(container)?.style.transform).toBe("translate(0px)");
     expect(fill(container)?.className).not.toContain("duration-[280ms]");
     const now = performance.now();
     vi.spyOn(performance, "now").mockReturnValue(now + 1000);
