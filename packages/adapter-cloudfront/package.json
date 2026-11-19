@@ -33,7 +33,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "build": "tsdown && node scripts/postbuild.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit"
   },
@@ -43,7 +43,7 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@typren/contract-tests": "workspace:*",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "repository": {
     "type": "git",
