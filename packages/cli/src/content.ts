@@ -681,7 +681,7 @@ const NOUNS: Record<string, { verbs: Record<string, Verb>; booleans?: string[]; 
 };
 
 /** The command words `main` hands to `runContent`. */
-export const CONTENT_COMMANDS = Object.keys(NOUNS);
+export const CONTENT_COMMANDS: string[] = Object.keys(NOUNS);
 
 /**
  * Runs one content command (`argv[0]` is its noun) and returns its exit code:

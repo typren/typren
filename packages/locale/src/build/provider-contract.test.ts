@@ -155,7 +155,7 @@ describe("createExportApiSourceProvider", () => {
       const url = String(input);
       if (url === `${BASE_URL}/projects/proj-1/files/async-download`) {
         expect(init?.method).toBe("POST");
-        expect((init?.headers as Record<string, string>)["X-Api-Token"]).toBe(TOKEN_VALUE);
+        expect((init!.headers as Record<string, string>)["X-Api-Token"]).toBe(TOKEN_VALUE);
         expect(JSON.parse(init?.body as string)).toMatchObject({ format: "json" });
         return new Response(JSON.stringify({ process_id: "job-1" }), { status: 200 });
       }
@@ -199,7 +199,7 @@ describe("createExportApiSourceProvider", () => {
       const url = String(input);
       if (url === `${BASE_URL}/projects/proj-1/translations/builds`) {
         expect(init?.method).toBe("POST");
-        expect((init?.headers as Record<string, string>)["Authorization"]).toBe(`Bearer ${TOKEN_VALUE}`);
+        expect((init!.headers as Record<string, string>)["Authorization"]).toBe(`Bearer ${TOKEN_VALUE}`);
         return new Response(JSON.stringify({ data: { id: "build-9", status: "created" } }), { status: 200 });
       }
       if (url === `${BASE_URL}/projects/proj-1/translations/builds/build-9/download`) {

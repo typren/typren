@@ -144,6 +144,7 @@ export function MultiSectionCanvas({
         // A cyclic or BigInt value: not a slice.
       }
       const Component = slice && (registry[slice.slice] as ComponentType<Record<string, unknown>>);
+      // eslint-disable-next-line react/static-components -- a registry lookup, not a component defined in render
       if (Component) out.set(p.key, <Component {...slice} />);
     }
     return out;

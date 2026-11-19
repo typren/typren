@@ -1,6 +1,6 @@
 {
   "name": "@typren/forms",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Form handling for typren sites: a canonical submission model with server-authoritative validation, honeypot plus pluggable spam verification, a web-standard Request/Response handler, and pluggable delivery sinks (webhook, HubSpot, Google Sheets, JSONL file).",
   "keywords": [
     "cms",
@@ -41,13 +41,13 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "build": "tsdown && node scripts/postbuild.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "repository": {
     "type": "git",

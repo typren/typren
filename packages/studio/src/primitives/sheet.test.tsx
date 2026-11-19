@@ -47,7 +47,7 @@ describe("Sheet", () => {
     fireEvent.pointerMove(header(), { clientY: 3, pointerId: 1 });
     expect(dialog.style.translate).toBe("");
     fireEvent.pointerMove(header(), { clientY: 100, pointerId: 1 });
-    expect(dialog.style.translate).toBe("0 100px");
+    expect(dialog.style.translate).toBe("0px 100px");
     fireEvent.pointerCancel(header(), { pointerId: 1 });
     expect(dialog.style.translate).toBe("");
     pull(100, 1000);
