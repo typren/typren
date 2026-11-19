@@ -2053,11 +2053,11 @@ export type BuildRedirectsOptions = {
 export declare function buildRedirects(store: ContentStore, opts?: BuildRedirectsOptions): Promise<RedirectEntry[]>;
 
 // ---- dist/sections.d.ts ----
+import { ComponentType } from "react";
 import { ContentAdapter, MediaAdapter, MediaAsset, MediaUse, SliceSchema } from "./types.js";
 import { PageActions } from "./actions.js";
 import { Messages } from "./i18n.js";
 import { SettingsStore, SiteSettings } from "./settings.js";
-import { ComponentType } from "react";
 export type FieldFormMedia = {
   list: () => Promise<MediaAsset[]>;
   /** Refused while content uses the asset, unless `opts.force`. */
@@ -2310,9 +2310,9 @@ export type SliceMarkdownRegistry = Record<string, (props: Record<string, unknow
 export declare function renderSlicesAsMarkdown(slices: Slice[], overrides?: SliceMarkdownRegistry): string;
 
 // ---- dist/seo/markdown-route.d.ts ----
+import { NextRequest, NextResponse } from "next/server.js";
 import { ContentStore } from "../store.js";
 import { SliceMarkdownRegistry } from "./markdown-render.js";
-import { NextRequest, NextResponse } from "next/server.js";
 /** Matches "/some-slug.md" (single path segment) and returns the slug, or
  *  null. A pure function (no fs/req access) so both middleware (URL rewrite)
  *  and any other router glue can reuse the same match rule. */
@@ -2339,10 +2339,10 @@ export declare function createMarkdownRouteHandler(store: ContentStore, renderOv
 export declare function createMarkdownMirrorMiddleware(mirrorPath: string): (request: NextRequest) => NextResponse<unknown>;
 
 // ---- dist/seo/metadata.d.ts ----
+import { Metadata, ResolvingMetadata } from "next";
 import { PageContent } from "../types.js";
 import { I18nConfig } from "../i18n.js";
 import { SeoConfig } from "./types.js";
-import { Metadata, ResolvingMetadata } from "next";
 /** Root-layout `metadata` object defaults: everything a Next app's
  *  layout.tsx hand-writes today, parameterized. Host still adds anything
  *  fully site-specific (e.g. Search Console `verification`) by spreading
@@ -2360,8 +2360,8 @@ export declare function buildMetadata(page: PageContent, slug: string, config: S
 i18n?: I18nConfig, locale?: string): Promise<Metadata>;
 
 // ---- dist/seo/robots.d.ts ----
-import { SeoConfig } from "./types.js";
 import { MetadataRoute } from "next";
+import { SeoConfig } from "./types.js";
 /** AIO: named AI/answer-engine crawlers, explicitly allow-listed even though
  *  redundant with a wildcard allow, kept explicit as a one-line future
  *  revert point (a project may later decide to block training crawlers). */
@@ -2385,10 +2385,10 @@ export declare function withSiteSettings(config: SeoConfig, settings: Partial<Si
 export declare function resolveSeoConfig(config: SeoConfig, settings: Pick<SettingsStore, "get">, locale?: string): Promise<SeoConfig>;
 
 // ---- dist/seo/sitemap.d.ts ----
+import { MetadataRoute } from "next";
 import { ContentStore } from "../store.js";
 import { I18nConfig } from "../i18n.js";
 import { SeoConfig } from "./types.js";
-import { MetadataRoute } from "next";
 export type BuildSitemapOptions = {
   /** Slug that maps to the site root ("/") instead of "/<slug>", e.g. "home". */
   homeSlug?: string;
@@ -2415,8 +2415,8 @@ import { SliceJsonLd } from "./types.js";
 export declare function collectSliceJsonLd(slices: Slice[], registry?: Record<string, SliceJsonLd>): object[];
 
 // ---- dist/seo/types.d.ts ----
-import { PageContent } from "../types.js";
 import { MetadataRoute } from "next";
+import { PageContent } from "../types.js";
 /** Per-page SEO frontmatter fields. All optional. A page with none of
  *  these still gets the site defaults from SeoConfig. Lives inside a
  *  page's existing `meta` (frontmatter minus `slices:`), no new file format. */
@@ -3014,12 +3014,12 @@ export declare const TYPREN_BOOTSTRAP_MARKER = "typren:bootstrap-wired";
 export declare function buildTemplates(contentDirLiteral: string): Record<string, string>;
 
 // ---- dist/types.d.ts ----
+import { ComponentType } from "react";
 import { AuthAdapter } from "./auth-adapter.js";
 import { GitRepo } from "./git.js";
 import { I18nConfig, Messages, RoutingMode } from "./i18n.js";
 import { Section } from "./sections.js";
 import { SettingsAdapter } from "./settings.js";
-import { ComponentType } from "react";
 /** A single content block. `slice` is the registry key; the rest are its props. */
 export type Slice = {
   slice: string;
@@ -3317,8 +3317,8 @@ export interface CmsConfig {
 export type { I18nConfig, Messages, RoutingMode };
 
 // ---- dist/ui/canvas-react.d.ts ----
-import { RendererAdapter } from "./canvas.js";
 import { ComponentType } from "react";
+import { RendererAdapter } from "./canvas.js";
 type Props = Record<string, unknown>;
 /**
  * The page canvas's React renderer. It creates no root per section, which
@@ -3433,8 +3433,8 @@ export declare function createCanvas<C>({ renderer, registry }: Readonly<{
 export {};
 
 // ---- dist/ui/consent-banner.d.ts ----
-import { ConsentStore } from "../tags/consent.js";
 import { ReactNode } from "react";
+import { ConsentStore } from "../tags/consent.js";
 export type ConsentBannerProps = {
   store: ConsentStore;
   /** Link to the site's cookie policy. */
@@ -3539,8 +3539,8 @@ export declare function createClientSectionCanvas(registry: CmsConfig["registry"
 }>) => import("react").JSX.Element;
 
 // ---- dist/ui/section-canvas-multi.d.ts ----
-import { CmsConfig } from "../types.js";
 import { ReactNode } from "react";
+import { CmsConfig } from "../types.js";
 /** One tile as the studio posts it: where to draw, in this frame's pixels. */
 export type SectionPlace = {
   key: string;
@@ -3580,8 +3580,8 @@ export declare function MultiSectionCanvas({ origin, rendered, registry }: Reado
 }>): import("react").JSX.Element | null;
 
 // ---- dist/ui/section-canvas.d.ts ----
-import { CmsConfig } from "../types.js";
 import { ComponentType } from "react";
+import { CmsConfig } from "../types.js";
 type Query = {
   slice?: string | string[];
   slices?: string | string[];

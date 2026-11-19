@@ -287,8 +287,8 @@ import matter from "gray-matter";
 export declare const parseMatter: (raw: string) => matter.GrayMatterFile<string>;
 
 // ---- dist/studio-server.d.ts ----
-import { StudioManifest } from "@typren/core";
 import http from "node:http";
+import { StudioManifest } from "@typren/core";
 /** Where the API is mounted, the same path the local studio app uses. */
 export declare const API_BASE = "/api/typren";
 /**
