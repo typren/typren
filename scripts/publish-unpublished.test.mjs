@@ -24,9 +24,9 @@ afterEach(() => {
 });
 
 describe("publishUnpublished", () => {
-  it("publishes only versions npm does not have", () => {
+  it("publishes only versions npm does not have", async () => {
     const calls = [];
-    const result = publishUnpublished([pkg("core", "1.0.0"), pkg("forms", "2.0.0")], {
+    const result = await publishUnpublished([pkg("core", "1.0.0"), pkg("forms", "2.0.0")], {
       isOnNpm: (name) => name === "@typren/core",
       publish: (p) => calls.push(p.name),
     });
@@ -34,16 +34,16 @@ describe("publishUnpublished", () => {
     expect(result).toEqual({ published: ["@typren/forms@2.0.0"], skipped: ["@typren/core@1.0.0"], failed: [] });
   });
 
-  it("publishes nothing when every version is already on npm", () => {
+  it("publishes nothing when every version is already on npm", async () => {
     const calls = [];
-    const result = publishUnpublished([pkg("core", "1.0.0")], { isOnNpm: () => true, publish: (p) => calls.push(p) });
+    const result = await publishUnpublished([pkg("core", "1.0.0")], { isOnNpm: () => true, publish: (p) => calls.push(p) });
     expect(calls).toEqual([]);
     expect(result.failed).toEqual([]);
   });
 
-  it("keeps going after a failure and reports it", () => {
+  it("keeps going after a failure and reports it", async () => {
     const calls = [];
-    const result = publishUnpublished([pkg("core", "1.0.0"), pkg("forms", "2.0.0")], {
+    const result = await publishUnpublished([pkg("core", "1.0.0"), pkg("forms", "2.0.0")], {
       isOnNpm: () => false,
       publish: (p) => {
         calls.push(p.name);
@@ -55,9 +55,9 @@ describe("publishUnpublished", () => {
     expect(result.published).toEqual(["@typren/forms@2.0.0"]);
   });
 
-  it("refuses to publish a package without dist/", () => {
+  it("refuses to publish a package without dist/", async () => {
     const calls = [];
-    const result = publishUnpublished([pkg("core", "1.0.0", { dist: false })], {
+    const result = await publishUnpublished([pkg("core", "1.0.0", { dist: false })], {
       isOnNpm: () => false,
       publish: (p) => calls.push(p),
     });
