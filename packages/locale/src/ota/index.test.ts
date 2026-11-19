@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNodePurifier } from "../build/node-purifier";
 import { hashCatalog } from "../canonicalize";

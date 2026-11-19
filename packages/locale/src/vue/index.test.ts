@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 import { computed, nextTick, ref, watch } from "vue";
 import { hashCatalog } from "../canonicalize";
