@@ -67,12 +67,27 @@ function tagExistsReal(tag) {
   return execFileSync("git", ["tag", "-l", tag], { encoding: "utf8" }).trim().length > 0;
 }
 
+/** `name@version` ids from publish-unpublished.mjs's `published <id>` lines. npm answers E404 to
+ *  `npm view` for minutes after a successful publish, so on a fresh release npm truth alone tags
+ *  nothing; a version this run's publish step reported as published counts as on npm. */
+function parsePublishedLog(text) {
+  return new Set(
+    text
+      .split("\n")
+      .filter((line) => line.startsWith("published "))
+      .map((line) => line.slice("published ".length).trim())
+  );
+}
+
 /** CLI entry point: tag and print what it did. Needs a committer identity on
  *  the runner (the workflow sets one before calling this) since these are
- *  annotated tags, same as changesets' own tagging did. */
-function run(repoRoot) {
+ *  annotated tags, same as changesets' own tagging did. `publishedLog` is the
+ *  publish step's output, if the workflow saved it. */
+function run(repoRoot, publishedLog) {
   const packages = loadPublishablePackages(repoRoot);
-  const tags = tagsToCreate(packages, { isOnNpm: isOnNpmReal, tagExists: tagExistsReal });
+  const justPublished = publishedLog && existsSync(publishedLog) ? parsePublishedLog(readFileSync(publishedLog, "utf8")) : new Set();
+  const isOnNpm = (name, version) => justPublished.has(`${name}@${version}`) || isOnNpmReal(name, version);
+  const tags = tagsToCreate(packages, { isOnNpm, tagExists: tagExistsReal });
   for (const tag of tags) {
     execFileSync("git", ["tag", "-a", tag, "-m", tag], { stdio: "inherit" });
     console.log(`tagged ${tag}`);
@@ -83,7 +98,7 @@ function run(repoRoot) {
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 if (isMain) {
-  run(process.cwd());
+  run(process.cwd(), process.argv[2]);
 }
 
-export { loadPublishablePackages, tagsToCreate, isOnNpmReal, run };
+export { loadPublishablePackages, tagsToCreate, isOnNpmReal, parsePublishedLog, run };

@@ -243,8 +243,11 @@ jobs:
       # and exits non-zero if any failed. With NPM_CONFIG_IGNORE_SCRIPTS set
       # job-wide, that publishes the dist/ the `build` job already produced
       # and uploaded, rather than rebuilding here.
+      # The log feeds the tag step: npm 404s a fresh version for minutes.
       - name: Publish to npm
-        run: node scripts/publish-unpublished.mjs
+        run: |
+          set -o pipefail
+          node scripts/publish-unpublished.mjs | tee "$RUNNER_TEMP/published.log"
 
       # `changeset tag`, used here before, only tagged versions created by
       # that run's `changeset publish`, and (separately) needed a committer
@@ -266,7 +269,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          node scripts/tag-published.mjs
+          node scripts/tag-published.mjs "$RUNNER_TEMP/published.log"
           git tag --points-at HEAD
 
       # The tags above exist only on the runner; without this they die with it.
