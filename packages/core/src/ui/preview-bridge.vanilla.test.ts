@@ -264,8 +264,7 @@ describe("initPreviewBridge computedStyle message", () => {
     const postMessage = vi.spyOn(window.parent, "postMessage");
     ask({ names: ["--brand", "--gap", "--typren-gap", "--missing", "--Not a name", 3], colors: ["--brand"] });
     const [reply] = replies(postMessage);
-    // jsdom leaves var() unresolved in computed colours, so the raw value comes back.
-    expect(reply!.vars).toEqual({ "--brand": "#ff0000", "--gap": "2rem" });
+    expect(reply!.vars).toEqual({ "--brand": "rgb(255, 0, 0)", "--gap": "2rem" });
     expect(reply!.elements.h1).toBeTruthy();
     expect(reply!.elements.h2).toBeUndefined();
     expect(root.getPropertyValue("--typren-gap")).toBe("9px");
@@ -277,6 +276,8 @@ describe("initPreviewBridge computedStyle message", () => {
   it("flattens light-dark(), var() chains and color-mix() to rgb for the frame's scheme", () => {
     cleanup = initPreviewBridge();
     const root = document.documentElement.style;
+    // The computed value drops a custom property whose var() has no target.
+    root.setProperty("--ink-light", "#111111");
     root.setProperty("--ink", "light-dark(var(--ink-light), #eeeeee)");
     root.setProperty("--wash", "color-mix(in oklab, var(--ink), white 50%)");
     root.setProperty("--plain", "rgb(1, 2, 3)");
@@ -305,7 +306,7 @@ describe("initPreviewBridge computedStyle message", () => {
     ask({ names: ["--ink", "--wash", "--plain"], colors: ["--ink", "--wash", "--plain"] });
     expect(replies(postMessage)[0]!.vars).toEqual({ "--ink": "rgb(17, 17, 17)", "--wash": "rgba(128, 128, 128, 0.502)", "--plain": "rgb(1, 2, 3)" });
     expect(painted).toEqual(["oklab(0.6 0 0 / 0.5)"]);
-    for (const k of ["--ink", "--wash", "--plain"]) root.removeProperty(k);
+    for (const k of ["--ink-light", "--ink", "--wash", "--plain"]) root.removeProperty(k);
   });
 
   it("keeps the engine's colour where there is no canvas, and an opaque pixel as rgb()", () => {
