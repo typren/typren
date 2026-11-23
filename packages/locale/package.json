@@ -65,7 +65,7 @@
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.6",
     "typescript": "^7.0.2",
-    "vue": "^3.5.45"
+    "vue": "^3.5.46"
   },
   "repository": {
     "type": "git",
