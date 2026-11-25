@@ -42,6 +42,8 @@ function gitInit() {
   sh(site, "init", "-q", "-b", "main");
   sh(site, "config", "user.name", "Test");
   sh(site, "config", "user.email", "test@example.test");
+  // The repo sits inside the checkout, so a contributor's path-scoped signing config would apply.
+  sh(site, "config", "commit.gpgsign", "false");
   sh(site, "add", ".");
   sh(site, "commit", "-q", "-m", "init");
 }

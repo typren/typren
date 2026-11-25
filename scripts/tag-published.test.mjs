@@ -6,7 +6,14 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadPublishablePackages, tagsToCreate } from "./tag-published.mjs";
+import { loadPublishablePackages, parsePublishedLog, tagsToCreate } from "./tag-published.mjs";
+
+describe("parsePublishedLog", () => {
+  it("collects only the ids publish-unpublished reported as published", () => {
+    const log = "published @typren/core@0.7.1\nalready on npm: @typren/forms@0.2.2\nnpm notice noise\npublished typren@0.7.1\n";
+    expect([...parsePublishedLog(log)]).toEqual(["@typren/core@0.7.1", "typren@0.7.1"]);
+  });
+});
 
 let repoRoot;
 

@@ -26,6 +26,11 @@ on:
 permissions:
   contents: read
 
+# A new push to a PR makes its running CI moot.
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: test (node ${{ matrix.node }})
@@ -61,6 +66,7 @@ jobs:
       # dependency: actionlint is a Go binary. Bump version and checksum
       # together.
       - name: Install actionlint
+        if: ${{ matrix.node == '22' }}
         env:
           ACTIONLINT_VERSION: 1.7.12
           ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
@@ -78,9 +84,15 @@ jobs:
       # behind it (release is a separate promotion), so diffing new-code
       # coverage against main would flag every line since the last release,
       # not just this PR's.
-      - run: bun run verify
+      # Only the Node 22 leg runs it: typecheck, lint, coverage and the
+      # snapshot checks give the same answer on any Node. The LTS leg proves
+      # the build and tests run there, which is what can differ.
+      - if: ${{ matrix.node == '22' }}
+        run: bun run verify
         env:
           COVERAGE_BASE_REF: origin/develop
+      - if: ${{ matrix.node != '22' }}
+        run: bun run build && bun run test
 
       # Changesets already ships a "packages changed but no changeset declared"
       # check natively (`status --since`, exit 1) — no need for a bespoke

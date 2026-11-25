@@ -1,5 +1,13 @@
 # @typren/studio-local
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [704cbc1]
+  - @typren/core@0.7.2
+  - @typren/studio@0.7.2
+
 ## 0.2.3
 
 ### Patch Changes

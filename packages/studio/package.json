@@ -1,6 +1,6 @@
 {
   "name": "@typren/studio",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Typren Studio: the pluggable React UI for pages, blocks and fields, hosted locally by `typren studio` or by the cloud dashboard.",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,
@@ -39,14 +39,14 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "js-yaml": "^5.5.0",
-    "lucide-react": "^1.76.0",
-    "tailwind-merge": "^3.7.0"
+    "lucide-react": "^1.80.0",
+    "tailwind-merge": "^3.7.1"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.13",
-    "@types/node": "^26.6.6",
-    "@types/react": "^19.3.0",
+    "@types/node": "^26.6.10",
+    "@types/react": "^19.3.3",
     "@types/react-dom": "^19.3.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

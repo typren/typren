@@ -23,10 +23,21 @@ export default defineConfig({
   },
   plugins: [react()],
   test: {
-    environment: "jsdom",
     css: false,
-    include: ["packages/*/src/**/*.test.{ts,tsx}", "apps/*/lib/**/*.test.{ts,tsx}"],
     exclude: ["**/node_modules/**", "**/dist/**"],
+    // Building a jsdom window per file was a third of the suite's time, and
+    // most .ts tests never touch the DOM. A .ts test that does opts back in
+    // with a `// @vitest-environment jsdom` docblock.
+    projects: [
+      {
+        extends: true,
+        test: { name: "dom", environment: "jsdom", include: ["packages/*/src/**/*.test.tsx", "apps/*/lib/**/*.test.tsx"] },
+      },
+      {
+        extends: true,
+        test: { name: "node", environment: "node", include: ["packages/*/src/**/*.test.ts", "apps/*/lib/**/*.test.ts"] },
+      },
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov", "json-summary"],

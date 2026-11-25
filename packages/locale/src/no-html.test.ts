@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { createNodePurifier } from "./build/node-purifier";
 import { assertNoHtml, isUnsafeHtml } from "./no-html";
