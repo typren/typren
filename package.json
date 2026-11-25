@@ -33,14 +33,14 @@
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
     "@vitejs/plugin-react": "^6.3.0",
-    "@vitest/coverage-v8": "^5.1.1",
+    "@vitest/coverage-v8": "^5.1.2",
     "husky": "^9.1.7",
     "jsdom": "^31.0.1",
-    "lint-staged": "^17.6.1",
-    "oxlint": "^1.93.0",
+    "lint-staged": "^17.6.2",
+    "oxlint": "^1.95.0",
     "tsdown": "^0.23.7",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.1"
+    "vitest": "^5.1.2"
   },
   "lint-staged": {
     "*.{ts,tsx,mjs}": "oxlint --fix --no-error-on-unmatched-pattern"
