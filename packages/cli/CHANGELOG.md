@@ -1,5 +1,12 @@
 # typren
 
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [704cbc1]
+  - @typren/core@0.7.2
+
 ## 0.7.1
 
 ### Patch Changes
